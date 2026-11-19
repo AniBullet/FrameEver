@@ -95,10 +95,10 @@ main > section .seg {
 .titlebar {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: 4px;
 	height: 36px;
 	flex: none;
-	padding-left: 12px;
+	padding-left: 10px;
 	border-bottom: 1px solid var(--border);
 	font-size: var(--text-small);
 	font-weight: 500;
@@ -112,8 +112,35 @@ main > section .seg {
 		center / contain no-repeat;
 }
 
+.titlebar .mark + span {
+	padding-left: 4px;
+}
+
 .titlebar .spacer {
 	flex: 1;
+}
+
+.tb-icon {
+	width: 28px;
+	height: 28px;
+	flex: none;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--muted-foreground);
+	cursor: pointer;
+}
+
+.tb-icon:hover {
+	background: var(--accent);
+	color: var(--foreground);
+}
+
+.caption + .caption {
+	margin-left: -4px;
 }
 
 .caption {
@@ -330,6 +357,29 @@ main > section .seg {
 	flex: 1;
 	padding-left: 6px;
 	white-space: nowrap;
+}
+
+.sum {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: 28px;
+	padding: 0 6px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	cursor: pointer;
+	white-space: nowrap;
+	overflow: hidden;
+}
+
+.sum:hover {
+	background: var(--accent);
+	color: var(--foreground);
 }
 
 .library {

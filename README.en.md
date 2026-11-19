@@ -4,85 +4,145 @@
 
 # FrameEver · 帧刻
 
-### A local-only screen recorder and editor
+**A local-only screen recorder and editor. Free and open source, no account, no cloud.**
 
-A library with previews, offline captions and a key display, in one native app.<br>
-Free and open source, and everything stays on your machine.
-
-<br>
-
-[![Release](https://img.shields.io/github/v/release/AniBullet/FrameEver?include_prereleases&label=release&color=1F3FD8)](https://github.com/AniBullet/FrameEver/releases)
+[![Release](https://img.shields.io/github/v/release/AniBullet/FrameEver?label=release&color=1F3FD8)](https://github.com/AniBullet/FrameEver/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/AniBullet/FrameEver/total?label=downloads&color=1F3FD8)](https://github.com/AniBullet/FrameEver/releases)
 [![Stars](https://img.shields.io/github/stars/AniBullet/FrameEver?label=stars&color=1F3FD8)](https://github.com/AniBullet/FrameEver/stargazers)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-1F3FD8)](LICENSE)
+[![Forks](https://img.shields.io/github/forks/AniBullet/FrameEver?label=forks&color=1F3FD8)](https://github.com/AniBullet/FrameEver/forks)
+[![Issues](https://img.shields.io/github/issues/AniBullet/FrameEver?label=issues&color=1F3FD8)](https://github.com/AniBullet/FrameEver/issues)
+[![Last commit](https://img.shields.io/github/last-commit/AniBullet/FrameEver?label=last%20commit&color=1F3FD8)](https://github.com/AniBullet/FrameEver/commits/main)
+[![macOS CI](https://img.shields.io/github/actions/workflow/status/AniBullet/FrameEver/macos.yml?branch=main&label=macOS%20CI)](https://github.com/AniBullet/FrameEver/actions/workflows/macos.yml)
+
+![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0f1115?logo=windows11&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-Apple%20silicon-0f1115?logo=apple&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust-stable-0f1115?logo=rust&logoColor=white)
+![GPUI](https://img.shields.io/badge/UI-GPUI-0f1115)
+![FFmpeg](https://img.shields.io/badge/FFmpeg-0f1115?logo=ffmpeg&logoColor=white)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-0f1115)](LICENSE)
 
 [简体中文](README.md) · **English**
 
+[Download](#download) · [Highlights](#highlights) · [Features](#features) · [Privacy](#only-on-your-machine) · [Run from source](#run-from-source)
+
 <br>
 
-<img src=".github/images/editor.png" alt="FrameEver editor" width="880" />
+<img src=".github/images/hero.en.png" alt="FrameEver: record and edit, only on your machine" width="960" />
 
 </div>
 
+## Highlights
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<img src=".github/images/input-display.png" alt="Input display" />
+<p><b>Input display</b><br>Keyboard, mouse and gamepad light up as you press. Three built-in styles, or make your own preset.</p>
+</td>
+<td width="50%" valign="top">
+<img src=".github/images/transcript.png" alt="Edit by text" />
+<p><b>Edit by text</b><br>Offline transcript: delete words and the video is cut with them. Clear fillers and pauses in one pass.</p>
+</td>
+</tr>
+<tr>
+<td valign="top">
+<img src=".github/images/library.png" alt="Library" />
+<p><b>Library</b><br>Recordings and screenshots in one place. Filter, search, press Space to preview.</p>
+</td>
+<td valign="top">
+<img src=".github/images/screenshot-editor.png" alt="Screenshot annotation" />
+<p><b>Screenshot annotation</b><br>Arrows, text, pixelate and numbered steps; add a background and copy.</p>
+</td>
+</tr>
+<tr>
+<td valign="top">
+<img src=".github/images/area-picker.png" alt="Area picker" />
+<p><b>Record any part</b><br>A display, a window or any area, with a locked ratio or snapped to a window.</p>
+</td>
+<td valign="top">
+<img src=".github/images/main-window.png" alt="Main window" />
+<p><b>Two ways to record</b><br>Studio opens the editor when you stop. Instant gives you a finished video.</p>
+</td>
+</tr>
+</table>
+
+## Features
+
+<table>
+<tr>
+<th width="33%">Record</th>
+<th width="34%">Edit</th>
+<th width="33%">Keep</th>
+</tr>
+<tr>
+<td valign="top">
+
+- Display, window, area
+- Camera overlay, background blur
+- Microphone + system audio
+- Keyboard, mouse and gamepad input
+- On-screen drawing, chapter markers
+- Teleprompter
+- Global shortcuts, countdown, auto-stop
+- Screenshots
+
+</td>
+<td valign="top">
+
+- Auto zoom that follows the cursor
+- Backgrounds, corners, shadows, cursor styling
+- Split, speed, twelve transitions
+- Offline captions with Whisper / Parakeet
+- Edit by text, clear filler words
+- Arrows, boxes, highlights, numbered steps
+- Voice EQ, de-click
+- Style presets
+- Export MP4 (H.264 / HEVC / AV1), GIF
+
+</td>
+<td valign="top">
+
+- Recordings, screenshots and exports together
+- Filter, search, sort
+- Space to preview, hover to scrub
+- Compress Instant recordings to HEVC
+- Delete goes to the Recycle Bin
+- Files sit in `Videos\FrameEver`
+- [`frameever`](apps/cli/README.md) command line for scripts and AI agents
+
+</td>
+</tr>
+</table>
+
+## Download
+
+| Platform | Get it |
+| --- | --- |
+| **Windows 10 / 11** (64-bit) | [`FrameEver_<version>_x64-setup.exe`](https://github.com/AniBullet/FrameEver/releases/latest); updates itself after that |
+| **macOS** (Apple silicon) | [`.dmg`](https://github.com/AniBullet/FrameEver/releases/latest). Not verified on a real Mac, not signed |
+| Linux | Not supported |
+
+<details>
+<summary>Opening it for the first time on macOS</summary>
+
 <br>
 
-> [!NOTE]
-> **1.0.0 is released.** The installer and FrameEver Converter are in [Releases](https://github.com/AniBullet/FrameEver/releases/latest), where the older 2.x also stays. The pictures here are rendered from the design pages ([`docs/design`](docs/design)), which the app is built to match, and show the Chinese interface.
+Open it once, then choose Open Anyway in System Settings → Privacy & Security. After every update you grant screen recording, camera and microphone access again.
+
+</details>
+
+<details>
+<summary>Moving from Cap-aniBullet 2.x or Cap</summary>
 
 <br>
 
-## Record
+Download FrameEver Converter from [Releases](https://github.com/AniBullet/FrameEver/releases/latest). It finds your old settings, recordings and screenshots, shows what it will convert, then moves them into FrameEver's storage folder.
 
-<img src=".github/images/main-window.png" alt="Main window" width="260" align="right" />
-
-A small window: choose what to record and press Start.
-
-- **Studio** opens the editor when you stop; **Instant** gives you a finished video
-- A display, a window or any area, with a camera overlay and background blur
-- Microphone and system audio together
-- Draw on screen, add chapter markers and read a teleprompter while recording
-- Global shortcuts, a countdown and auto-stop after a set time
-- A small button beside Start takes a screenshot, which you can annotate and give a background
-
-<br clear="right" />
-
-## Edit
-
-No second app, and no editing skills needed.
-
-- **Auto zoom** follows the cursor and enlarges what matters
-- Backgrounds, rounded corners, shadows, cursor styling and a key display
-- Split, delete and copy clips on the timeline, step frame by frame; press a cut to add one of twelve transitions
-- **Local captions**: Whisper or Parakeet, offline, editable line by line
-- **Edit by text**: delete words in the transcript and the video is cut with them; clear filler words and long pauses in one pass
-- Arrows, boxes, highlights and numbered steps drawn straight onto the picture
-- Voice EQ and de-click for a cleaner voice, and a preview you can speed up or slow down
-- Save the look of a text, mask, caption or shape as a style preset and reuse it
-- Export MP4 (H.264 / HEVC / AV1) or GIF; HEVC and AV1 files are a third to a quarter the size of H.264
-
-## Keep
-
-<div align="center">
-<img src=".github/images/library.png" alt="Library" width="760" />
-</div>
-
-<br>
-
-Everything you recorded is in the library, screenshots included.
-
-- Filter by type, search and sort, as a grid or a list
-- Press Space to preview, hover to scrub
-- Compress Instant recordings to HEVC and switch between the original and the compressed copy
-- Deleting goes to the Recycle Bin and can be undone
-- The files sit in your `Videos\FrameEver` folder, yours to move or back up
-
-<br>
+</details>
 
 ## Only on your machine
 
-No server, no account, no cloud storage. Recording, editing, captions and compression all run locally.
-
-FrameEver uses the network in three cases only, and never sends your content:
+No server, no account, no cloud storage. FrameEver uses the network in three cases only, and never sends your content:
 
 1. Checking for and downloading updates
 2. Downloading a caption model the first time you use captions
@@ -109,9 +169,14 @@ A `RunCommand` automation rule runs a command you wrote, so its network use is u
 
 ## Input record
 
-A Studio recording saves which keys, mouse buttons and wheel steps you pressed, and when. The editor uses this input record to light them up on a keyboard and mouse picture (the input display) and to make keyboard segments.
+A Studio recording saves which keys, mouse buttons and wheel steps you pressed, and when, to draw the input display. It stays on this PC, and you can switch it off or clear it.
 
-- **Where it is kept.** In two files in each take's folder inside the project, `keyboard.bin` and `input.bin`, on this PC. FrameEver never sends them anywhere. The `frameever` command and the AI-agent tools do not return them, or the text of keyboard segments. A diagnostic report says only whether the switch is on.
+<details>
+<summary>Where it is kept, how it is read, how to switch it off</summary>
+
+<br>
+
+- **Where it is kept.** In two files in each take's folder inside the project, `keyboard.bin` and `input.bin`. FrameEver never sends them anywhere. The `frameever` command and the AI-agent tools do not return them, or the text of keyboard segments. A diagnostic report says only whether the switch is on.
 - **When it is read.** Only while a recording runs. FrameEver asks Windows which keys and buttons are down about 60 times a second, and reads wheel steps from Windows Raw Input. It installs no keyboard hook and no driver, and injects nothing into other programs.
 - **One window.** When you record a single window, the input display shows only what you pressed while that window was in front.
 - **Switching it off.** Settings → Recording → Record input. With it off, a new recording reads and saves no input, from the app or from the `frameever` command.
@@ -119,54 +184,41 @@ A Studio recording saves which keys, mouse buttons and wheel steps you pressed, 
 
 An exported video contains only what the input display drew. Mouse clicks that drive the cursor effects belong to the cursor data saved by Separate cursor, not to the input record.
 
-## Download
-
-| Platform | Status |
-| --- | --- |
-| **Windows 10 / 11** (64-bit) | Download `FrameEver_<version>_x64-setup.exe` from [Releases](https://github.com/AniBullet/FrameEver/releases/latest); the app checks for updates itself after that |
-| **macOS** (Apple silicon) | Download the `.dmg` from Releases. It is built, tested and packaged in CI, has not run on a real Mac, and has no Apple Developer signature |
-| Linux | Not supported |
-
-<details>
-<summary>Opening it for the first time on macOS</summary>
-
-<br>
-
-macOS blocks unsigned apps: open it once, then choose Open Anyway in System Settings → Privacy & Security. After every update you grant screen recording, camera and microphone access again.
-
 </details>
-
-<details>
-<summary>Moving from Cap-aniBullet 2.x or Cap</summary>
-
-<br>
-
-FrameEver does not import old data by itself. FrameEver Converter, a separate download in [Releases](https://github.com/AniBullet/FrameEver/releases/latest), finds your old settings, recordings and screenshots, shows you what it will convert, then moves them into FrameEver's storage folder.
-
-</details>
-
-## For scripts and AI agents
-
-The `frameever` command-line tool records, exports and manages projects for scripts, automation rules and AI agents. See [apps/cli/README.md](apps/cli/README.md).
 
 ## Run from source
 
 ```powershell
-pnpm fe setup     # prepare the machine (first time)
-pnpm fe dev       # run the app on separate test data
+pnpm fe setup
+pnpm fe dev
 ```
 
-Written in Rust; the interface is drawn on the GPU with [GPUI](https://www.gpui.rs), and media goes through FFmpeg. About 2,000 automated tests run on Windows and macOS.
+Rust + [GPUI](https://www.gpui.rs) + FFmpeg, with about 2,000 automated tests.
 
-[Build guide](BUILD.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Glossary](GLOSSARY.md) · [Decisions](docs/adr) · [Report an issue](https://github.com/AniBullet/FrameEver/issues/new)
+[Build guide](BUILD.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Glossary](GLOSSARY.md) · [Decisions](docs/adr) · [Design pages](docs/design) · [Report an issue](https://github.com/AniBullet/FrameEver/issues/new)
+
+## Star history
+
+<div align="center">
+
+<a href="https://star-history.com/#AniBullet/FrameEver&Date">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=anibullet/frameever&type=Date&theme=dark" />
+<img src="https://api.star-history.com/svg?repos=anibullet/frameever&type=Date" alt="Star history" width="640" />
+</picture>
+</a>
+
+</div>
 
 ## Origin and license
 
 FrameEver started from [Cap](https://github.com/CapSoftware/Cap), removed every cloud feature, gained a native interface and is now developed independently. It is not affiliated with Cap and does not use Cap's name or logo.
 
-Open source under **AGPL-3.0** ([LICENSE](LICENSE)); the `frameever-camera*` and `scap-*` crates are MIT ([licenses/LICENSE-MIT](licenses/LICENSE-MIT)).
+**AGPL-3.0** ([LICENSE](LICENSE)); the `frameever-camera*` and `scap-*` crates are MIT ([licenses/LICENSE-MIT](licenses/LICENSE-MIT)).
 
 Thanks to the Cap team and every contributor, and to [GPUI](https://www.gpui.rs), [FFmpeg](https://ffmpeg.org), [Whisper](https://github.com/openai/whisper), Parakeet, [Lucide](https://lucide.dev), [Tabler](https://tabler.io/icons), [Inter](https://rsms.me/inter/) and [HarmonyOS Sans](https://developer.huawei.com/consumer/cn/design/resource/).
+
+<sub>The pictures are rendered from the design pages ([`docs/design`](docs/design)), which the app is built to match, and show the Chinese interface.</sub>
 
 <br>
 

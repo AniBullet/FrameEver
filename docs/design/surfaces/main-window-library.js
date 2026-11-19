@@ -376,8 +376,8 @@ class MainWindow {
 	titlebar() {
 		const { expanded } = this.s;
 		return `<div class="titlebar"><span class="mark"></span><span>${expanded ? L("Library", "资源库") : "FrameEver"}</span><span class="spacer"></span>
-			${expanded ? "" : `<button class="caption" title="${pick("Teleprompter", "提词器")}">${icon("scan-text", "sm")}</button><button class="caption" title="${pick("Help & Tour", "帮助和引导")}">${icon("circle-question-mark", "sm")}</button>`}
-			${expanded ? `<button class="caption" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings", "sm")}</button>` : ""}
+			${expanded ? "" : `<button class="tb-icon" title="${pick("Teleprompter", "提词器")}">${icon("scan-text", "sm")}</button><button class="tb-icon" title="${pick("Help & Tour", "帮助和引导")}">${icon("circle-question-mark", "sm")}</button>`}
+			${expanded ? `<button class="tb-icon" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings", "sm")}</button>` : ""}
 			<button class="caption" title="${pick("Minimize", "最小化")}">${captionGlyph.minimize}</button>
 			${expanded ? `<button class="caption" title="${pick("Maximize", "最大化")}">${captionGlyph.maximize}</button>` : ""}
 			<button class="caption close" data-a="close" title="${expanded ? pick("Close", "关闭") : pick("Hide to tray", "隐藏到托盘")}">${captionGlyph.close}</button></div>`;
@@ -401,7 +401,7 @@ class MainWindow {
 			["area", "scan", "Area", "区域"],
 			["camera", "webcam", "Camera", "摄像头"],
 		];
-		const foot = `<button class="btn ghost icon" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings")}</button>${firstRun ? `<span class="grow first-hint">${L("Your recordings are here", "录好的内容都在这里")}<span class="hint-arrow">${this.doodle("UP_ARROW", 26)}</span></span>` : `<span class="grow tnum">${L(`${items.length} items`, `${items.length} 项`)}</span>`}<button class="btn ghost" data-a="expand">${L("Library", "资源库")}${unseen ? `<span class="badge klein">${unseen}</span>` : ""}${icon("chevron-right")}</button>`;
+		const foot = `<button class="btn ghost icon" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings")}</button>${firstRun ? `<span class="grow first-hint">${L("Your recordings are here", "录好的内容都在这里")}<span class="hint-arrow">${this.doodle("UP_ARROW", 26)}</span></span>` : `<button class="sum" title="${pick("Recording options", "录制选项")}">${icon("sliders-horizontal", "sm")}<span class="tnum">${mode === "instant" ? "1080p" : L("Balanced", "均衡")} · ${L("60 FPS", "60 帧/秒")} · ${L("3 s", "3 秒")}</span></button>`}<button class="btn ghost" data-a="expand">${L("Library", "资源库")}${unseen ? `<span class="badge klein">${unseen}</span>` : ""}${icon("chevron-right")}</button>`;
 		return `<div class="rec"><div class="rec-main">
 			<div class="mode-row"><div class="seg block">${Object.entries(KIND)
 				.filter(([id]) => id !== "screenshot")
