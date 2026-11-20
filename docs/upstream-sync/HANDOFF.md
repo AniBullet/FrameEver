@@ -15,10 +15,11 @@ The state of the work on one page. Keep it that short: when something here stops
 
 Suggested order, from the blocking links and from which tickets touch the same files:
 
-1. Fixes: #195 (editor and app), #196 (macOS, checked by the macOS CI run), #207 (sharp paused preview, preview quality default), then #209 (import keeps 4:4:4; blocked by #207; #208 is done), and #210 (late audio and captions, feature-sized, expect to split it).
-2. #206 (disconnect warning), then #205 (empty Studio segment). Both touch the recording session and the Studio actor, so they go before #202.
-3. #197 (design) blocks #198 to #203. Deliver it surface by surface so #199 and #198 can start first; #202 and #203 are the largest and go last.
-4. #204 waits for the owner: whether the app gets the in-app automations runner.
+1. #212 first if a ticket needs `pnpm fe test --crate frameever-rendering`: the D3D12 debug layer kills about one run in three, so rerun a run that ends with `exit code: 2173` until it is fixed.
+2. Fixes: #195 (editor and app), #196 (macOS, checked by the macOS CI run), #207 (sharp paused preview, preview quality default), then #209 (import keeps 4:4:4; blocked by #207; #208 is done), and #210 (late audio and captions, feature-sized, expect to split it).
+3. #206 (disconnect warning), then #205 (empty Studio segment). Both touch the recording session and the Studio actor, so they go before #202.
+4. #197 (design) blocks #198 to #203. Deliver it surface by surface so #199 and #198 can start first; #202 and #203 are the largest and go last.
+5. #204 waits for the owner: whether the app gets the in-app automations runner.
 
 ## Waiting for the owner in the running app
 
