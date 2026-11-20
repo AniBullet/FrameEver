@@ -106,7 +106,10 @@ fn coverage_from_distance(distance: f32, anti_alias_width: f32) -> f32 {
 
 fn rounded_rect_coverage(p: vec2<f32>, b: vec2<f32>, r: f32, rounding_type: f32) -> f32 {
     let distance = sdf_rounded_rect(p, b, r, rounding_type);
-    let anti_alias_width = max(fwidth(distance), 1.0);
+    return rounded_rect_coverage_for_width(p, b, r, rounding_type, distance, max(fwidth(distance), 1.0));
+}
+
+fn rounded_rect_coverage_for_width(p: vec2<f32>, b: vec2<f32>, r: f32, rounding_type: f32, distance: f32, anti_alias_width: f32) -> f32 {
 
     if distance <= -anti_alias_width {
         return 1.0;
@@ -442,7 +445,7 @@ fn sample_texture(uv: vec2<f32>, crop_bounds_uv: vec4<f32>) -> vec4<f32> {
         let upscale_ratio = max(target_size.x / source_size.x, target_size.y / source_size.y);
         let is_upscaling = upscale_ratio > 1.05;
 
-        let center_sample = textureSample(frame_texture, frame_sampler, cropped_uv);
+        let center_sample = textureSampleLevel(frame_texture, frame_sampler, cropped_uv, 0.0);
         let center_color = center_sample.rgb;
         let out_alpha = select(1.0, center_sample.a, uniforms.preserve_source_alpha > 0.5);
 
@@ -487,10 +490,10 @@ fn sample_texture(uv: vec2<f32>, crop_bounds_uv: vec4<f32>) -> vec4<f32> {
                 return vec4(sum.rgb / max(sum.a, 0.0001), sum.a * 0.25);
             }
 
-            let box_sum = textureSample(frame_texture, frame_sampler, p0).rgb
-                + textureSample(frame_texture, frame_sampler, p1).rgb
-                + textureSample(frame_texture, frame_sampler, p2).rgb
-                + textureSample(frame_texture, frame_sampler, p3).rgb;
+            let box_sum = textureSampleLevel(frame_texture, frame_sampler, p0, 0.0).rgb
+                + textureSampleLevel(frame_texture, frame_sampler, p1, 0.0).rgb
+                + textureSampleLevel(frame_texture, frame_sampler, p2, 0.0).rgb
+                + textureSampleLevel(frame_texture, frame_sampler, p3, 0.0).rgb;
             return vec4(box_sum * 0.25, out_alpha);
         }
 
@@ -500,25 +503,29 @@ fn sample_texture(uv: vec2<f32>, crop_bounds_uv: vec4<f32>) -> vec4<f32> {
             let offset_x = vec2<f32>(texel_size.x, 0.0);
             let offset_y = vec2<f32>(0.0, texel_size.y);
 
-            let left = textureSample(
+            let left = textureSampleLevel(
                 frame_texture,
                 frame_sampler,
-                clamp(cropped_uv - offset_x, safe_min, safe_max)
+                clamp(cropped_uv - offset_x, safe_min, safe_max),
+                0.0
             ).rgb;
-            let right = textureSample(
+            let right = textureSampleLevel(
                 frame_texture,
                 frame_sampler,
-                clamp(cropped_uv + offset_x, safe_min, safe_max)
+                clamp(cropped_uv + offset_x, safe_min, safe_max),
+                0.0
             ).rgb;
-            let top = textureSample(
+            let top = textureSampleLevel(
                 frame_texture,
                 frame_sampler,
-                clamp(cropped_uv - offset_y, safe_min, safe_max)
+                clamp(cropped_uv - offset_y, safe_min, safe_max),
+                0.0
             ).rgb;
-            let bottom = textureSample(
+            let bottom = textureSampleLevel(
                 frame_texture,
                 frame_sampler,
-                clamp(cropped_uv + offset_y, safe_min, safe_max)
+                clamp(cropped_uv + offset_y, safe_min, safe_max),
+                0.0
             ).rgb;
 
             let blurred = (left + right + top + bottom) * 0.25;
@@ -615,11 +622,14 @@ fn sample_premultiplied(uv: vec2<f32>) -> vec4<f32> {
 fn apply_rounded_corners(current_color: vec4<f32>, target_uv: vec2<f32>) -> vec4<f32> {
     let centered_uv = (target_uv - vec2<f32>(0.5)) * uniforms.target_size;
     let half_size = uniforms.target_size * 0.5;
-    let coverage = rounded_rect_coverage(
+    let radius = corner_radius_for(centered_uv);
+    let coverage = rounded_rect_coverage_for_width(
         centered_uv,
         half_size,
-        corner_radius_for(centered_uv),
-        uniforms.rounding_type
+        radius,
+        uniforms.rounding_type,
+        sdf_rounded_rect(centered_uv, half_size, radius, uniforms.rounding_type),
+        1.0
     );
 
     return vec4(current_color.rgb, current_color.a * coverage);
