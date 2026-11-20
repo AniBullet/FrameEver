@@ -5,12 +5,13 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, Bounds, Context, FontWeight, InteractiveElement, IntoElement, KeyDownEvent,
-    Keystroke, ParentElement, Pixels, RenderImage, SharedString, StatefulInteractiveElement,
-    Styled, Task, Window, div, point, prelude::FluentBuilder, px, size,
+    AnyElement, Bounds, Context, CursorStyle, FontWeight, InteractiveElement, IntoElement,
+    KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    ParentElement, Pixels, Point, RenderImage, ScrollWheelEvent, SharedString,
+    StatefulInteractiveElement, Styled, Task, Window, div, point, prelude::FluentBuilder, px, size,
 };
 
-use super::{HEADER_HEIGHT, LibraryWindow, kind_label, t, view};
+use super::{HEADER_HEIGHT, LibraryWindow, kind_label, preview::ActualSize, t, view};
 use crate::{
     library::{self, MediaKind, view::Entry},
     theme::motion,
@@ -23,6 +24,14 @@ const STEP_ICON: f32 = 16.;
 const WHOLE_SCREEN_ICON: f32 = 14.;
 const ACTUAL_SIZE_BOUNDS: (u32, u32) = (u32::MAX, u32::MAX);
 const CONTROLS_HOLD: Duration = Duration::from_millis(2500);
+const MIDDLE: (f32, f32) = (0.5, 0.5);
+const WHEEL_LINE: f32 = 40.;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Zoom {
+    Fit,
+    Actual { centre: (f32, f32) },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PreviewKey {
@@ -80,17 +89,72 @@ pub(super) fn stage_pixels(
     if actual_size {
         return ACTUAL_SIZE_BOUNDS;
     }
-    let (width, height) = if full_screen {
-        viewport
-    } else {
-        (
-            viewport.0 - SIDE * 2.,
-            viewport.1 - HEADER_HEIGHT - TOP_BAR - FOOT,
-        )
-    };
+    let (_, (width, height)) = stage_box(full_screen, viewport, HEADER_HEIGHT);
     (
         (width * scale).round().max(1.) as u32,
         (height * scale).round().max(1.) as u32,
+    )
+}
+
+fn stage_box(full_screen: bool, viewport: (f32, f32), header: f32) -> ((f32, f32), (f32, f32)) {
+    if full_screen {
+        ((0., 0.), viewport)
+    } else {
+        (
+            (SIDE, header + TOP_BAR),
+            (viewport.0 - SIDE * 2., viewport.1 - header - TOP_BAR - FOOT),
+        )
+    }
+}
+
+fn axis_origin(centre: f32, picture: f32, stage: f32) -> f32 {
+    if picture <= stage {
+        (stage - picture) / 2.
+    } else {
+        (stage / 2. - centre * picture).clamp(stage - picture, 0.)
+    }
+}
+
+pub(super) fn actual_origin(
+    centre: (f32, f32),
+    picture: (f32, f32),
+    stage: (f32, f32),
+) -> (f32, f32) {
+    (
+        axis_origin(centre.0, picture.0, stage.0),
+        axis_origin(centre.1, picture.1, stage.1),
+    )
+}
+
+fn axis_moved(centre: f32, delta: f32, picture: f32, stage: f32) -> f32 {
+    if picture <= stage {
+        return centre;
+    }
+    let origin = (axis_origin(centre, picture, stage) + delta).clamp(stage - picture, 0.);
+    (stage / 2. - origin) / picture
+}
+
+fn moved_centre(
+    centre: (f32, f32),
+    delta: (f32, f32),
+    picture: (f32, f32),
+    stage: (f32, f32),
+) -> (f32, f32) {
+    (
+        axis_moved(centre.0, delta.0, picture.0, stage.0),
+        axis_moved(centre.1, delta.1, picture.1, stage.1),
+    )
+}
+
+fn point_in_picture(point: (f32, f32), picture: (f32, f32), stage: (f32, f32)) -> (f32, f32) {
+    let fit = (stage.0 / picture.0.max(1.)).min(stage.1 / picture.1.max(1.));
+    let axis = |point: f32, picture: f32, stage: f32| {
+        let drawn = (picture * fit).max(1.);
+        ((point - (stage - drawn) / 2.) / drawn).clamp(0., 1.)
+    };
+    (
+        axis(point.0, picture.0, stage.0),
+        axis(point.1, picture.1, stage.1),
     )
 }
 
@@ -107,7 +171,8 @@ pub(super) struct Overlay {
     from: Option<Bounds<Pixels>>,
     closed_at: Option<Instant>,
     full_screen: bool,
-    actual_size: bool,
+    zoom: Zoom,
+    drag: Option<Point<Pixels>>,
     controls_until: Instant,
     controls_task: Option<Task<()>>,
     still: Option<(PathBuf, Arc<RenderImage>)>,
@@ -122,7 +187,8 @@ impl Overlay {
             from,
             closed_at: None,
             full_screen: false,
-            actual_size: false,
+            zoom: Zoom::Fit,
+            drag: None,
             controls_until: now,
             controls_task: None,
             still: None,
@@ -137,6 +203,10 @@ impl Overlay {
 
     pub(super) fn is_full_screen(&self) -> bool {
         self.full_screen
+    }
+
+    fn actual_size(&self) -> bool {
+        matches!(self.zoom, Zoom::Actual { .. })
     }
 
     pub(super) fn covers_page(&self, now: Instant) -> bool {
@@ -220,7 +290,7 @@ impl LibraryWindow {
         self.library
             .overlay
             .as_ref()
-            .is_some_and(|overlay| overlay.is_open() && overlay.actual_size)
+            .is_some_and(|overlay| overlay.is_open() && overlay.actual_size())
     }
 
     pub(super) fn library_full_screen(&self) -> bool {
@@ -276,7 +346,7 @@ impl LibraryWindow {
                 let viewport = window.viewport_size();
                 stage_pixels(
                     overlay.full_screen,
-                    overlay.actual_size,
+                    overlay.actual_size(),
                     (f32::from(viewport.width), f32::from(viewport.height)),
                     scale,
                 )
@@ -293,6 +363,10 @@ impl LibraryWindow {
         self.library.detail.preview.sync_bounds(bounds);
         if let Some(overlay) = &mut self.library.overlay {
             overlay.still_asked = None;
+            overlay.drag = None;
+            if overlay.actual_size() {
+                overlay.zoom = Zoom::Actual { centre: MIDDLE };
+            }
         }
         if entry.screenshot.is_none() && !self.library.detail.preview.playing {
             self.toggle_library_preview(window, cx);
@@ -377,9 +451,133 @@ impl LibraryWindow {
         let Some(overlay) = self.library.overlay.as_mut().filter(|o| o.is_open()) else {
             return;
         };
-        overlay.actual_size = !overlay.actual_size;
+        overlay.zoom = match overlay.zoom {
+            Zoom::Fit => Zoom::Actual { centre: MIDDLE },
+            Zoom::Actual { .. } => Zoom::Fit,
+        };
+        overlay.drag = None;
         self.wake_overlay_controls(cx);
         cx.notify();
+    }
+
+    fn overlay_stage_box(&self, window: &Window) -> ((f32, f32), (f32, f32)) {
+        let viewport = window.viewport_size();
+        let header = if cfg!(target_os = "windows") {
+            HEADER_HEIGHT
+        } else {
+            0.
+        };
+        stage_box(
+            self.library_full_screen(),
+            (f32::from(viewport.width), f32::from(viewport.height)),
+            header,
+        )
+    }
+
+    fn overlay_picture(&self, window: &Window) -> Option<(f32, f32)> {
+        let entry = self.library.single_entry()?;
+        let still = self.library.overlay.as_ref()?.still_of(&entry.path);
+        let pixels = self.preview_image(entry, still)?.size(0);
+        Some(actual_size_of(
+            (u32::from(pixels.width), u32::from(pixels.height)),
+            window.scale_factor(),
+        ))
+    }
+
+    fn press_library_overlay_stage(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (origin, stage) = self.overlay_stage_box(window);
+        let picture = self.overlay_picture(window);
+        let Some(overlay) = self.library.overlay.as_mut().filter(|o| o.is_open()) else {
+            return;
+        };
+        if event.click_count == 2 {
+            overlay.drag = None;
+            overlay.zoom = match (overlay.zoom, picture) {
+                (Zoom::Fit, Some(picture)) => Zoom::Actual {
+                    centre: point_in_picture(
+                        (
+                            f32::from(event.position.x) - origin.0,
+                            f32::from(event.position.y) - origin.1,
+                        ),
+                        picture,
+                        stage,
+                    ),
+                },
+                _ => Zoom::Fit,
+            };
+            cx.notify();
+        } else if overlay.actual_size() {
+            overlay.drag = Some(event.position);
+        }
+    }
+
+    fn drag_library_overlay_stage(
+        &mut self,
+        event: &MouseMoveEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(overlay) = &mut self.library.overlay else {
+            return;
+        };
+        if event.pressed_button != Some(MouseButton::Left) {
+            overlay.drag = None;
+            return;
+        }
+        let Some(from) = overlay.drag.replace(event.position) else {
+            return;
+        };
+        let delta = event.position - from;
+        self.pan_library_overlay((f32::from(delta.x), f32::from(delta.y)), window, cx);
+    }
+
+    fn pan_library_overlay(
+        &mut self,
+        delta: (f32, f32),
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (_, stage) = self.overlay_stage_box(window);
+        let Some(picture) = self.overlay_picture(window) else {
+            return;
+        };
+        let Some(overlay) = self.library.overlay.as_mut().filter(|o| o.is_open()) else {
+            return;
+        };
+        if let Zoom::Actual { centre } = overlay.zoom {
+            overlay.zoom = Zoom::Actual {
+                centre: moved_centre(centre, delta, picture, stage),
+            };
+            cx.notify();
+        }
+    }
+
+    fn overlay_stage(
+        &self,
+        picture: AnyElement,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id("library-overlay-stage")
+            .absolute()
+            .inset_0()
+            .when(self.library_actual_size(), |this| {
+                this.cursor(CursorStyle::OpenHand)
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(Self::press_library_overlay_stage),
+            )
+            .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, cx| {
+                let delta = event.delta.pixel_delta(px(WHEEL_LINE));
+                this.pan_library_overlay((f32::from(delta.x), f32::from(delta.y)), window, cx);
+            }))
+            .child(picture)
     }
 
     fn wake_overlay_controls(&mut self, cx: &mut Context<Self>) {
@@ -697,8 +895,16 @@ impl LibraryWindow {
             size: size(viewport.width, viewport.height - top),
         };
         let area = overlay.area(whole, now, cx.reduce_motion());
-        let actual_size = overlay.actual_size.then(|| window.scale_factor());
+        let actual_size = match overlay.zoom {
+            Zoom::Fit => None,
+            Zoom::Actual { centre } => Some(ActualSize {
+                scale: window.scale_factor(),
+                centre,
+                stage: self.overlay_stage_box(window).1,
+            }),
+        };
         let picture = self.preview_picture(entry, overlay.still_of(&entry.path), actual_size, cx);
+        let picture = self.overlay_stage(picture, cx);
         let controls = overlay.shows_controls(preview.playing, now);
         let full_screen = overlay.full_screen;
         let root = div()
@@ -721,23 +927,32 @@ impl LibraryWindow {
             })
             .text_color(theme.foreground)
             .on_key_down(cx.listener(Self::on_library_overlay_key))
-            .on_mouse_move(cx.listener(|this, _: &gpui::MouseMoveEvent, _, cx| {
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 this.wake_overlay_controls(cx);
-            }));
+                this.drag_library_overlay_stage(event, window, cx);
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseUpEvent, _, _| {
+                    if let Some(overlay) = &mut this.library.overlay {
+                        overlay.drag = None;
+                    }
+                }),
+            );
         Some(
             if full_screen {
-                root.child(div().absolute().inset_0().child(picture))
-                    .when(controls, |this| {
-                        this.child(
-                            div()
-                                .absolute()
-                                .left_0()
-                                .right_0()
-                                .bottom_0()
-                                .bg(theme.popover)
-                                .child(self.render_overlay_foot(entry, cx)),
-                        )
-                    })
+                root.child(picture).when(controls, |this| {
+                    this.child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .occlude()
+                            .bg(theme.popover)
+                            .child(self.render_overlay_foot(entry, cx)),
+                    )
+                })
             } else {
                 root.child(self.render_overlay_top(entry, cx))
                     .child(
@@ -765,7 +980,7 @@ impl LibraryWindow {
                                     .relative()
                                     .rounded(px(6.))
                                     .overflow_hidden()
-                                    .child(div().absolute().inset_0().child(picture)),
+                                    .child(picture),
                             )
                             .child(self.overlay_step_button(
                                 "library-overlay-next",
@@ -866,6 +1081,86 @@ mod tests {
             stage_pixels(true, true, (1920., 1080.), 1.),
             ACTUAL_SIZE_BOUNDS
         );
+    }
+
+    #[test]
+    fn the_stage_sits_between_the_bars_or_takes_the_whole_screen() {
+        assert_eq!(
+            stage_box(false, (1000., 700.), 40.),
+            (
+                (SIDE, 40. + TOP_BAR),
+                (1000. - SIDE * 2., 700. - 40. - TOP_BAR - FOOT)
+            )
+        );
+        assert_eq!(
+            stage_box(true, (1920., 1080.), 40.),
+            ((0., 0.), (1920., 1080.))
+        );
+    }
+
+    #[test]
+    fn a_picture_smaller_than_the_stage_stays_in_the_middle() {
+        assert_eq!(
+            actual_origin((0., 0.), (400., 200.), (1000., 600.)),
+            (300., 200.)
+        );
+        assert_eq!(
+            moved_centre(MIDDLE, (500., 500.), (400., 200.), (1000., 600.)),
+            MIDDLE
+        );
+    }
+
+    #[test]
+    fn moving_a_picture_that_fits_keeps_the_chosen_point() {
+        assert_eq!(
+            moved_centre((0.9, 0.1), (50., 50.), (400., 200.), (1000., 600.)),
+            (0.9, 0.1)
+        );
+    }
+
+    #[test]
+    fn a_larger_picture_opens_on_its_middle() {
+        assert_eq!(
+            actual_origin(MIDDLE, (3000., 2000.), (1000., 600.)),
+            (-1000., -700.)
+        );
+    }
+
+    #[test]
+    fn dragging_moves_the_picture_and_stops_at_its_edges() {
+        let (picture, stage) = ((3000., 2000.), (1000., 600.));
+        let moved = moved_centre(MIDDLE, (300., -100.), picture, stage);
+        assert_eq!(actual_origin(moved, picture, stage), (-700., -800.));
+        let far = moved_centre(MIDDLE, (9000., -9000.), picture, stage);
+        assert_eq!(actual_origin(far, picture, stage), (0., -1400.));
+        let back = moved_centre(far, (-100., 100.), picture, stage);
+        assert_eq!(actual_origin(back, picture, stage), (-100., -1300.));
+    }
+
+    #[test]
+    fn a_tall_picture_only_moves_up_and_down() {
+        let (picture, stage) = ((400., 5000.), (1000., 600.));
+        let moved = moved_centre(MIDDLE, (200., 200.), picture, stage);
+        assert_eq!(actual_origin(moved, picture, stage), (300., -2000.));
+    }
+
+    #[test]
+    fn a_double_click_finds_the_point_of_the_fitted_picture() {
+        let stage = (1000., 600.);
+        assert_eq!(
+            point_in_picture((500., 300.), (1920., 1080.), stage),
+            MIDDLE
+        );
+        assert_eq!(point_in_picture((0., 0.), (1080., 1920.), stage), (0., 0.));
+        let (x, y) = point_in_picture((584.375, 450.), (1080., 1920.), stage);
+        assert!((x - 0.75).abs() < 1e-4 && (y - 0.75).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_clicked_point_lands_in_the_middle_of_the_stage() {
+        let (picture, stage) = ((3000., 2000.), (1000., 600.));
+        assert_eq!(actual_origin((0.75, 0.5), picture, stage), (-1750., -700.));
+        assert_eq!(actual_origin((1., 1.), picture, stage), (-2000., -1400.));
     }
 
     #[test]

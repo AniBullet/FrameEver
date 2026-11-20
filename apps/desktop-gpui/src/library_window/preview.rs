@@ -18,7 +18,7 @@ use crate::library::{
 };
 
 const STAGE_WIDTH: f32 = DETAIL_WIDTH - 25.;
-const STAGE_HEIGHT: f32 = STAGE_WIDTH * 9. / 16.;
+const STAGE_LOWEST: f32 = STAGE_WIDTH * 9. / 16.;
 const BUTTON_SIZE: f32 = 24.;
 const SKIP_SECONDS: f64 = 5.;
 const ICON_SIZE: f32 = 14.;
@@ -54,8 +54,21 @@ pub(super) struct PreviewState {
 pub(super) fn bounds_at(scale: f32) -> (u32, u32) {
     (
         (STAGE_WIDTH * scale).round() as u32,
-        (STAGE_HEIGHT * scale).round() as u32,
+        (STAGE_WIDTH * scale).round() as u32,
     )
+}
+
+fn stage_height(picture: Option<(u32, u32)>) -> f32 {
+    picture.map_or(STAGE_LOWEST, |(width, height)| {
+        (STAGE_WIDTH * height as f32 / width.max(1) as f32).clamp(STAGE_LOWEST, STAGE_WIDTH)
+    })
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ActualSize {
+    pub(super) scale: f32,
+    pub(super) centre: (f32, f32),
+    pub(super) stage: (f32, f32),
 }
 
 fn seek_fraction(position: f64, duration: f64) -> f32 {
@@ -502,21 +515,32 @@ impl LibraryWindow {
         )
     }
 
+    pub(super) fn preview_image(
+        &self,
+        entry: &Entry,
+        still: Option<Arc<RenderImage>>,
+    ) -> Option<Arc<RenderImage>> {
+        still
+            .or_else(|| self.library.detail.preview.frame.clone())
+            .or_else(|| {
+                entry
+                    .thumbnail
+                    .as_ref()
+                    .and_then(|source| self.library.thumbnails.images.get(source))
+                    .map(|held| held.image.clone())
+            })
+    }
+
     pub(super) fn preview_picture(
         &self,
         entry: &Entry,
         still: Option<Arc<RenderImage>>,
-        actual_size: Option<f32>,
+        actual_size: Option<ActualSize>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
         let preview = &self.library.detail.preview;
-        let poster = entry
-            .thumbnail
-            .as_ref()
-            .and_then(|source| self.library.thumbnails.images.get(source))
-            .map(|held| held.image.clone());
-        let image = still.or_else(|| preview.frame.clone()).or(poster);
+        let image = self.preview_image(entry, still);
         if let Some(error) = preview.failed {
             div()
                 .flex()
@@ -549,19 +573,25 @@ impl LibraryWindow {
                         })),
                 )
                 .into_any_element()
-        } else if let Some((image, scale)) = image.clone().zip(actual_size) {
+        } else if let Some((image, actual)) = image.clone().zip(actual_size) {
             let pixels = image.size(0);
-            let (width, height) = super::overlay::actual_size_of(
+            let picture = super::overlay::actual_size_of(
                 (u32::from(pixels.width), u32::from(pixels.height)),
-                scale,
+                actual.scale,
             );
+            let (left, top) = super::overlay::actual_origin(actual.centre, picture, actual.stage);
             div()
-                .flex()
+                .relative()
                 .size_full()
-                .items_center()
-                .justify_center()
                 .overflow_hidden()
-                .child(img(image).flex_none().w(px(width)).h(px(height)))
+                .child(
+                    img(image)
+                        .absolute()
+                        .left(px(left))
+                        .top(px(top))
+                        .w(px(picture.0))
+                        .h(px(picture.1)),
+                )
                 .into_any_element()
         } else if let Some(image) = image {
             img(image)
@@ -594,11 +624,16 @@ impl LibraryWindow {
         let unedited = entry.kind == MediaKind::Studio && !entry.exported();
         let opens = preview.failed.is_none();
         let path = entry.path.clone();
+        let picture = self
+            .preview_image(entry, None)
+            .filter(|_| opens)
+            .map(|image| image.size(0))
+            .map(|pixels| (u32::from(pixels.width), u32::from(pixels.height)));
         div()
             .id("library-preview-stage")
             .relative()
             .w_full()
-            .h(px(STAGE_HEIGHT))
+            .h(px(stage_height(picture)))
             .flex_shrink_0()
             .rounded(px(6.))
             .overflow_hidden()
@@ -773,8 +808,17 @@ mod tests {
 
     #[test]
     fn the_stage_decodes_at_the_pixels_it_covers() {
-        assert_eq!(bounds_at(1.), (315, 177));
-        assert_eq!(bounds_at(2.), (630, 354));
+        assert_eq!(bounds_at(1.), (315, 315));
+        assert_eq!(bounds_at(2.), (630, 630));
+    }
+
+    #[test]
+    fn the_stage_follows_the_picture_between_wide_and_square() {
+        assert_eq!(stage_height(None), STAGE_LOWEST);
+        assert_eq!(stage_height(Some((1920, 1080))), STAGE_LOWEST);
+        assert_eq!(stage_height(Some((3440, 1440))), STAGE_LOWEST);
+        assert_eq!(stage_height(Some((1600, 1200))), STAGE_WIDTH * 0.75);
+        assert_eq!(stage_height(Some((1080, 1920))), STAGE_WIDTH);
     }
 
     #[test]

@@ -2641,7 +2641,7 @@ impl LibraryWindow {
                     .child(match image {
                         Some(image) => img(image)
                             .size_full()
-                            .object_fit(gpui::ObjectFit::Cover)
+                            .object_fit(gpui::ObjectFit::Contain)
                             .into_any_element(),
                         None => div()
                             .flex()

@@ -218,7 +218,7 @@ const art = (index) => {
 		'<rect width="320" height="180" fill="#3F5E5A"/><circle cx="238" cy="58" r="30" fill="#E8C468"/><path d="M0 180V120l70-44 62 40 56-30 132 70v24z" fill="#264D47"/><path d="M0 180v-30l96-30 88 26 136-16v50z" fill="#1A3531"/>',
 		'<rect width="320" height="180" fill="#5B4B8A"/><rect x="42" y="34" width="236" height="112" rx="8" fill="#17171C"/><rect x="58" y="50" width="204" height="64" rx="4" fill="#2C2B3A"/><rect x="58" y="124" width="204" height="6" rx="3" fill="#3C3B4C"/><rect x="58" y="124" width="84" height="6" rx="3" fill="#F2F1EC"/><path d="M150 68l26 14-26 14z" fill="#F2F1EC"/>',
 	];
-	return `<svg class="art" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${scenes[index]}</svg>`;
+	return `<svg class="art" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${scenes[index]}</svg>`;
 };
 const captionGlyph = {
 	minimize: '<svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg>',
@@ -1710,6 +1710,18 @@ document.getElementById("keys-grid").innerHTML =
 		["Back, forward 5 s", "后退、前进 5 秒", "J", "L"],
 		["Mute", "静音", "M"],
 		["Whole screen", "整屏", "F"],
+		["Actual size, fit to window", "原始大小、适应窗口", "Z"],
+		[
+			"Same, on the clicked point",
+			"同上，以点击处为中心",
+			L("Double-click", "双击"),
+		],
+		[
+			"Move at actual size",
+			"原始大小时移动画面",
+			L("Drag", "拖动"),
+			L("Wheel", "滚轮"),
+		],
 		["Close", "关闭", "Space", "Esc"],
 	])}</div>`;
 

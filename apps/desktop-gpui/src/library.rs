@@ -1666,12 +1666,6 @@ pub fn rgba_to_render_image(mut rgba: image::RgbaImage) -> Arc<RenderImage> {
 /// persistent cache: a warm hit decodes a ~20KB JPEG instead of the
 /// native-resolution original, which is what makes a revisit of Recents
 /// effectively instant.
-///
-/// The scale factor covers the card rather than fitting inside it, because the
-/// element paints with `ObjectFit::Cover` (`object-cover` on the TSX's `<img>`)
-/// and a contain-fit source would letterbox. Never upscales: a thumbnail
-/// smaller than the card is handed over as-is and the element stretches it,
-/// same as the browser would.
 pub fn decode_thumbnail(path: &Path) -> Option<Arc<RenderImage>> {
     thumbnail_rgba(path).map(rgba_to_render_image)
 }
