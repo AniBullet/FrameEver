@@ -57,6 +57,8 @@ mod readiness;
 mod recorded_cursor_assets;
 mod scene;
 mod segment_timing;
+#[cfg(test)]
+mod shader_loop_tests;
 mod shape;
 pub mod spring_mass_damper;
 mod takeover;
