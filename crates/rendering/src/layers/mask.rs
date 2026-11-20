@@ -434,9 +434,10 @@ mod tests {
     #[test]
     #[ignore = "requires a real WGPU adapter"]
     fn blur_scissor_pixels() {
-        let adapter =
-            pollster::block_on(wgpu::Instance::default().request_adapter(&Default::default()))
-                .expect("GPU mask tests require a WGPU adapter");
+        let adapter = pollster::block_on(
+            crate::create_wgpu_instance_sync().request_adapter(&Default::default()),
+        )
+        .expect("GPU mask tests require a WGPU adapter");
         assert_ne!(adapter.get_info().backend, wgpu::Backend::Noop);
         let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))
             .expect("request mask test device");

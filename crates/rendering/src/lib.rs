@@ -40,6 +40,8 @@ mod cursor_interpolation;
 #[cfg(target_os = "windows")]
 pub mod d3d_texture;
 pub mod decoder;
+#[cfg(test)]
+mod descriptor_heap_tests;
 pub mod frame_chrome;
 mod frame_pipeline;
 mod frame_windows;
@@ -266,6 +268,9 @@ fn software_adapters_unusable() -> bool {
 fn dx12_instance(shader_compiler: wgpu::Dx12Compiler) -> wgpu::Instance {
     wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::DX12,
+        flags: wgpu::InstanceFlags::default().difference(
+            wgpu::InstanceFlags::VALIDATION | wgpu::InstanceFlags::GPU_BASED_VALIDATION,
+        ),
         backend_options: wgpu::BackendOptions {
             dx12: wgpu::Dx12BackendOptions {
                 shader_compiler,
