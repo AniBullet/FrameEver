@@ -560,7 +560,6 @@ mod tests {
             clip_count: 1,
             thumbnail: None,
             thumbnail_version: None,
-            shape: None,
             screenshot: None,
             opens_editor: false,
         }

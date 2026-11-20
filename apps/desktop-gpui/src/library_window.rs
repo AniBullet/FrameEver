@@ -49,7 +49,6 @@ use crate::{
 
 const PADDING: f32 = 12.;
 const TILE_PADDING: f32 = 6.;
-const ITEMS_BORDER: f32 = 2.;
 const MAX_THUMBNAILS: usize = 600;
 const FRESH_HOLD: Duration = Duration::from_secs(6);
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(300);
@@ -732,8 +731,7 @@ pub(super) struct LibraryPage {
     state: ViewState,
     view: LibraryView,
     rows: Vec<Row>,
-    content_width: f32,
-    shapes: Vec<f32>,
+    columns: usize,
     imports: Vec<usize>,
     surface: Option<Surface>,
     surface_shown_at: Instant,
@@ -783,8 +781,7 @@ impl LibraryPage {
             state: crate::store::load().library,
             view: LibraryView::default(),
             rows: Vec::new(),
-            content_width: 0.,
-            shapes: Vec::new(),
+            columns: 1,
             imports: Vec::new(),
             surface: None,
             surface_shown_at: Instant::now(),
@@ -1087,10 +1084,13 @@ impl LibraryWindow {
         );
         page.order = page.view.order(entries);
         page.selection.retain(&page.order);
-        page.shapes = entries
-            .iter()
-            .map(|entry| view::tile_shape(entry.shape))
-            .collect();
+        let rows = view::rows(
+            &page.view,
+            page.state.view,
+            page.columns,
+            page.first_line,
+            &page.imports,
+        );
         let surface = page.view.surface(!page.imports.is_empty());
         if page.surface != Some(surface) {
             page.surface = Some(surface);
@@ -1098,29 +1098,6 @@ impl LibraryWindow {
             page.surface_still = page.surfaces_drawn.contains(&surface);
             page.surfaces_drawn.push(surface);
         }
-        self.lay_out_library_rows();
-        self.sync_library_detail(cx);
-        cx.notify();
-    }
-
-    fn library_grid(&self) -> view::Grid<'_> {
-        view::Grid {
-            width: self.library.content_width,
-            tile_size: self.library.state.tile_size,
-            shapes: &self.library.shapes,
-        }
-    }
-
-    fn lay_out_library_rows(&mut self) {
-        let page = &self.library;
-        let rows = view::rows(
-            &page.view,
-            page.state.view,
-            &self.library_grid(),
-            page.first_line,
-            &page.imports,
-        );
-        let page = &mut self.library;
         if rows != page.rows {
             let top = page.list.logical_scroll_top();
             page.list.reset(rows.len());
@@ -1130,15 +1107,13 @@ impl LibraryWindow {
             });
             page.rows = rows;
         }
+        self.sync_library_detail(cx);
+        cx.notify();
     }
 
     pub(super) fn sync_library_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let width = f32::from(window.viewport_size().width)
-            - self.library.panel_width()
-            - PADDING * 2.
-            - ITEMS_BORDER;
-        let resized = width != self.library.content_width;
-        self.library.content_width = width;
+        let width = f32::from(window.viewport_size().width) - self.library.panel_width();
+        let columns = view::columns(width - PADDING * 2., self.library.state.tile_size);
         let tab = self.library.state.tab;
         let imports: Vec<usize> = crate::import::imports_snapshot(cx)
             .iter()
@@ -1146,12 +1121,14 @@ impl LibraryWindow {
             .filter(|(_, entry)| import_wanted(tab, entry.kind))
             .map(|(index, _)| index)
             .collect();
-        if self.library.layout_stale || imports != self.library.imports {
+        if self.library.layout_stale
+            || columns != self.library.columns
+            || imports != self.library.imports
+        {
             self.library.layout_stale = false;
+            self.library.columns = columns;
             self.library.imports = imports;
             self.rebuild_library(cx);
-        } else if resized {
-            self.lay_out_library_rows();
         }
         if std::mem::take(&mut self.library.reveal_lead) {
             let page = &self.library;
@@ -1216,7 +1193,7 @@ impl LibraryWindow {
             .selection
             .lead()
             .and_then(|lead| entries.iter().position(|entry| entry.path == lead));
-        let Some(path) = view::step_from(&page.rows, from, step, &self.library_grid())
+        let Some(path) = view::step_from(&page.rows, from, step)
             .and_then(|item| entries.get(item))
             .map(|entry| entry.path.clone())
         else {
@@ -2411,7 +2388,7 @@ impl LibraryWindow {
             Row::Header(group) => self.render_library_header(group).into_any_element(),
             Row::Imports(imports) => {
                 let snapshot = crate::import::imports_snapshot(cx);
-                let mut cards: Vec<AnyElement> = imports
+                let cards = imports
                     .iter()
                     .filter_map(|index| {
                         snapshot
@@ -2419,24 +2396,17 @@ impl LibraryWindow {
                             .map(|entry| self.render_import_card(*index, entry).into_any_element())
                     })
                     .collect();
-                let columns =
-                    view::columns(self.library.content_width, self.library.state.tile_size);
-                while cards.len() < columns {
-                    cards.push(div().flex_1().min_w_0().into_any_element());
-                }
                 self.library_row(cards, Vec::new())
             }
             Row::Tiles(items) => {
-                let full = view::row_is_full(&self.library.rows, index);
-                let (height, thumbs) = self.library_grid().thumbs(&items, full);
+                let tile_width = self.library_tile_width(window);
                 let mut paths = Vec::new();
                 let cards = items
                     .iter()
-                    .zip(thumbs)
-                    .filter_map(|(index, width)| {
+                    .filter_map(|index| {
                         let entry = self.library.entries.as_ref()?.get(*index)?.clone();
                         paths.push(entry.path.clone());
-                        Some(self.render_library_tile(&entry, (width, height), window, cx))
+                        Some(self.render_library_tile(&entry, tile_width, window, cx))
                     })
                     .collect();
                 self.library_row(cards, paths)
@@ -2459,6 +2429,13 @@ impl LibraryWindow {
         }
     }
 
+    fn library_tile_width(&self, window: &Window) -> f32 {
+        let columns = self.library.columns.max(1) as f32;
+        let content =
+            f32::from(window.viewport_size().width) - self.library.panel_width() - PADDING * 2.;
+        (content - TILE_GAP * (columns - 1.)) / columns
+    }
+
     fn record_drawn(&self, row: gpui::Div, paths: Vec<PathBuf>) -> gpui::Div {
         let drawn = self.library.drawn.clone();
         row.on_children_prepainted(move |bounds, _, _| {
@@ -2469,7 +2446,11 @@ impl LibraryWindow {
         })
     }
 
-    fn library_row(&self, cards: Vec<AnyElement>, paths: Vec<PathBuf>) -> AnyElement {
+    fn library_row(&self, mut cards: Vec<AnyElement>, paths: Vec<PathBuf>) -> AnyElement {
+        let columns = self.library.columns.max(1);
+        while cards.len() < columns {
+            cards.push(div().flex_1().min_w_0().into_any_element());
+        }
         self.record_drawn(
             div()
                 .flex()
@@ -2589,13 +2570,14 @@ impl LibraryWindow {
     fn render_library_tile(
         &mut self,
         entry: &Entry,
-        (thumb_width, thumb_height): (f32, f32),
+        tile_width: f32,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
         let fresh = view::is_fresh(&self.library.fresh, &entry.path);
         let image = self.library_thumbnail(entry, window, cx);
+        let thumb_height = ((tile_width - TILE_PADDING * 2. - 2.) * 9. / 16.).max(1.);
         let mut meta = format!(
             "{} · {}",
             kind_label(entry.kind),
@@ -2621,8 +2603,8 @@ impl LibraryWindow {
                 .id(library::row_id(&entry.path))
                 .flex()
                 .flex_col()
-                .flex_none()
-                .w(px(thumb_width + view::TILE_CHROME))
+                .flex_1()
+                .min_w_0()
                 .p(px(TILE_PADDING))
                 .rounded(px(6.))
                 .cursor_pointer()

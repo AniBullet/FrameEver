@@ -578,10 +578,6 @@ pub fn project_details(entry: &view::Entry) -> ProjectDetails {
     }
 }
 
-fn picture_shape(path: &Path) -> Option<(u32, u32)> {
-    image::image_dimensions(path).ok()
-}
-
 fn recording_entry(item: RecordingItem, active_recording: Option<&Path>) -> view::Entry {
     let compression = match item.versions {
         Some(VideoVersions::CompressedCopy { .. } | VideoVersions::UsingCompressed { .. }) => {
@@ -609,7 +605,6 @@ fn recording_entry(item: RecordingItem, active_recording: Option<&Path>) -> view
         opens_editor: item.opens_editor(active_recording),
         screenshot: None,
         name: item.pretty_name,
-        shape: item.thumbnail.as_deref().and_then(picture_shape),
         thumbnail: item.thumbnail,
         thumbnail_version: item.thumbnail_version,
         path: item.path,
@@ -628,7 +623,6 @@ fn screenshot_entry(item: ScreenshotItem) -> view::Entry {
         clip_count: 1,
         opens_editor: true,
         thumbnail_version: item.thumbnail.as_deref().and_then(source_mtime_nanos),
-        shape: item.thumbnail.as_deref().and_then(picture_shape),
         thumbnail: item.thumbnail,
         screenshot: Some(item.path),
         name: item.pretty_name,

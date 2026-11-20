@@ -13,12 +13,6 @@ pub const TILE_MAX: f32 = 280.;
 pub const TILE_DEFAULT: f32 = 150.;
 pub const TILE_STEP: f32 = 20.;
 pub const TILE_GAP: f32 = 8.;
-pub const TILE_CHROME: f32 = 14.;
-const SHAPE_NARROWEST: f32 = 3. / 4.;
-const SHAPE_WIDEST: f32 = 21. / 9.;
-const SHAPE_UNKNOWN: f32 = 16. / 9.;
-const ROW_STRETCH: f32 = 1.25;
-const ROW_FULL: f32 = 0.999;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -222,7 +216,6 @@ pub struct Entry {
     pub clip_count: u32,
     pub thumbnail: Option<PathBuf>,
     pub thumbnail_version: Option<u128>,
-    pub shape: Option<(u32, u32)>,
     pub screenshot: Option<PathBuf>,
     pub opens_editor: bool,
 }
@@ -471,101 +464,14 @@ impl Row {
     }
 }
 
-pub fn tile_shape(picture: Option<(u32, u32)>) -> f32 {
-    picture
-        .filter(|(width, height)| *width > 0 && *height > 0)
-        .map_or(SHAPE_UNKNOWN, |(width, height)| {
-            (width as f32 / height as f32).clamp(SHAPE_NARROWEST, SHAPE_WIDEST)
-        })
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Grid<'a> {
-    pub width: f32,
-    pub tile_size: f32,
-    pub shapes: &'a [f32],
-}
-
-impl Grid<'_> {
-    fn thumb_height(&self) -> f32 {
-        ((self.tile_size - TILE_CHROME) * 9. / 16.).max(1.)
-    }
-
-    fn shape(&self, item: usize) -> f32 {
-        self.shapes.get(item).copied().unwrap_or(SHAPE_UNKNOWN)
-    }
-
-    fn fill(&self, items: &[usize]) -> f32 {
-        let count = items.len() as f32;
-        let thumbs = items.iter().map(|item| self.shape(*item)).sum::<f32>() * self.thumb_height();
-        let room = self.width - TILE_CHROME * count - TILE_GAP * (count - 1.).max(0.);
-        (room / thumbs.max(1.)).max(0.)
-    }
-
-    fn pack(&self, items: &[usize]) -> Vec<Vec<usize>> {
-        let mut rows = Vec::new();
-        let mut row = Vec::new();
-        for &item in items {
-            row.push(item);
-            if self.fill(&row) >= ROW_FULL {
-                continue;
-            }
-            if row.len() > 1 && self.fill(&row[..row.len() - 1]) * self.fill(&row) <= 1. {
-                row.pop();
-                rows.push(std::mem::take(&mut row));
-                row.push(item);
-                if self.fill(&row) >= ROW_FULL {
-                    continue;
-                }
-            }
-            rows.push(std::mem::take(&mut row));
-        }
-        if !row.is_empty() {
-            rows.push(row);
-        }
-        rows
-    }
-
-    pub fn thumbs(&self, items: &[usize], full: bool) -> (f32, Vec<f32>) {
-        let fill = self.fill(items);
-        let scale = if full || fill <= ROW_STRETCH {
-            fill
-        } else {
-            1.
-        };
-        let height = (self.thumb_height() * scale).max(1.);
-        (
-            height,
-            items
-                .iter()
-                .map(|item| self.shape(*item) * height)
-                .collect(),
-        )
-    }
-
-    fn centres(&self, items: &[usize], full: bool) -> Vec<f32> {
-        let mut left = 0.;
-        self.thumbs(items, full)
-            .1
-            .into_iter()
-            .map(|thumb| {
-                let tile = thumb + TILE_CHROME;
-                let centre = left + tile / 2.;
-                left += tile + TILE_GAP;
-                centre
-            })
-            .collect()
-    }
-}
-
 pub fn rows(
     view: &LibraryView,
     mode: ViewMode,
-    grid: &Grid,
+    columns: usize,
     first_line: bool,
     imports: &[usize],
 ) -> Vec<Row> {
-    let columns = columns(grid.width, grid.tile_size);
+    let columns = columns.max(1);
     let mut rows = Vec::new();
     if first_line {
         rows.push(Row::FirstLine);
@@ -578,15 +484,16 @@ pub fn rows(
     for section in &view.sections {
         rows.extend(section.group.map(Row::Header));
         match mode {
-            ViewMode::Grid => rows.extend(grid.pack(&section.items).into_iter().map(Row::Tiles)),
+            ViewMode::Grid => rows.extend(
+                section
+                    .items
+                    .chunks(columns)
+                    .map(|chunk| Row::Tiles(chunk.to_vec())),
+            ),
             ViewMode::List => rows.extend(section.items.iter().copied().map(Row::Item)),
         }
     }
     rows
-}
-
-pub fn row_is_full(rows: &[Row], index: usize) -> bool {
-    matches!(rows.get(index + 1), Some(Row::Tiles(_)))
 }
 
 pub fn row_of(rows: &[Row], item: usize) -> Option<usize> {
@@ -610,13 +517,12 @@ pub fn neighbour<'a>(order: &'a [PathBuf], from: &Path, forward: bool) -> Option
     }
 }
 
-pub fn step_from(rows: &[Row], from: Option<usize>, step: Step, grid: &Grid) -> Option<usize> {
-    let (lines, full): (Vec<&[usize]>, Vec<bool>) = rows
+pub fn step_from(rows: &[Row], from: Option<usize>, step: Step) -> Option<usize> {
+    let lines: Vec<&[usize]> = rows
         .iter()
-        .enumerate()
-        .map(|(index, row)| (row.items(), row_is_full(rows, index)))
-        .filter(|(items, _)| !items.is_empty())
-        .unzip();
+        .map(Row::items)
+        .filter(|items| !items.is_empty())
+        .collect();
     let flat: Vec<usize> = lines
         .iter()
         .flat_map(|items| items.iter().copied())
@@ -626,17 +532,7 @@ pub fn step_from(rows: &[Row], from: Option<usize>, step: Step, grid: &Grid) -> 
     };
     let line = lines.iter().position(|items| items.contains(&from))?;
     let column = lines[line].iter().position(|item| *item == from)?;
-    let beside = |target: usize| {
-        if target == line {
-            return from;
-        }
-        let centre = grid.centres(lines[line], full[line])[column];
-        grid.centres(lines[target], full[target])
-            .into_iter()
-            .zip(lines[target])
-            .min_by(|(a, _), (b, _)| (a - centre).abs().total_cmp(&(b - centre).abs()))
-            .map_or(from, |(_, item)| *item)
-    };
+    let beside = |line: usize| lines[line][column.min(lines[line].len() - 1)];
     let at = flat.iter().position(|item| *item == from)?;
     Some(match step {
         Step::Left => flat[at.saturating_sub(1)],
@@ -822,7 +718,6 @@ mod tests {
             clip_count: 1,
             thumbnail: None,
             thumbnail_version: None,
-            shape: None,
             screenshot: None,
             opens_editor: false,
         }
@@ -1114,115 +1009,6 @@ mod tests {
         );
     }
 
-    fn even(columns: usize) -> Grid<'static> {
-        Grid {
-            width: TILE_DEFAULT * columns as f32 + TILE_GAP * (columns as f32 - 1.),
-            tile_size: TILE_DEFAULT,
-            shapes: &[],
-        }
-    }
-
-    fn mixed(width: f32, shapes: &[f32]) -> Grid<'_> {
-        Grid {
-            width,
-            tile_size: TILE_DEFAULT,
-            shapes,
-        }
-    }
-
-    fn row_width(grid: &Grid, items: &[usize]) -> f32 {
-        let (_, thumbs) = grid.thumbs(items, true);
-        thumbs.iter().sum::<f32>()
-            + TILE_CHROME * items.len() as f32
-            + TILE_GAP * (items.len() as f32 - 1.)
-    }
-
-    #[test]
-    fn a_shape_stays_between_portrait_and_ultrawide() {
-        assert_eq!(tile_shape(None), 16. / 9.);
-        assert_eq!(tile_shape(Some((0, 10))), 16. / 9.);
-        assert_eq!(tile_shape(Some((1600, 1000))), 1.6);
-        assert_eq!(tile_shape(Some((1080, 1920))), 0.75);
-        assert_eq!(tile_shape(Some((5120, 1440))), 21. / 9.);
-    }
-
-    #[test]
-    fn one_shape_packs_into_a_regular_grid() {
-        let grid = even(3);
-        assert_eq!(
-            grid.pack(&[0, 1, 2, 3, 4, 5, 6]),
-            [vec![0, 1, 2], vec![3, 4, 5], vec![6]]
-        );
-        let (height, thumbs) = grid.thumbs(&[0, 1, 2], true);
-        assert!((height - 76.5).abs() < 0.01);
-        assert!(thumbs.iter().all(|thumb| (thumb - 136.).abs() < 0.01));
-        let (height, thumbs) = grid.thumbs(&[6], false);
-        assert!((height - 76.5).abs() < 0.01 && thumbs.len() == 1);
-    }
-
-    #[test]
-    fn full_rows_of_mixed_shapes_fill_the_width_at_one_height() {
-        let shapes = [16. / 9., 0.75, 1.6, 21. / 9., 1., 16. / 9., 0.75, 4. / 3.];
-        let grid = mixed(640., &shapes);
-        let rows = grid.pack(&[0, 1, 2, 3, 4, 5, 6, 7]);
-        assert_eq!(rows.concat(), [0, 1, 2, 3, 4, 5, 6, 7]);
-        assert!(rows.len() > 1);
-        for row in &rows[..rows.len() - 1] {
-            assert!((row_width(&grid, row) - 640.).abs() < 0.5, "{row:?}");
-            let (height, thumbs) = grid.thumbs(row, true);
-            for (item, thumb) in row.iter().zip(thumbs) {
-                assert!((thumb / height - shapes[*item]).abs() < 0.001);
-            }
-        }
-    }
-
-    #[test]
-    fn a_sparse_last_row_keeps_its_size_and_a_wide_one_shrinks_to_fit() {
-        let shapes = [0.75, 21. / 9.];
-        let grid = mixed(640., &shapes);
-        let (height, thumbs) = grid.thumbs(&[0], false);
-        assert!((height - 76.5).abs() < 0.01);
-        assert!((thumbs[0] - 57.375).abs() < 0.01);
-
-        let narrow = mixed(120., &shapes);
-        assert_eq!(narrow.pack(&[1, 1]), [vec![1], vec![1]]);
-        assert!((row_width(&narrow, &[1]) - 120.).abs() < 0.5);
-    }
-
-    #[test]
-    fn every_row_but_a_groups_last_fills_the_width_however_far_it_stretches() {
-        let grid = Grid {
-            width: 360.,
-            tile_size: TILE_MAX,
-            shapes: &[],
-        };
-        let table = [
-            Row::Tiles(vec![0]),
-            Row::Tiles(vec![1]),
-            Row::Header(DateGroup::Yesterday),
-            Row::Tiles(vec![2]),
-        ];
-        assert_eq!(grid.pack(&[0, 1]), [vec![0], vec![1]]);
-        assert!(row_is_full(&table, 0));
-        assert!(!row_is_full(&table, 1));
-        assert!(!row_is_full(&table, 3));
-        assert!((row_width(&grid, &[0]) - 360.).abs() < 0.5);
-        let (_, thumbs) = grid.thumbs(&[1], false);
-        assert!((thumbs[0] + TILE_CHROME - TILE_MAX).abs() < 0.5);
-    }
-
-    #[test]
-    fn up_and_down_land_on_the_card_closest_across() {
-        let shapes = [0.75, 0.75, 21. / 9., 21. / 9., 0.75, 0.75];
-        let grid = mixed(640., &shapes);
-        let table = [Row::Tiles(vec![0, 1, 2]), Row::Tiles(vec![3, 4, 5])];
-        assert_eq!(step_from(&table, Some(0), Step::Down, &grid), Some(3));
-        assert_eq!(step_from(&table, Some(1), Step::Down, &grid), Some(4));
-        assert_eq!(step_from(&table, Some(2), Step::Down, &grid), Some(5));
-        assert_eq!(step_from(&table, Some(5), Step::Up, &grid), Some(1));
-        assert_eq!(step_from(&table, Some(3), Step::Up, &grid), Some(0));
-    }
-
     #[test]
     fn columns_fill_the_width_like_the_design_grid() {
         assert_eq!(columns(466., 150.), 3);
@@ -1235,7 +1021,7 @@ mod tests {
         let entries = library();
         let view = build(&entries[..2], &ViewState::default(), "", &[], &clock());
         assert_eq!(
-            rows(&view, ViewMode::Grid, &even(2), false, &[]),
+            rows(&view, ViewMode::Grid, 2, false, &[]),
             [
                 Row::Header(DateGroup::Today),
                 Row::Tiles(vec![0]),
@@ -1248,7 +1034,7 @@ mod tests {
         state.set_sort(SortKey::Name);
         let view = build(&entries, &state, "", &[], &clock());
         assert_eq!(
-            rows(&view, ViewMode::Grid, &even(3), true, &[7]),
+            rows(&view, ViewMode::Grid, 3, true, &[7]),
             [
                 Row::FirstLine,
                 Row::Imports(vec![7]),
@@ -1315,7 +1101,7 @@ mod tests {
         };
         let view = build(&entries, &state, "", &[], &clock());
         assert_eq!(
-            rows(&view, ViewMode::List, &even(3), false, &[]),
+            rows(&view, ViewMode::List, 3, false, &[]),
             [Row::Item(0), Row::Item(1), Row::Item(2), Row::Item(3)]
         );
     }
@@ -1434,17 +1220,17 @@ mod tests {
             Row::Header(DateGroup::Yesterday),
             Row::Tiles(vec![4, 5, 6]),
         ];
-        assert_eq!(step_from(&table, None, Step::Down, &even(3)), Some(0));
-        assert_eq!(step_from(&table, Some(1), Step::Right, &even(3)), Some(2));
-        assert_eq!(step_from(&table, Some(2), Step::Right, &even(3)), Some(3));
-        assert_eq!(step_from(&table, Some(3), Step::Left, &even(3)), Some(2));
-        assert_eq!(step_from(&table, Some(2), Step::Down, &even(3)), Some(3));
-        assert_eq!(step_from(&table, Some(3), Step::Down, &even(3)), Some(4));
-        assert_eq!(step_from(&table, Some(5), Step::Up, &even(3)), Some(3));
-        assert_eq!(step_from(&table, Some(1), Step::Up, &even(3)), Some(1));
-        assert_eq!(step_from(&table, Some(6), Step::Down, &even(3)), Some(6));
-        assert_eq!(step_from(&table, Some(6), Step::Right, &even(3)), Some(6));
-        assert_eq!(step_from(&table, Some(0), Step::Left, &even(3)), Some(0));
+        assert_eq!(step_from(&table, None, Step::Down), Some(0));
+        assert_eq!(step_from(&table, Some(1), Step::Right), Some(2));
+        assert_eq!(step_from(&table, Some(2), Step::Right), Some(3));
+        assert_eq!(step_from(&table, Some(3), Step::Left), Some(2));
+        assert_eq!(step_from(&table, Some(2), Step::Down), Some(3));
+        assert_eq!(step_from(&table, Some(3), Step::Down), Some(4));
+        assert_eq!(step_from(&table, Some(5), Step::Up), Some(3));
+        assert_eq!(step_from(&table, Some(1), Step::Up), Some(1));
+        assert_eq!(step_from(&table, Some(6), Step::Down), Some(6));
+        assert_eq!(step_from(&table, Some(6), Step::Right), Some(6));
+        assert_eq!(step_from(&table, Some(0), Step::Left), Some(0));
     }
 
     #[test]
@@ -1455,20 +1241,17 @@ mod tests {
             Row::Item(0),
             Row::Item(1),
         ];
-        assert_eq!(step_from(&table, Some(0), Step::Down, &even(3)), Some(1));
-        assert_eq!(step_from(&table, Some(1), Step::Up, &even(3)), Some(0));
-        assert_eq!(step_from(&table, Some(0), Step::Up, &even(3)), Some(0));
+        assert_eq!(step_from(&table, Some(0), Step::Down), Some(1));
+        assert_eq!(step_from(&table, Some(1), Step::Up), Some(0));
+        assert_eq!(step_from(&table, Some(0), Step::Up), Some(0));
         assert_eq!(row_of(&table, 1), Some(3));
         assert_eq!(row_of(&table, 9), None);
     }
 
     #[test]
     fn an_item_that_is_gone_starts_the_arrows_from_the_top() {
-        assert_eq!(
-            step_from(&[Row::Item(4)], Some(1), Step::Down, &even(3)),
-            Some(4)
-        );
-        assert_eq!(step_from(&[], None, Step::Down, &even(3)), None);
+        assert_eq!(step_from(&[Row::Item(4)], Some(1), Step::Down), Some(4));
+        assert_eq!(step_from(&[], None, Step::Down), None);
     }
 
     #[test]

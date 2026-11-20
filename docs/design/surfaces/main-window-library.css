@@ -483,19 +483,12 @@ main > section .seg {
 }
 
 .grid {
-	display: flex;
-	flex-wrap: wrap;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(var(--tile, 168px), 1fr));
 	gap: 8px;
 }
 
-.grid::after {
-	content: "";
-	flex: 1000 1 0;
-}
-
 .tile {
-	flex: var(--shape) 1
-		calc((var(--tile, 168px) - 14px) * 0.5625 * var(--shape) + 14px);
 	padding: 6px;
 	border-radius: var(--radius-md);
 	cursor: pointer;
@@ -530,7 +523,6 @@ main > section .seg {
 }
 
 .tile .thumb {
-	aspect-ratio: var(--shape);
 	border-radius: 6px;
 }
 
