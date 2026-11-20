@@ -7,7 +7,7 @@ use std::{
 use gpui::{
     AnyElement, Bounds, Context, CursorStyle, FontWeight, InteractiveElement, IntoElement,
     KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Pixels, Point, RenderImage, ScrollWheelEvent, SharedString,
+    ParentElement, Pixels, Point, RenderImage, ScrollEvent, SharedString,
     StatefulInteractiveElement, Styled, Task, Window, div, point, prelude::FluentBuilder, px, size,
 };
 
@@ -573,7 +573,7 @@ impl LibraryWindow {
                 MouseButton::Left,
                 cx.listener(Self::press_library_overlay_stage),
             )
-            .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, cx| {
+            .on_scroll(cx.listener(|this, event: &ScrollEvent, window, cx| {
                 let delta = event.delta.pixel_delta(px(WHEEL_LINE));
                 this.pan_library_overlay((f32::from(delta.x), f32::from(delta.y)), window, cx);
             }))

@@ -79,6 +79,7 @@ const ITEMS = [
 		group: "today",
 		time: "09:30",
 		art: 1,
+		shape: 1.6,
 		tracks: ["Microphone", "麦克风"],
 		compressed: { size: "9.6 MB", saved: "75%" },
 		exports: [],
@@ -107,6 +108,7 @@ const ITEMS = [
 		group: "yesterday",
 		time: "16:20",
 		art: 3,
+		shape: 0.75,
 		tracks: ["Camera, microphone", "摄像头、麦克风"],
 		exports: [],
 	},
@@ -141,6 +143,7 @@ const ITEMS = [
 		group: "yesterday",
 		time: "10:02",
 		art: 1,
+		shape: 21 / 9,
 		exports: [],
 	},
 	{
@@ -176,6 +179,7 @@ const ITEMS = [
 		group: "week",
 		time: "09:47",
 		art: 4,
+		shape: 1,
 		tracks: ["Camera, microphone", "摄像头、麦克风"],
 		exports: [],
 	},
@@ -191,6 +195,7 @@ const ITEMS = [
 		group: "oct",
 		time: "13:05",
 		art: 3,
+		shape: 1.6,
 		tracks: ["Microphone", "麦克风"],
 		compressed: { size: "12 MB", saved: "77%" },
 		compressedOnly: true,
@@ -210,7 +215,7 @@ const ITEMS = [
 	},
 ];
 
-const art = (index) => {
+const art = (index, fit = "meet") => {
 	const scenes = [
 		'<rect width="320" height="180" fill="#2B3A55"/><rect x="28" y="24" width="264" height="132" rx="6" fill="#F2F1EC"/><rect x="28" y="24" width="60" height="132" fill="#D9D6CB"/><rect x="100" y="40" width="120" height="10" rx="2" fill="#2B3A55"/><rect x="100" y="60" width="176" height="6" rx="2" fill="#A9A79C"/><rect x="100" y="74" width="150" height="6" rx="2" fill="#A9A79C"/><rect x="100" y="96" width="80" height="44" rx="4" fill="#E2725B"/><rect x="188" y="96" width="88" height="44" rx="4" fill="#3E7CB1"/>',
 		'<rect width="320" height="180" fill="#1E1F24"/><rect x="0" y="0" width="320" height="22" fill="#2C2E36"/><circle cx="14" cy="11" r="4" fill="#E2725B"/><circle cx="28" cy="11" r="4" fill="#E0B04C"/><circle cx="42" cy="11" r="4" fill="#6FB98F"/><rect x="18" y="38" width="130" height="6" rx="2" fill="#6FB98F"/><rect x="34" y="54" width="180" height="6" rx="2" fill="#8FA7C9"/><rect x="34" y="70" width="110" height="6" rx="2" fill="#D9C27E"/><rect x="18" y="86" width="90" height="6" rx="2" fill="#6FB98F"/><rect x="34" y="102" width="210" height="6" rx="2" fill="#8FA7C9"/><rect x="34" y="118" width="150" height="6" rx="2" fill="#C98FA7"/>',
@@ -218,7 +223,7 @@ const art = (index) => {
 		'<rect width="320" height="180" fill="#3F5E5A"/><circle cx="238" cy="58" r="30" fill="#E8C468"/><path d="M0 180V120l70-44 62 40 56-30 132 70v24z" fill="#264D47"/><path d="M0 180v-30l96-30 88 26 136-16v50z" fill="#1A3531"/>',
 		'<rect width="320" height="180" fill="#5B4B8A"/><rect x="42" y="34" width="236" height="112" rx="8" fill="#17171C"/><rect x="58" y="50" width="204" height="64" rx="4" fill="#2C2B3A"/><rect x="58" y="124" width="204" height="6" rx="3" fill="#3C3B4C"/><rect x="58" y="124" width="84" height="6" rx="3" fill="#F2F1EC"/><path d="M150 68l26 14-26 14z" fill="#F2F1EC"/>',
 	];
-	return `<svg class="art" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${scenes[index]}</svg>`;
+	return `<svg class="art" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid ${fit}" aria-hidden="true">${scenes[index]}</svg>`;
 };
 const captionGlyph = {
 	minimize: '<svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg>',
@@ -476,8 +481,8 @@ class MainWindow {
 		const on = this.s.selected.includes(item.id);
 		const k = KIND[item.kind];
 		const job = this.s.jobs?.[item.id];
-		return `<div class="tile ${on ? "on" : ""} ${item.fresh ? "fresh" : ""}" data-a="item" data-id="${item.id}">
-			<span class="thumb">${art(item.art)}<span class="corner tl">${icon(k.icon, "sm")}</span>${item.exports.length ? `<span class="corner tr" title="${pick("Exported", "已导出")}">${icon("check", "sm")}</span>` : ""}${item.dur ? `<span class="corner br tnum">${item.dur}</span>` : ""}${item.kind === "screenshot" ? "" : '<span class="scrub"></span>'}${item.fresh ? `<span class="tick-mark">${this.doodle("TICK", 20, `tick-${item.id}`)}</span>` : ""}${job === undefined ? "" : `<span class="job-bar"><b style="width:${job}%"></b></span>`}</span>
+		return `<div class="tile ${on ? "on" : ""} ${item.fresh ? "fresh" : ""}" data-a="item" data-id="${item.id}" style="--shape:${item.shape ?? 16 / 9}">
+			<span class="thumb">${art(item.art, "slice")}<span class="corner tl">${icon(k.icon, "sm")}</span>${item.exports.length ? `<span class="corner tr" title="${pick("Exported", "已导出")}">${icon("check", "sm")}</span>` : ""}${item.dur ? `<span class="corner br tnum">${item.dur}</span>` : ""}${item.kind === "screenshot" ? "" : '<span class="scrub"></span>'}${item.fresh ? `<span class="tick-mark">${this.doodle("TICK", 20, `tick-${item.id}`)}</span>` : ""}${job === undefined ? "" : `<span class="job-bar"><b style="width:${job}%"></b></span>`}</span>
 			<span class="name">${item.name}</span>
 			<span class="meta tnum">${job === undefined ? L(`${k.name[0]} · ${item.size}`, `${k.name[1]} · ${item.size}`) : job === 0 ? L("Waiting", "等待中") : L(`Compressing… ${job}%`, `正在压缩… ${job}%`)}</span>
 		</div>`;
