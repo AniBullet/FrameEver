@@ -29,7 +29,10 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-use std::{path::PathBuf, time::Instant};
+use std::{
+    path::{Path, PathBuf},
+    time::Instant,
+};
 use tokio::sync::mpsc;
 
 pub mod camera3d;
@@ -412,6 +415,7 @@ pub struct PreparedMask {
 enum FrameFetch {
     Playback,
     PlaybackInitial,
+    Still,
     Export { initial: bool },
 }
 
@@ -423,7 +427,7 @@ impl FrameFetch {
     ) -> Result<Option<DecodedFrame>, decoder::DecodeStalled> {
         match self {
             Self::Playback => Ok(decoder.get_frame(time).await),
-            Self::PlaybackInitial => Ok(decoder.get_frame_initial(time).await),
+            Self::PlaybackInitial | Self::Still => Ok(decoder.get_frame_initial(time).await),
             Self::Export { initial } => decoder.get_frame_for_export(time, initial).await,
         }
     }
@@ -433,8 +437,60 @@ impl FrameFetch {
 pub struct RecordingSegmentDecoders {
     screen: AsyncVideoDecoderHandle,
     camera: Option<AsyncVideoDecoderHandle>,
+    source_video: Option<Arc<SourceVideo>>,
     pub segment_offset: f64,
     transition_readers: Option<Arc<TransitionSideDecoders>>,
+}
+
+pub fn source_video_path(display: &Path) -> PathBuf {
+    display.with_file_name("display-source.mp4")
+}
+
+struct SourceVideo {
+    source: DecoderSource,
+    force_ffmpeg: bool,
+    decoder: tokio::sync::OnceCell<Option<AsyncVideoDecoderHandle>>,
+}
+
+impl SourceVideo {
+    fn find(display: &DecoderSource, force_ffmpeg: bool) -> Option<Arc<Self>> {
+        if display.path.file_name() != Some(std::ffi::OsStr::new("display.mp4")) {
+            return None;
+        }
+        let path = source_video_path(&display.path);
+        path.is_file().then(|| {
+            Arc::new(Self {
+                source: DecoderSource {
+                    path,
+                    ..display.clone()
+                },
+                force_ffmpeg,
+                decoder: tokio::sync::OnceCell::new(),
+            })
+        })
+    }
+
+    fn reopened(&self) -> Arc<Self> {
+        Arc::new(Self {
+            source: self.source.clone(),
+            force_ffmpeg: self.force_ffmpeg,
+            decoder: tokio::sync::OnceCell::new(),
+        })
+    }
+
+    async fn decoder(&self) -> Option<&AsyncVideoDecoderHandle> {
+        self.decoder
+            .get_or_init(|| async {
+                spawn_screen_decoder(self.source.clone(), self.force_ffmpeg)
+                    .await
+                    .inspect_err(|error| {
+                        tracing::warn!(%error, "Kept source video failed to open; using display");
+                    })
+                    .ok()
+            })
+            .await
+            .as_ref()
+    }
 }
 
 /// A second set of readers for this clip, opened on first use, for the
@@ -559,6 +615,7 @@ impl RecordingSegmentDecoders {
         Ok(Self {
             screen,
             camera,
+            source_video: SourceVideo::find(&screen_source, force_ffmpeg),
             segment_offset: latest_start_time.unwrap_or(0.0),
             transition_readers: Some(Arc::new(TransitionSideDecoders {
                 screen: screen_source,
@@ -578,7 +635,7 @@ impl RecordingSegmentDecoders {
         };
         let screen_shared = serves_two_positions(&self.screen);
         let camera_shared = self.camera.as_ref().is_none_or(serves_two_positions);
-        if screen_shared && camera_shared {
+        if screen_shared && camera_shared && self.source_video.is_none() {
             return self;
         }
         let decoders = side
@@ -605,6 +662,7 @@ impl RecordingSegmentDecoders {
                     Ok((screen, camera)) => Some(RecordingSegmentDecoders {
                         screen,
                         camera,
+                        source_video: self.source_video.as_ref().map(|video| video.reopened()),
                         segment_offset: self.segment_offset,
                         transition_readers: None,
                     }),
@@ -659,6 +717,29 @@ impl RecordingSegmentDecoders {
         .flatten()
     }
 
+    pub async fn get_frames_still(
+        &self,
+        segment_time: f32,
+        needs_camera: bool,
+        needs_display: bool,
+        offsets: ClipOffsets,
+    ) -> Option<DecodedSegmentFrames> {
+        self.fetch_frames(
+            segment_time,
+            needs_camera,
+            needs_display,
+            offsets,
+            FrameFetch::Still,
+        )
+        .await
+        .ok()
+        .flatten()
+    }
+
+    pub fn has_source_video(&self) -> bool {
+        self.source_video.is_some()
+    }
+
     /// Offline export variant: screen and camera requests wait past their
     /// playback deadlines for the same frame (see `EXPORT_STALL_LIMIT`).
     async fn get_frames_for_export(
@@ -694,15 +775,20 @@ impl RecordingSegmentDecoders {
         let camera = needs_camera.then_some(self.camera.as_ref()).flatten();
 
         if needs_display {
+            let screen_decoder = match (&self.source_video, fetch) {
+                (Some(video), FrameFetch::Still) => video.decoder().await.unwrap_or(&self.screen),
+                _ => &self.screen,
+            };
             let (screen, camera) = tokio::join!(
-                fetch.frame(&self.screen, segment_time),
+                fetch.frame(screen_decoder, segment_time),
                 OptionFuture::from(camera.map(|d| fetch.frame(d, camera_request_time)))
             );
 
             let camera_frame = camera.transpose()?.flatten();
             let screen = screen?;
 
-            if screen.is_none() && fetch != FrameFetch::PlaybackInitial {
+            if screen.is_none() && !matches!(fetch, FrameFetch::PlaybackInitial | FrameFetch::Still)
+            {
                 tracing::warn!(segment_time, "screen decoder returned no frame");
             }
 
@@ -6596,6 +6682,7 @@ mod next_index_tests {
         RecordingSegmentDecoders {
             screen: AsyncVideoDecoderHandle::for_test(sender, 16, 16).with_test_fps(FPS),
             camera: None,
+            source_video: None,
             segment_offset: 0.0,
             transition_readers: None,
         }
@@ -6807,6 +6894,7 @@ mod export_order_tests {
             decoders: RecordingSegmentDecoders {
                 screen,
                 camera: None,
+                source_video: None,
                 segment_offset: 0.0,
                 transition_readers: None,
             },
@@ -8118,7 +8206,7 @@ impl RendererLayers {
         self.overlays.as_ref()?.captions.frame_box()
     }
 
-    fn reset_frame_state(&mut self) {
+    pub fn reset_frame_state(&mut self) {
         self.display.reset_frame_state();
         self.camera.reset_frame_state();
         self.camera_only.reset_frame_state();
@@ -11296,5 +11384,101 @@ mod dx12_compiler_fallback_tests {
         let (instance, kept) = dx12_instance_with_fxc_fallback(compiler);
         assert!(matches!(kept, wgpu::Dx12Compiler::DynamicDxc { .. }));
         assert!(unsafe { instance.as_hal::<wgpu_hal::api::Dx12>() }.is_some());
+    }
+}
+
+#[cfg(test)]
+mod source_video_tests {
+    use super::*;
+
+    fn constant_decoder(level: u8) -> AsyncVideoDecoderHandle {
+        let (sender, receiver) = std::sync::mpsc::channel::<decoder::VideoDecoderMessage>();
+        std::thread::spawn(move || {
+            while let Ok(decoder::VideoDecoderMessage::GetFrame(_, _, reply)) = receiver.recv() {
+                let _ = reply.send(DecodedFrame::new(vec![level; 4 * 4 * 4], 4, 4));
+            }
+        });
+        AsyncVideoDecoderHandle::for_test(sender, 4, 4)
+    }
+
+    fn segment(kept_source: bool) -> RecordingSegmentDecoders {
+        RecordingSegmentDecoders {
+            screen: constant_decoder(10),
+            camera: None,
+            source_video: kept_source.then(|| {
+                Arc::new(SourceVideo {
+                    source: DecoderSource {
+                        path: PathBuf::from("display-source.mp4"),
+                        fps: 30,
+                        offset: 0.0,
+                    },
+                    force_ffmpeg: false,
+                    decoder: tokio::sync::OnceCell::new_with(Some(Some(constant_decoder(200)))),
+                })
+            }),
+            segment_offset: 0.0,
+            transition_readers: None,
+        }
+    }
+
+    fn level(frames: Option<DecodedSegmentFrames>) -> u8 {
+        frames.unwrap().screen_frame.unwrap().data()[0]
+    }
+
+    #[tokio::test]
+    async fn only_settled_frames_read_the_kept_source() {
+        let segment = segment(true);
+        let offsets = ClipOffsets::default();
+        assert_eq!(
+            level(segment.get_frames(0.5, false, true, offsets).await),
+            10
+        );
+        assert_eq!(
+            level(segment.get_frames_initial(0.5, false, true, offsets).await),
+            10
+        );
+        assert_eq!(
+            level(segment.get_frames_still(0.5, false, true, offsets).await),
+            200
+        );
+        let exported = segment
+            .get_frames_for_export(0.5, false, true, offsets, true)
+            .await
+            .unwrap();
+        assert_eq!(level(exported), 10);
+    }
+
+    #[tokio::test]
+    async fn without_a_kept_source_every_fetch_reads_display() {
+        let segment = segment(false);
+        let offsets = ClipOffsets::default();
+        assert!(!segment.has_source_video());
+        assert_eq!(
+            level(segment.get_frames_still(0.5, false, true, offsets).await),
+            10
+        );
+        let exported = segment
+            .get_frames_for_export(0.5, false, true, offsets, true)
+            .await
+            .unwrap();
+        assert_eq!(level(exported), 10);
+    }
+
+    #[test]
+    fn the_kept_source_is_found_only_next_to_display() {
+        let directory = tempfile::tempdir().unwrap();
+        let display = DecoderSource {
+            path: directory.path().join("display.mp4"),
+            fps: 30,
+            offset: 0.0,
+        };
+        assert!(SourceVideo::find(&display, false).is_none());
+        std::fs::write(source_video_path(&display.path), b"").unwrap();
+        assert!(SourceVideo::find(&display, false).is_some());
+        let camera = DecoderSource {
+            path: directory.path().join("camera.mp4"),
+            ..display
+        };
+        assert!(SourceVideo::find(&camera, false).is_none());
     }
 }

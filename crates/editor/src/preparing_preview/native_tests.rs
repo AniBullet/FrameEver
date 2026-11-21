@@ -1768,3 +1768,134 @@ async fn native_studio_sound_releases_preparing_audio_and_preserves_transport() 
         candidate.dispose().await;
     }
 }
+
+type DrawnFrames = Arc<Mutex<Vec<(std::time::Instant, Vec<u8>)>>>;
+
+async fn kept_source_editor(
+    fixture: &Fixture,
+    place_media: impl FnOnce(&Path, &Path),
+) -> (Arc<crate::EditorInstance>, DrawnFrames) {
+    let root = fixture.directory.path().join("kept.ever");
+    std::fs::create_dir(&root).unwrap();
+    let display = root.join("display.mp4");
+    place_media(&display, &frameever_rendering::source_video_path(&display));
+    let mut metadata = fixture.metadata.clone();
+    metadata.project_path = root.clone();
+    let frameever_project::RecordingMetaInner::Studio(studio) = &mut metadata.inner else {
+        panic!("Studio metadata expected");
+    };
+    let frameever_project::StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut() else {
+        panic!("Indexed metadata expected");
+    };
+    inner.segments[0].display.path = "display.mp4".into();
+    inner.segments[0].camera = None;
+    inner.segments[0].mic = None;
+    inner.status = Some(frameever_project::StudioRecordingStatus::Complete);
+    metadata.save_for_project().unwrap();
+    let mut project = fixture.project.clone();
+    project.camera.hide = true;
+    project.write(&root).unwrap();
+
+    let frames = DrawnFrames::default();
+    let sink = frames.clone();
+    let editor = crate::EditorInstance::new_with_audio_output(
+        root,
+        |_| {},
+        Box::new(move |output, _| {
+            if let crate::editor::EditorFrameOutput::Rgba(frame) = output {
+                sink.lock()
+                    .unwrap()
+                    .push((std::time::Instant::now(), visible_rgba(&frame)));
+            }
+        }),
+        None,
+        Arc::new(crate::AudioOutput::new_headless(Box::new(|_, _| {}))),
+    )
+    .await
+    .unwrap();
+    (editor, frames)
+}
+
+async fn drawn_twice(frames: &DrawnFrames, frame: u32) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while frames.lock().unwrap().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("frame {frame} was never drawn again from the kept source"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_settled_frame_reads_the_kept_source_up_to_the_last_frame() {
+    let fixture = fixture(false);
+    let (editor, frames) = kept_source_editor(&fixture, |display, kept| {
+        finalize_track(&fixture.metadata.project_path, &fixture.display, display);
+        let source = fixture.directory.path().join("source");
+        std::fs::create_dir(&source).unwrap();
+        let source_track = encode_track(&source, "display", 160, 120, 30, 42);
+        finalize_track(&source, &source_track, kept);
+    })
+    .await;
+
+    let last = editor.get_total_frames(30) - 1;
+    for frame in [15, last] {
+        frames.lock().unwrap().clear();
+        editor
+            .preview_tx
+            .send(Some((frame, 30, XY::new(160, 120))))
+            .unwrap();
+        drawn_twice(&frames, frame).await;
+        let frames = frames.lock().unwrap();
+        assert_ne!(
+            frames[0].1, frames[1].1,
+            "frame {frame}: the settled frame should come from the kept source"
+        );
+    }
+    editor.dispose().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "benchmark: seeks the videos named by FRAMEEVER_SETTLE_BENCH_DISPLAY and FRAMEEVER_SETTLE_BENCH_SOURCE"]
+async fn benchmark_time_to_the_settled_frame() {
+    let display_source = PathBuf::from(std::env::var("FRAMEEVER_SETTLE_BENCH_DISPLAY").unwrap());
+    let kept_source = PathBuf::from(std::env::var("FRAMEEVER_SETTLE_BENCH_SOURCE").unwrap());
+    let fps = std::env::var("FRAMEEVER_SETTLE_BENCH_FPS")
+        .ok()
+        .and_then(|fps| fps.parse::<u32>().ok())
+        .unwrap_or(60);
+    let fixture = fixture(false);
+    let (editor, frames) = kept_source_editor(&fixture, |display, kept| {
+        std::fs::copy(&display_source, display).unwrap();
+        std::fs::copy(&kept_source, kept).unwrap();
+    })
+    .await;
+
+    let last = editor.get_total_frames(fps) - 1;
+    let mut first = Vec::new();
+    let mut settled = Vec::new();
+    for step in 0..24u32 {
+        let frame = (step * 37 + 5) % last;
+        frames.lock().unwrap().clear();
+        let asked = std::time::Instant::now();
+        editor
+            .preview_tx
+            .send(Some((frame, fps, XY::new(1920, 1080))))
+            .unwrap();
+        drawn_twice(&frames, frame).await;
+        let frames = frames.lock().unwrap();
+        assert_ne!(frames[0].1, frames[1].1, "frame {frame}");
+        first.push(frames[0].0.duration_since(asked).as_secs_f64() * 1000.0);
+        settled.push(frames[1].0.duration_since(asked).as_secs_f64() * 1000.0);
+    }
+    for (name, mut samples) in [("first frame", first), ("settled frame", settled)] {
+        samples.sort_by(f64::total_cmp);
+        println!(
+            "settle-bench: {name}: median {:.0} ms, slowest {:.0} ms over {} seeks",
+            samples[samples.len() / 2],
+            samples[samples.len() - 1],
+            samples.len()
+        );
+    }
+    editor.dispose().await;
+}

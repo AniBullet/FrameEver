@@ -256,6 +256,45 @@ pub fn yuv420p_to_rgba_with_matrix(
     }
 }
 
+pub fn yuv444p_to_rgba_with_matrix(
+    planes: [(&[u8], usize); 3],
+    width: usize,
+    height: usize,
+    output: &mut [u8],
+    matrix: YuvMatrix,
+) {
+    use rayon::prelude::*;
+
+    let row_bytes = width * 4;
+    let [(y_data, y_stride), (u_data, u_stride), (v_data, v_stride)] = planes;
+    let fits = |data: &[u8], stride: usize| {
+        height == 0 || (stride >= width && data.len() >= stride * (height - 1) + width)
+    };
+    if output.len() < row_bytes * height
+        || !fits(y_data, y_stride)
+        || !fits(u_data, u_stride)
+        || !fits(v_data, v_stride)
+    {
+        return;
+    }
+    output[..row_bytes * height]
+        .par_chunks_mut(row_bytes)
+        .enumerate()
+        .for_each(|(row, out)| {
+            let y = &y_data[row * y_stride..row * y_stride + width];
+            let u = &u_data[row * u_stride..row * u_stride + width];
+            let v = &v_data[row * v_stride..row * v_stride + width];
+            for (((pixel, &y), &u), &v) in out.chunks_exact_mut(4).zip(y).zip(u).zip(v) {
+                let [r, g, b] =
+                    matrix.ycbcr_to_rgb(i32::from(y) - 16, i32::from(u) - 128, i32::from(v) - 128);
+                pixel[0] = r;
+                pixel[1] = g;
+                pixel[2] = b;
+                pixel[3] = 255;
+            }
+        });
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SimdLevel {
     Scalar,
