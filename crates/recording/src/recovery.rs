@@ -3223,6 +3223,12 @@ fn validate_recovery_manifests(
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
         if path.is_dir() {
+            if path
+                .file_name()
+                .is_some_and(|name| name == crate::studio_recording::EMPTY_SEGMENTS_DIR)
+            {
+                continue;
+            }
             validate_recovery_manifests(&path, recover_complete_prefixes)?;
         } else if path.file_name().is_some_and(|name| name == "manifest.json") {
             let raw = std::fs::read(&path)?;
@@ -5676,6 +5682,32 @@ mod clean_studio_snapshot_tests {
             panic!("Expected segmented Studio metadata");
         };
         assert_eq!(inner.segments.len(), 1);
+    }
+
+    #[test]
+    fn a_segment_left_out_for_capturing_no_frames_does_not_stop_recovery() {
+        let directory = playable_studio_project(StudioRecordingStatus::InProgress);
+        let project = directory.path();
+        let left_out = project.join("content/empty-segments/segment-1-0");
+        fs::create_dir_all(left_out.join("display")).unwrap();
+        fs::write(left_out.join("audio-input.ogg"), b"audio").unwrap();
+        fs::write(
+            left_out.join("display/manifest.json"),
+            br#"{"init_segment":"init.mp4","segments":[]}"#,
+        )
+        .unwrap();
+        let recording = RecoveryManager::inspect_recording(project).unwrap();
+        assert_eq!(recording.recoverable_segments.len(), 1);
+        let recovered = RecoveryManager::recover(&recording).unwrap();
+        validate_recovered_track(&project.join(OUTPUT), ffmpeg::media::Type::Video).unwrap();
+        let StudioRecordingMeta::MultipleSegments { inner } = recovered.meta else {
+            panic!("Expected segmented Studio metadata");
+        };
+        assert_eq!(inner.segments.len(), 1);
+        assert_eq!(
+            fs::read(project.join("content/empty-segments/segment-1-0/audio-input.ogg")).unwrap(),
+            b"audio"
+        );
     }
 
     fn completed_preparing_fixture(project: &Path) -> CompletedRecording {

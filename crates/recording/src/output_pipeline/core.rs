@@ -4955,6 +4955,10 @@ impl PipelineStopSignal {
 #[error("Screen capture stopped from macOS sharing controls")]
 pub struct PipelineStoppedByUser;
 
+#[derive(Debug, thiserror::Error)]
+#[error("No video frames were captured")]
+pub struct NoVideoFramesCaptured;
+
 #[derive(Clone, Debug)]
 pub struct PipelineDoneError(Arc<anyhow::Error>);
 
