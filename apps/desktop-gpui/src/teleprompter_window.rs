@@ -116,6 +116,7 @@ pub struct TeleprompterWindow {
     script_input: Entity<ui::TextInputState>,
     _script_events: gpui::Subscription,
     _recording_events: gpui::Subscription,
+    _quit_events: gpui::Subscription,
     save: Rc<RefCell<PendingSave>>,
     save_task: Option<gpui::Task<()>>,
     playback: Option<gpui::Task<()>>,
@@ -193,6 +194,11 @@ impl TeleprompterWindow {
             cx.defer(crate::app_windows::teleprompter_closed);
             true
         });
+        let quit_events = cx.on_app_quit(|this, _| {
+            this.save_task = None;
+            this.save.borrow_mut().flush();
+            async {}
+        });
 
         let script_input = cx.new(|cx| {
             let mut input = ui::TextInputState::multi_line(window, cx);
@@ -267,6 +273,7 @@ impl TeleprompterWindow {
             script_input,
             _script_events: script_events,
             _recording_events: recording_events,
+            _quit_events: quit_events,
             save,
             save_task: None,
             playback: None,
@@ -1721,6 +1728,45 @@ fn status_label(status: CaptureStatus) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    fn quitting_saves_pending_script_and_settings(cx: &mut gpui::TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("store");
+        std::fs::write(
+            &path,
+            r#"{"teleprompter":{"script":"Saved script.","futureSetting":true},"otherSection":{"keep":true}}"#,
+        )
+        .unwrap();
+        crate::store::set_test_tauri_store_path(Some(path.clone()));
+        cx.update(|cx| {
+            RecordingSession::init(cx);
+        });
+        let (view, font_size) = {
+            let cx = cx.add_empty_window();
+            let view = cx.update(|window, cx| {
+                cx.new(|cx| TeleprompterWindow::new([0., 0., 1., 1.], window, cx))
+            });
+            let font_size = view.update_in(cx, |view, window, cx| {
+                view.type_script(" New ending. 中文 👋", window, cx);
+                view.change_font_size(1., window, cx);
+                view.state.font_size
+            });
+            (view, font_size)
+        };
+        cx.quit();
+        drop(view);
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        crate::store::set_test_tauri_store_path(None);
+        assert_eq!(
+            saved["teleprompter"]["script"],
+            "Saved script. New ending. 中文 👋"
+        );
+        assert_eq!(saved["teleprompter"]["fontSize"], f64::from(font_size));
+        assert_eq!(saved["teleprompter"]["futureSetting"], true);
+        assert_eq!(saved["otherSection"]["keep"], true);
+    }
 
     #[test]
     fn counts_words_in_pasted_scripts() {
