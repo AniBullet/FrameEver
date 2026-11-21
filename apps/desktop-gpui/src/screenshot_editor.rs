@@ -1077,6 +1077,7 @@ impl ScreenshotEditorWindow {
             }
         })
         .detach();
+        window.focus(&this.focus, cx);
 
         this
     }
@@ -4779,6 +4780,23 @@ mod tests {
         cx.simulate_keystrokes("tab");
         editor.update_in(cx, |editor, window, _cx| {
             assert!(!editor.focus.is_focused(window));
+        });
+    }
+
+    #[gpui::test]
+    fn shortcuts_work_before_the_window_is_clicked(cx: &mut gpui::TestAppContext) {
+        let bundle = tempfile::tempdir().unwrap();
+        let path = bundle.path().to_path_buf();
+        let (editor, cx) = cx.add_window_view(move |window, cx| {
+            ScreenshotEditorWindow::new(path.clone(), window, cx)
+        });
+        editor.update_in(cx, |editor, _window, cx| {
+            editor.set_error("keyboard fixture".into(), cx);
+        });
+        cx.run_until_parked();
+        cx.simulate_keystrokes("l");
+        editor.update_in(cx, |editor, _window, _cx| {
+            assert_eq!(editor.inspector_page, InspectorPage::Layers);
         });
     }
 
