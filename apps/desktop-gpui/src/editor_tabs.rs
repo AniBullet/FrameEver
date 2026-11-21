@@ -3621,7 +3621,7 @@ impl EditorWindow {
                                 .text_size(px(12.))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(Hsla::from(theme.editor.text_2))
-                                .child(SharedString::from(t!("Clip {clip}", clip = clip)))
+                                .child(SharedString::from(crate::editor_clips::clip_label(clip)))
                                 .into_any_element()
                         }))
                         .children(auto.then(|| {

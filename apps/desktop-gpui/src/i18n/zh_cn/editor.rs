@@ -564,7 +564,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "生成字幕失败：{reason}",
     ),
     ("Sync", "同步"),
-    ("Clip {clip}", "片段 {clip}"),
     ("System Audio Offset", "系统声音偏移"),
     ("Microphone Offset", "麦克风偏移"),
     ("Camera Offset", "摄像头偏移"),
