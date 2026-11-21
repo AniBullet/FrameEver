@@ -3666,6 +3666,7 @@ mod tests {
                 next_cursor_id: 0,
             }),
             all_tracks_stopped: false,
+            empty_segments: 0,
             terminal_stop_failure: None,
             segment_factory,
             segments: vec![RecordingSegment {
