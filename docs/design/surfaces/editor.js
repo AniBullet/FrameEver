@@ -336,6 +336,12 @@ const groups = {
 		]),
 		gr("Layout", "布局", [
 			sl("padding", "Padding", "内边距", 0, 40, 10, "%"),
+			se(
+				"padStyle",
+				"Padding style",
+				"内边距样式",
+				O(["Proportional", "按比例"], ["Even", "四边等宽"]),
+			),
 			sl("rounding", "Rounded corners", "圆角", 0, 100, 8, "%"),
 			se("corner", "Corner style", "圆角样式", corners),
 			sl("motion", "Motion blur", "运动模糊", 0, 100, 100, "%"),
@@ -515,6 +521,7 @@ const groups = {
 					2,
 					true,
 				),
+				tg("curHover", "Follow hover highlights", "跟随悬停高亮", true),
 				tg("curSmooth", "Smooth movement", "平滑移动", true),
 				{
 					when: "curSmooth",
@@ -733,6 +740,9 @@ const SEL = {
 					"自动跟随光标，手动固定在一点。",
 				),
 				pd("zP", "Manual position", "手动位置", 1),
+			]),
+			gr("All zooms", "全部缩放", [
+				tg("zEarly", "Start zooms early", "提前开始缩放"),
 			]),
 		],
 	},
@@ -1303,6 +1313,7 @@ const S = {
 		sel: null,
 		shortened: false,
 	},
+	manual: [],
 	zoom: 1,
 	quality: 1,
 	aspect: 0,
@@ -1320,6 +1331,9 @@ const S = {
 		gfps: 2,
 		gquality: 2,
 		optimize: false,
+		enhance: false,
+		atype: 0,
+		tracks: { screen: true, camera: true, mic: true, system: false },
 		adv: false,
 		cursor: false,
 		bpp: false,
@@ -1554,7 +1568,19 @@ const panelBody = () => {
 		const def = SEL[sel.track] ?? SEL.zoom;
 		return def.g().map(group).join("");
 	}
-	return groups[S.tab]().map(group).join("");
+	const visuals =
+		S.audioOnly && S.tab === "background"
+			? [
+					gr("Visuals", "视觉效果", [
+						tg("aoVis", "Show visuals", "显示视觉效果"),
+						{
+							when: "aoVis",
+							rows: [ti("aoStyle", AO_STYLES), sg("aoSize", AO_SIZES, 1)],
+						},
+					]),
+				]
+			: [];
+	return [...visuals, ...groups[S.tab]()].map(group).join("");
 };
 const panel = () => {
 	const sel = inspected();
@@ -1628,7 +1654,9 @@ const transcript = () => {
 		-1,
 	);
 	const word = (w, i) =>
-		`<span class="w ${w.cut ? "cut" : ""} ${range && i >= range[0] && i <= range[1] ? "sel" : ""} ${i === now ? "now" : ""} ${S.tx.clean === "fillers" && w.kind >= 0 && !w.cut ? "fill" : ""} ${matches.includes(i) ? "hit" : ""} ${i === hit ? "at" : ""}" data-act="word" data-i="${i}">${w.text}</span>`;
+		i === S.tx.edit
+			? `<input class="w-edit" id="w-edit" value="${w.text}" size="${Math.max(2, w.text.length)}" aria-label="${pick("Correct this word", "修正这个词")}" title="${pick("Enter to save, Esc to cancel, Tab for the next word", "Enter 保存，Esc 取消，Tab 跳到下一个词")}">`
+			: `<span class="w ${w.cut ? "cut" : ""} ${range && i >= range[0] && i <= range[1] ? "sel" : ""} ${i === now ? "now" : ""} ${S.tx.clean === "fillers" && w.kind >= 0 && !w.cut ? "fill" : ""} ${matches.includes(i) ? "hit" : ""} ${i === hit ? "at" : ""}" data-act="word" data-i="${i}">${w.text}</span>`;
 	const paragraphs = [0, 1, 2]
 		.map((p) => {
 			const own = words.map((w, i) => ({ w, i })).filter(({ w }) => w.p === p);
@@ -1644,7 +1672,7 @@ const transcript = () => {
 		const count = picked.length;
 		foot = `<div class="tx-foot"><span class="grow tnum">${L(`${count} ${count === 1 ? "word" : "words"} · ${(count * 0.8).toFixed(1)} s`, `${count} 个词 · ${(count * 0.8).toFixed(1)} s`)}</span><button class="ib" data-act="tx-cut">${picked.every((w) => w.cut) ? `${icon("rotate-ccw")}${L("Restore", "恢复")}` : `${icon("scissors")}${L("Cut", "剪掉")}`}<span class="kbd">Del</span></button></div>`;
 	}
-	return `<div class="panel"><div class="panel-head">${title}<button class="ib ${S.tx.search ? "on" : ""}" data-act="tx-search" title="${pick("Find", "查找")}  Ctrl+F">${icon("search")}</button><button class="ib ${S.tx.clean ? "on" : ""}" data-act="tx-clean">${icon("eraser")}${L("Clean up", "清理")}</button></div>${search}${S.tx.clean ? cleanUp() : ""}<div class="panel-body tx-body" id="panel-body">${paragraphs}</div>${foot}</div>`;
+	return `<div class="panel"><div class="panel-head">${title}<button class="ib" data-act="tx-add" title="${pick("Add caption at playhead", "在播放头处添加字幕")}" aria-label="${pick("Add caption at playhead", "在播放头处添加字幕")}">${icon("plus")}</button><button class="ib ${S.menu === "capdl" ? "on" : ""}" data-act="menu" data-m="capdl" title="${pick("Download captions", "下载字幕")}" aria-label="${pick("Download captions", "下载字幕")}">${icon("download")}</button><button class="ib ${S.tx.search ? "on" : ""}" data-act="tx-search" title="${pick("Find", "查找")}  Ctrl+F">${icon("search")}</button><button class="ib ${S.tx.clean ? "on" : ""}" data-act="tx-clean">${icon("eraser")}${L("Clean up", "清理")}</button></div>${search}${S.tx.clean ? cleanUp() : ""}${S.tx.note ? `<div class="tx-note">${icon("info")}<span class="grow">${L(...S.tx.note)}</span></div>` : ""}<div class="panel-body tx-body" id="panel-body">${paragraphs}</div>${foot}</div>`;
 };
 const SIDE = [
 	["style", "Style", "样式"],
@@ -1683,12 +1711,17 @@ const aspects = [
 	["Classic 4:3", "经典 4:3"],
 	["Tall 3:4", "高屏 3:4"],
 ];
-const toolbar = () => `<div class="toolbar">
+const toolbar = () =>
+	S.audioOnly && !S.v.aoVis
+		? `<div class="toolbar"><span class="grow"></span></div>`
+		: `<div class="toolbar">
 	<button class="ib ${S.menu === "aspect" ? "on" : ""}" data-act="menu" data-m="aspect">${icon("proportions")}${L(...aspects[S.aspect])}${icon("chevron-down")}</button>
 	<button class="ib" data-act="dialog" data-d="crop">${icon("crop")}${L("Crop", "裁剪")}</button>
 	<button class="ib ${S.menu === "snapshot" ? "on" : ""}" data-act="menu" data-m="snapshot" title="${pick("Snapshot", "快照")}">${icon("image")}${L("Snapshot", "快照")}${icon("chevron-down")}</button>
 	<button class="ib ${S.menu === "shapes" || S.shapeTool !== null ? "on" : ""}" data-act="menu" data-m="shapes" title="${pick("Draw a shape", "绘制形状")}">${icon(S.shapeTool === null ? "arrow-up-right" : SHAPES[S.shapeTool][2])}${L("Shapes", "形状")}${icon("chevron-down")}</button>
 	<span class="grow"></span>
+	<button class="ib ${S.enhance ? "on" : ""}" data-act="enhance" title="${pick("Show the paused frame enhanced", "查看暂停画面增强后的效果")}">${icon("wand-sparkles")}${L("Enhance", "增强")}</button>
+	${S.enhance ? `<button class="ib" title="${pick("Hold to see the original", "按住查看原画面")}">${icon("columns-2")}${L("Compare", "对比")}</button>` : ""}
 	<button class="ib" title="${pick("Full-screen preview (F)", "全屏预览（F）")}">${icon("maximize")}</button>
 	<span class="lbl">${L("Preview", "预览")}</span>
 	${`<div class="seg">${[
@@ -1714,8 +1747,24 @@ const shapeLayer = () => {
 		${on === 1 ? `<rect class="box" x="223" y="23" width="18" height="18"/>${handle(223, 23)}${handle(241, 23)}${handle(223, 41)}${handle(241, 41)}` : ""}
 	</svg>`;
 };
+const AO_STYLES = O(["Bars", "柱状"], ["Wave", "波形"], ["Circle", "圆环"]);
+const AO_SIZES = O(["Small", "小"], ["Medium", "中"], ["Large", "大"]);
+const aoVisual = () => {
+	const style = S.v.aoStyle ?? 0;
+	const scale = [0.5, 0.75, 1][S.v.aoSize ?? 1];
+	const levels = [38, 62, 84, 55, 96, 70, 44, 78, 58, 90, 48, 66, 34, 72, 52];
+	if (style === 2)
+		return `<div class="ao-vis"><span class="ao-ring" style="width:${46 * scale}cqh;height:${46 * scale}cqh"></span></div>`;
+	return `<div class="ao-vis ${style === 1 ? "wave" : ""}" style="height:${60 * scale}%">${levels.map((level) => `<i style="height:${level}%"></i>`).join("")}</div>`;
+};
+const audioOnlyCanvas = () =>
+	S.v.aoVis
+		? `<div class="canvas" id="canvas">${aoVisual()}<div class="cap-line">${L("Now open the library", "现在打开资源库")}</div></div>`
+		: `<div class="ao-card">${icon("volume-2", "lg")}<h4>${L("Audio only", "仅音频")}</h4><p>${L("This recording has no video.", "这段录制没有视频。")}</p><div class="acts"><button class="btn" data-act="export">${L("Export audio", "导出音频")}</button><button class="line-btn" data-act="ao-vis">${L("Add visuals", "添加视觉效果")}</button></div></div>`;
 const canvas = () =>
-	`<div class="canvas ${S.shapeTool === null ? "" : "draw"}" id="canvas"><div class="screen">${scene}</div><div class="bubble"></div>${shapeLayer()}<div class="cap-line">${L("Now open the library", "现在打开资源库")}</div></div>`;
+	S.audioOnly
+		? audioOnlyCanvas()
+		: `<div class="canvas ${S.shapeTool === null ? "" : "draw"}" id="canvas"><div class="screen">${scene}</div><div class="bubble"></div>${shapeLayer()}<div class="cap-line">${L("Now open the library", "现在打开资源库")}</div></div>`;
 const stage = () => `<div class="stage">${canvas()}</div>`;
 const applyPreview = (root = document) => {
 	const canvases = root.querySelectorAll(".canvas");
@@ -1726,7 +1775,10 @@ const applyPreview = (root = document) => {
 			: `linear-gradient(135deg,${S.v.c1 ?? "#1F3FD8"},${S.v.c2 ?? "#C98FA7"})`;
 	for (const node of canvases) {
 		node.style.setProperty("--bg-fill", fill);
-		node.style.setProperty("--pad", `${(S.v.padding ?? 10) * 0.9}%`);
+		node.style.setProperty(
+			"--pad",
+			`${(S.v.padding ?? 10) * 0.9}${S.v.padStyle === 1 ? "cqh" : "%"}`,
+		);
 		node.style.setProperty("--round", `${(S.v.rounding ?? 8) * 0.5}px`);
 		node.style.setProperty("--shadow", (S.v.shadow ?? 74) / 200);
 		node.style.setProperty("--cam", `${(S.v.camSize ?? 30) * 0.55}%`);
@@ -1766,33 +1818,36 @@ const wave = (width = 900) => {
 	}
 	return `<svg class="wave" viewBox="0 0 ${width} 16" preserveAspectRatio="none" aria-hidden="true">${bars.join("")}</svg>`;
 };
+const laneList = (t) => (t.id === "captions" && S.tx.empty ? S.manual : t.segs);
 const laneSegs = (t) =>
 	t.id === "video" && S.noClips
 		? `<div class="lane-empty">${FE.doodle("TICK", { width: 22, still: true })}${L("No clips yet", "还没有片段")}</div>`
-		: t.segs
-				.map((seg, i) => {
-					const on = S.sel && S.sel.track === t.id && S.sel.i === i;
-					const tiny = (seg.e - seg.s) / TOTAL < 0.03;
-					const fill = TRACK_FILL[t.id]
-						? `background:var(--track-${TRACK_FILL[t.id]});color:var(--white);`
-						: "";
-					const clip = t.id === "video";
-					const body = clip
-						? `<span class="strip"></span><span class="strip-wave">${wave()}</span><b class="chip">${L(seg.l[0], seg.l[1])}${eqPreset() ? icon("sliders-horizontal") : ""}</b>`
-						: `${t.id === "audio" ? wave() : ""}<b>${seg.l[0] ? L(seg.l[0], seg.l[1]) : ""}</b>`;
-					return `<button class="seg-b ${on ? "on" : ""} ${tiny ? "tiny" : ""} ${clip ? "clip" : ""}" data-act="select" data-track="${t.id}" data-i="${i}" style="${fill}left:${(seg.s / TOTAL) * 100}%;width:calc(${((seg.e - seg.s) / TOTAL) * 100}% - 1px)">${body}</button>`;
-				})
-				.join("") +
-			(t.id === "video"
-				? [1, 2]
-						.map((i) => {
-							const left = `left:${(clipSegs[i].s / TOTAL) * 100}%`;
-							return S.trs[i]
-								? `<button class="tr-mark ${S.menu === "transition" && S.trAt === i ? "on" : ""}" data-act="tr" data-i="${i}" style="${left}" title="${pick(...TRANSITIONS[S.trs[i].kind])}"></button>`
-								: `<button class="tr-add" data-act="tr" data-i="${i}" style="${left}" title="${pick("Add transition", "添加转场")}">${icon("plus")}</button>`;
-						})
-						.join("")
-				: "");
+		: t.id === "captions" && S.tx.empty && S.manual.length === 0
+			? `<button class="lane-empty lane-add" data-act="tx-add">${icon("plus")}${L("Add caption at playhead", "在播放头处添加字幕")}</button>`
+			: laneList(t)
+					.map((seg, i) => {
+						const on = S.sel && S.sel.track === t.id && S.sel.i === i;
+						const tiny = (seg.e - seg.s) / TOTAL < 0.03;
+						const fill = TRACK_FILL[t.id]
+							? `background:var(--track-${TRACK_FILL[t.id]});color:var(--white);`
+							: "";
+						const clip = t.id === "video";
+						const body = clip
+							? `<span class="strip"></span><span class="strip-wave">${wave()}</span><b class="chip">${L(seg.l[0], seg.l[1])}${eqPreset() ? icon("sliders-horizontal") : ""}</b>`
+							: `${t.id === "audio" ? wave() : ""}<b>${seg.l[0] ? L(seg.l[0], seg.l[1]) : ""}</b>`;
+						return `<button class="seg-b ${on ? "on" : ""} ${tiny ? "tiny" : ""} ${clip ? "clip" : ""}" data-act="select" data-track="${t.id}" data-i="${i}" style="${fill}left:${(seg.s / TOTAL) * 100}%;width:calc(${((seg.e - seg.s) / TOTAL) * 100}% - 1px)">${body}</button>`;
+					})
+					.join("") +
+				(t.id === "video"
+					? [1, 2]
+							.map((i) => {
+								const left = `left:${(clipSegs[i].s / TOTAL) * 100}%`;
+								return S.trs[i]
+									? `<button class="tr-mark ${S.menu === "transition" && S.trAt === i ? "on" : ""}" data-act="tr" data-i="${i}" style="${left}" title="${pick(...TRANSITIONS[S.trs[i].kind])}"></button>`
+									: `<button class="tr-add" data-act="tr" data-i="${i}" style="${left}" title="${pick("Add transition", "添加转场")}">${icon("plus")}</button>`;
+							})
+							.join("")
+					: "");
 const TRACK_FILL = {
 	zoom: "zoom",
 	captions: "text",
@@ -1806,8 +1861,12 @@ const TRACK_FILL = {
 	shot: "shot",
 	scene: "scene",
 };
+const AO_TABS = ["background", "audio", "captions"];
+const AO_LANES = ["video", "captions", "text", "audio", "image"];
 const trackList = () => {
-	return TRACKS.filter((t) => S.shown.has(t.id));
+	return TRACKS.filter(
+		(t) => S.shown.has(t.id) && (!S.audioOnly || AO_LANES.includes(t.id)),
+	);
 };
 const CHAPTERS = [0.2, 0.55, 0.8].map((share) => Math.round(TOTAL * share));
 const timeline = (height) => {
@@ -1816,7 +1875,7 @@ const timeline = (height) => {
 	const rows = trackList()
 		.map(
 			(t) =>
-				`<div class="tl-row ${t.big ? "big" : ""} ${t.id === "audio" ? "mid" : ""}"><span class="gutter">${icon(t.icon)}${L(t.en, t.zh)}</span><div class="lane" data-act="lane">${laneSegs(t)}</div></div>`,
+				`<div class="tl-row ${t.big ? "big" : ""} ${t.id === "audio" ? "mid" : ""}"><span class="gutter">${icon(S.audioOnly && t.id === "video" ? "mic" : t.icon)}${S.audioOnly && t.id === "video" ? L("Recording", "录音") : L(t.en, t.zh)}</span><div class="lane" data-act="lane">${laneSegs(t)}</div></div>`,
 		)
 		.join("");
 	return `<div class="timeline ${S.split ? "split" : ""}" style="height:${height}px">
@@ -1847,6 +1906,7 @@ const rail = () =>
 		"keyboard",
 		"captions",
 	]
+		.filter((id) => !S.audioOnly || AO_TABS.includes(id))
 		.map((id) => {
 			const tab = TABS[id];
 			return `<button class="${!inspected() && S.tab === id ? "on" : ""}" data-act="tab" data-v="${id}" title="${pick(tab.en, tab.zh)}" aria-label="${pick(tab.en, tab.zh)}">${icon(tab.icon)}</button>`;
@@ -1868,7 +1928,32 @@ const optGroup = (key, titleEn, titleZh, opts, disabled = []) =>
 				: `<button class="${S.ex[key] === i ? "on" : ""}" data-act="ex" data-k="${key}" data-v="${i}">${L(o[0], o[1])}</button>`,
 		)
 		.join("")}</div>`;
+const EX_FORMATS = [
+	["MP4", "MP4"],
+	["GIF", "GIF"],
+	["Tracks", "分轨"],
+	["Audio", "音频"],
+];
+const EX_TRACKS = [
+	["screen", "monitor", "Screen", "屏幕", "MP4 · 1920×1080"],
+	["camera", "webcam", "Camera", "摄像头", "MP4 · 1280×720"],
+	["mic", "mic", "Microphone", "麦克风", "WAV · 48 kHz"],
+	["system", "volume-2", "System audio", "系统声音", "WAV · 48 kHz"],
+];
+const exTrackCount = () => EX_TRACKS.filter(([k]) => S.ex.tracks[k]).length;
+const exHidden = () => (S.audioOnly ? (S.v.aoVis ? [2] : [0, 1, 2]) : []);
+const exportOtherForm = () => {
+	const tracks = S.ex.format === 2;
+	const rows = tracks
+		? `<h5 title="${pick("Each track follows your cuts and speed, without background or effects.", "每条轨道跟随你的剪辑和速度，不带背景和效果。")}">${L("Tracks", "轨道")}</h5>${EX_TRACKS.map(([k, ic, en, zh, detail]) => `<div class="row-sw">${icon(ic)}<span class="grow">${L(en, zh)}</span><em class="tnum">${detail}</em><button class="switch ${S.ex.tracks[k] ? "on" : ""}" data-act="extrack" data-k="${k}" aria-label="${pick(en, zh)}"></button></div>`).join("")}`
+		: `${optGroup("atype", "File type", "文件类型", [
+				["MP3", "MP3"],
+				["WAV", "WAV"],
+			])}<p class="note">${S.ex.atype === 0 ? L("Small and plays everywhere. 192 kb/s stereo.", "文件小，到处都能播放。192 kb/s 立体声。") : L("Lossless 16-bit, 48 kHz. Best for more editing.", "无损 16 位，48 kHz。适合继续编辑。")}</p>`;
+	return `<div class="ex-form">${optGroup("format", "Format", "格式", EX_FORMATS, exHidden())}${rows}</div>`;
+};
 const exportForm = () => {
+	if (S.ex.format >= 2) return exportOtherForm();
 	const gif = S.ex.format === 1;
 	const clip = S.ex.clip === null ? null : clipSegs[S.ex.clip];
 	const clipName = clip
@@ -1890,10 +1975,7 @@ const exportForm = () => {
 			["File", "文件"],
 			["Clipboard", "剪贴板"],
 		])}
-		${optGroup("format", "Format", "格式", [
-			["MP4", "MP4"],
-			["GIF", "GIF"],
-		])}
+		${optGroup("format", "Format", "格式", EX_FORMATS, exHidden())}
 		${
 			gif
 				? ""
@@ -1948,11 +2030,26 @@ const exportForm = () => {
 					])
 		}
 		${gif ? "" : `<div class="row-sw"><span>${L("Optimize file size", "优化文件大小")}</span><button class="switch ${S.ex.optimize ? "on" : ""}" data-act="ext" data-k="optimize" aria-label="optimize"></button></div>`}
+		<div class="row-sw" title="${pick("Sharpens zoomed-in and low-contrast screen content. Exports take longer.", "让放大后和低对比度的屏幕内容更清晰。导出会更久。")}"><span>${L("Enhance quality", "增强画质")}</span><button class="switch ${S.ex.enhance ? "on" : ""}" data-act="ext" data-k="enhance" aria-label="${pick("Enhance quality", "增强画质")}"></button></div>
 		<div class="grp ${S.ex.adv ? "" : "shut"}" style="margin:6px -14px 0;border-bottom:0;border-top:1px solid var(--border)"><button data-act="ext" data-k="adv">${L("Advanced", "高级")}${icon("chevron-down")}</button>
 		${S.ex.adv ? `<div class="grp-body"><div class="row-sw"><span>${L("Export cursor only", "仅导出光标")}</span><button class="switch ${S.ex.cursor ? "on" : ""}" data-act="ext" data-k="cursor" aria-label="cursor"></button></div>${row(sl("bpp", "Bits per pixel", "每像素比特数", 0.02, 0.5, 0.15, "", 0.01))}</div>` : ""}</div>
 	</div>`;
 };
 const stats = (two) => {
+	if (S.ex.format === 2) {
+		const count = exTrackCount();
+		return `<div class="stats ${two ? "two" : ""}">
+		<div><small>${L("Duration", "时长")}</small><b>${fmt(TOTAL)}</b></div>
+		<div><small>${L("Files", "文件")}</small><b>${count}</b></div>
+		<div><small>${L("Estimated size", "预计大小")}</small><b>${count * 38} MB</b></div>
+		<div><small>${L("Export time", "导出时间")}</small><b>${count ? "0:50" : "0:00"}</b></div>
+	</div>`;
+	}
+	if (S.ex.format === 3)
+		return `<div class="stats two">
+		<div><small>${L("Duration", "时长")}</small><b>${fmt(TOTAL)}</b></div>
+		<div><small>${L("Estimated size", "预计大小")}</small><b>${S.ex.atype === 0 ? 5 : 41} MB</b></div>
+	</div>`;
 	const clip =
 		S.ex.range === 1 && S.ex.clip !== null ? clipSegs[S.ex.clip] : null;
 	const length = clip ? clip.e - clip.s : TOTAL;
@@ -1962,7 +2059,7 @@ const stats = (two) => {
 		<div><small>${L("Duration", "时长")}</small><b>${fmt(length)}</b></div>
 		<div><small>${L("Output", "输出")}</small><b>${["1280 × 720", "1920 × 1080", "3840 × 2160"][S.ex.res]}</b></div>
 		<div><small>${L("Estimated size", "预计大小")}</small><b>${Math.round(size)} MB</b></div>
-		<div><small>${L("Export time", "导出时间")}</small><b>${["0:40", "1:12", "3:05"][S.ex.res]}</b></div>
+		<div><small>${L("Export time", "导出时间")}</small><b>${(S.ex.enhance ? ["1:05", "1:58", "5:10"] : ["0:40", "1:12", "3:05"])[S.ex.res]}</b></div>
 	</div>`;
 };
 const exportStateBody = () => {
@@ -1974,21 +2071,28 @@ const exportStateBody = () => {
 		case "cancel":
 			return `<div class="ex-state"><h4>${L("Cancel export?", "取消导出？")}</h4><p>${L("The frames rendered so far are discarded.", "已渲染的帧会被丢弃。")}</p><div class="acts"><button class="ex-sec" data-act="exst" data-v="progress">${L("Keep exporting", "继续导出")}</button><button class="btn danger" data-act="exst" data-v="form">${L("Cancel export", "取消导出")}</button></div></div>`;
 		case "done":
-			return `<div class="ex-state"><span class="done-bar"></span>${FE.doodle("ALL_SET", { width: 72, still })}<h4>${L("Export complete", "导出完成")}</h4><p>Product demo.mp4 · 64 MB</p><div class="acts"><button class="ex-sec" data-act="close-export">${L("Back to editor", "返回编辑器")}</button><button class="ex-cta" style="flex:none;padding:0 14px">${L("Open file", "打开文件")}</button></div></div>`;
+			return `<div class="ex-state"><span class="done-bar"></span>${FE.doodle("ALL_SET", { width: 72, still })}<h4>${L("Export complete", "导出完成")}</h4><p>${S.ex.format === 2 ? L(`Product demo tracks · ${exTrackCount()} files`, `Product demo 分轨 · ${exTrackCount()} 个文件`) : S.ex.format === 3 ? `Product demo.${S.ex.atype === 0 ? "mp3" : "wav"} · ${S.ex.atype === 0 ? 5 : 41} MB` : "Product demo.mp4 · 64 MB"}</p><div class="acts"><button class="ex-sec" data-act="close-export">${L("Back to editor", "返回编辑器")}</button><button class="ex-cta" style="flex:none;padding:0 14px">${S.ex.format === 2 ? L("Open folder", "打开文件夹") : L("Open file", "打开文件")}</button></div></div>`;
 		case "failed":
 			return `<div class="ex-state">${icon("triangle-alert", "big bad")}<h4>${L("Couldn't finish the export", "导出没有完成")}</h4><p>${L("The disk is full. Free up some space, then export again.", "磁盘已满。腾出一些空间后再导出。")}</p><div class="acts"><button class="ex-sec">${L("Details", "详情")}</button><button class="ex-sec">${L("Export logs", "导出日志")}</button><button class="ex-cta" style="flex:none;padding:0 14px" data-act="exst" data-v="form">${L("Back to export", "返回导出")}</button></div></div>`;
 		default:
 			return "";
 	}
 };
-const cta = () =>
-	`<div class="ex-foot"><button class="ex-cta" data-act="exst" data-v="progress">${S.ex.dest === 0 ? L("Export to file", "导出到文件") : L("Export to clipboard", "导出到剪贴板")}</button></div>`;
+const cta = () => {
+	if (S.ex.format === 2)
+		return `<div class="ex-foot">${exTrackCount() ? "" : `<p class="note">${L("Choose at least one track.", "至少选一条轨道。")}</p>`}<button class="ex-cta" data-act="exst" data-v="progress" ${exTrackCount() ? "" : "disabled"}>${L("Export tracks", "导出分轨")}</button></div>`;
+	if (S.ex.format === 3)
+		return `<div class="ex-foot"><button class="ex-cta" data-act="exst" data-v="progress">${L("Export audio", "导出音频")}</button></div>`;
+	return `<div class="ex-foot"><button class="ex-cta" data-act="exst" data-v="progress">${S.ex.dest === 0 ? L("Export to file", "导出到文件") : L("Export to clipboard", "导出到剪贴板")}</button></div>`;
+};
 const exportPage = () => `<div class="ex-page">
 	<div class="titlebar"><button class="ib" data-act="close-export">${icon("chevron-left")}${L("Back to editor", "返回编辑器")}</button><b style="font-size:var(--text-body);font-weight:600;margin-left:6px">${L("Export", "导出")}</b><span class="grow"></span><span class="caption">${glyphs.minimize}</span><span class="caption">${glyphs.maximize}</span><span class="caption">${glyphs.close}</span></div>
 	<div class="ex-body"><div class="ex-left"><div class="canvas-wrap">${canvas()}</div>${stats(false)}</div>
 	<div class="ex-side">${S.exStage === "form" ? exportForm() + cta() : exportStateBody()}</div></div>
 </div>`;
 const menus = {
+	capdl: () =>
+		`<div class="pop menu" style="right:132px;top:126px;width:220px"><div class="t">${L("Download captions", "下载字幕")}</div><button data-act="cap-save" data-v="srt"><span class="grow">SubRip (.srt)</span></button><button data-act="cap-save" data-v="vtt"><span class="grow">WebVTT (.vtt)</span></button></div>`,
 	aspect: () =>
 		`<div class="pop menu" style="left:8px;top:84px;width:200px">${aspects.map((a, i) => `<button data-act="aspect" data-v="${i}"><span class="grow">${L(a[0], a[1])}</span>${S.aspect === i ? icon("check") : ""}</button>`).join("")}</div>`,
 	snapshot: () =>
@@ -2125,6 +2229,19 @@ const renderViewRow = () => {
 			S.view === "export"
 				? ""
 				: `<div class="seg">${[
+						[false, "Screen recording", "屏幕录制"],
+						[true, "Audio only", "仅音频"],
+					]
+						.map(
+							([v, en, zh]) =>
+								`<button class="${Boolean(S.audioOnly) === v ? "on" : ""}" data-pact="kind" data-v="${v}">${L(en, zh)}</button>`,
+						)
+						.join("")}</div>`
+		}
+		${
+			S.view === "export"
+				? ""
+				: `<div class="seg">${[
 						[false, "With clips", "有片段"],
 						[true, "No clips yet", "还没有片段"],
 					]
@@ -2165,7 +2282,7 @@ const render = () => {
 	const priorTl = document.getElementById("tl-scroll")?.scrollTop ?? 0;
 	const stacked = display() === "stacked";
 	document.getElementById("stage").innerHTML =
-		`<div class="ed-fit" id="ed-fit"><div class="ed ${stacked ? "stacked" : ""}" id="ed">
+		`<div class="ed-fit" id="ed-fit"><div class="ed ${stacked ? "stacked" : ""} ${S.audioOnly ? "ao" : ""}" id="ed">
 		${titlebar()}${layout()}
 		${S.view === "export" ? exportPage() : ""}
 		${S.menu ? menus[S.menu]() : ""}
@@ -2274,8 +2391,31 @@ const act = (el, event) => {
 			);
 			break;
 		}
+		case "tx-add": {
+			const segs = laneList(TRACKS.find((t) => t.id === "captions"));
+			const next = segs.find((seg) => seg.e > S.t);
+			const room = (next ? next.s : TOTAL) - S.t;
+			if ((next && next.s <= S.t) || room < 1) {
+				S.tx.note = ["No room for another caption here", "这里放不下新的字幕"];
+				break;
+			}
+			S.tx.note = null;
+			segs.push({ s: S.t, e: S.t + Math.min(3, room), l: ["", ""] });
+			segs.sort((a, b) => a.s - b.s);
+			S.shown.add("captions");
+			S.sel = {
+				track: "captions",
+				i: segs.findIndex((seg) => seg.s === S.t),
+			};
+			break;
+		}
+		case "cap-save":
+			S.menu = null;
+			S.tx.note = [`Saved Product demo.${d.v}`, `已保存 Product demo.${d.v}`];
+			break;
 		case "word": {
 			const i = Number(d.i);
+			S.tx.note = null;
 			S.tx.sel = event.shiftKey && S.tx.sel ? [S.tx.sel[0], i] : [i, i];
 			S.t = tx()[i].at;
 			S.playing = false;
@@ -2421,6 +2561,17 @@ const act = (el, event) => {
 		case "ext":
 			S.ex[d.k] = !S.ex[d.k];
 			break;
+		case "ao-vis":
+			S.v.aoVis = true;
+			S.tab = "background";
+			break;
+		case "enhance":
+			S.enhance = !S.enhance;
+			S.ex.enhance = S.enhance;
+			break;
+		case "extrack":
+			S.ex.tracks[d.k] = !S.ex.tracks[d.k];
+			break;
 		case "exst":
 			setStage(d.v);
 			break;
@@ -2477,6 +2628,13 @@ const pact = (el) => {
 	if (d.pact === "exst") setStage(d.v);
 	if (d.pact === "clips") S.noClips = d.v === "true";
 	if (d.pact === "tx-empty") S.tx.empty = d.v === "true";
+	if (d.pact === "kind") {
+		S.audioOnly = d.v === "true";
+		S.sel = null;
+		S.menu = null;
+		S.ex.format = S.audioOnly ? 3 : 0;
+		if (S.audioOnly && !AO_TABS.includes(S.tab)) S.tab = "audio";
+	}
 	render();
 };
 
@@ -2538,6 +2696,32 @@ document.addEventListener("keydown", (event) => {
 		else S.side = "style";
 		render();
 	}
+});
+document.addEventListener("dblclick", (event) => {
+	const word = event.target.closest('[data-act="word"]');
+	if (!word) return;
+	S.tx.edit = Number(word.dataset.i);
+	S.tx.sel = null;
+	render();
+	const input = document.getElementById("w-edit");
+	input?.focus();
+	input?.select();
+});
+document.addEventListener("keydown", (event) => {
+	if (event.target.id !== "w-edit") return;
+	const list = tx();
+	const at = S.tx.edit;
+	if (event.key === "Escape") S.tx.edit = null;
+	else if (event.key === "Enter" || event.key === "Tab") {
+		event.preventDefault();
+		const text = event.target.value.trim();
+		if (text) list[at].text = text;
+		S.tx.edit = event.key === "Tab" && at + 1 < list.length ? at + 1 : null;
+	} else return;
+	render();
+	const input = document.getElementById("w-edit");
+	input?.focus();
+	input?.select();
 });
 window.addEventListener("resize", fit);
 
@@ -2937,7 +3121,10 @@ const renderDocs = () => {
 		],
 		[
 			["Chapter marks", "章节标记"],
-			["Timeline ruler; Chapter marks list on the timeline toolbar", "时间轴标尺；时间轴工具栏的章节标记列表"],
+			[
+				"Timeline ruler; Chapter marks list on the timeline toolbar",
+				"时间轴标尺；时间轴工具栏的章节标记列表",
+			],
 		],
 		[
 			["Aspect ratio, crop, preview quality", "宽高比、裁剪、预览画质"],
@@ -3006,6 +3193,89 @@ const renderDocs = () => {
 		[
 			["Disabled Captions pill in the header", "标题栏禁用的字幕胶囊"],
 			["Removed: it never did anything", "移除：它没有任何作用"],
+		],
+		[
+			[
+				"Download captions as SubRip (.srt) or WebVTT (.vtt)",
+				"把字幕下载为 SubRip (.srt) 或 WebVTT (.vtt)",
+			],
+			[
+				"Transcript header, the download button. Times follow the captions as they show after cuts and speed changes. A line under the header names the saved file",
+				"转写页头部的下载按钮。时间按剪辑和变速之后屏幕上显示的字幕计算。头部下方一行写出保存的文件名",
+			],
+		],
+		[
+			["Add a caption at the playhead", "在播放头处添加字幕"],
+			[
+				"Transcript header, the plus button, and the empty caption lane. The new caption is selected with its text ready to type; when the playhead is inside a caption the header says there is no room",
+				"转写页头部的加号按钮，以及空的字幕轨。新字幕会被选中，文字可直接输入；播放头在已有字幕内时，头部提示放不下",
+			],
+		],
+		[
+			["Correct a transcript word", "修正转写里的词"],
+			[
+				"Double-click the word in Transcript. Enter saves, Esc cancels, Tab saves and moves to the next word. The caption keeps its timing",
+				"在转写页双击这个词。Enter 保存，Esc 取消，Tab 保存并跳到下一个词。字幕时间不变",
+			],
+		],
+		[
+			["Padding style: proportional or even", "内边距样式：按比例或四边等宽"],
+			[
+				"Screen › Layout, under Padding. Even gives the same width on all four sides; corner drags on the preview and style segments follow it",
+				"画面 › 布局，在内边距下方。四边等宽让四边留白相同；预览里拖角和样式片段都跟随它",
+			],
+		],
+		[
+			["Start zooms early", "提前开始缩放"],
+			[
+				"Zoom inspector › All zooms. It applies to every zoom in the project, so it sits apart from the selected zoom's own rows",
+				"缩放检查器 › 全部缩放。它作用于项目里的每个缩放，所以和所选缩放自己的行分开",
+			],
+		],
+		[
+			["Follow hover highlights", "跟随悬停高亮"],
+			[
+				"Cursor tab, above Smooth movement. On for new projects; a project saved earlier keeps it off",
+				"光标页，在平滑移动上方。新项目默认打开；之前保存的项目保持关闭",
+			],
+		],
+		[
+			["Zooms for new recordings", "为新录制自动添加缩放"],
+			[
+				"Settings › Studio › Auto zoom on clicks, unchanged. The editor's empty zoom lane still offers Add zooms automatically",
+				"设置 › Studio › 点击时自动缩放，不变。编辑器的空缩放轨仍提供自动添加",
+			],
+		],
+		[
+			[
+				"Export the screen, camera, microphone or system audio on their own",
+				"单独导出屏幕、摄像头、麦克风或系统声音",
+			],
+			[
+				"Export › Format › Tracks. One switch per track with its file type; the totals count files; the button is off until one track is chosen. Saved to a folder, so there is no clipboard destination. Studio recordings only",
+				"导出 › 格式 › 分轨。每条轨道一个开关，旁边是文件类型；统计显示文件数；一条都没选时按钮不可用。保存到文件夹，所以没有剪贴板目的地。仅 Studio 录制",
+			],
+		],
+		[
+			["Export the sound alone as MP3 or WAV", "只把声音导出为 MP3 或 WAV"],
+			[
+				"Export › Format › Audio, for any project",
+				"导出 › 格式 › 音频，任何项目都可用",
+			],
+		],
+		[
+			["Enhance quality", "增强画质"],
+			[
+				"Export, a switch under Optimize file size; the export time grows with it. In the editor, Enhance on the preview toolbar shows the paused frame enhanced and turns the same switch on; Compare appears beside it and shows the original while held",
+				"导出页，在优化文件大小下方的开关；打开后导出时间变长。编辑器里，预览工具栏的增强显示暂停画面增强后的效果，并打开同一个开关；旁边出现对比，按住时显示原画面",
+			],
+		],
+		[
+			["Audio only recording in the editor", "编辑器里的仅音频录制"],
+			[
+				"The preview shows Audio only with Export audio and Add visuals. Add visuals opens Background › Visuals: Show visuals, a style (bars, wave, circle) and a size. Screen, Camera, Cursor and Keyboard tabs and the zoom lane are not shown. Without visuals, Export offers Audio only",
+				"预览显示仅音频，带导出音频和添加视觉效果。添加视觉效果打开背景 › 视觉效果：显示开关、样式（柱状、波形、圆环）和大小。画面、摄像头、光标、按键页和缩放轨不显示。没有视觉效果时，导出只提供音频",
+			],
 		],
 	]);
 };
