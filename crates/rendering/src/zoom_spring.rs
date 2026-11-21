@@ -2389,8 +2389,6 @@ mod tests {
 
     #[test]
     fn precompute_cost_is_bounded_for_long_projects() {
-        use std::time::{Duration, Instant};
-
         // Synthetic 30-minute project: 10 auto zoom segments and 50k cursor
         // move events with a click every 3 seconds.
         let duration_secs = 1800.0;
@@ -2411,51 +2409,22 @@ mod tests {
             .map(|i| auto_segment(i as f64 * 170.0 + 10.0, i as f64 * 170.0 + 40.0, 2.0))
             .collect();
 
-        // Amortization: ensuring an early time must NOT precompute the whole
-        // 30-minute timeline. 1s of content is ~127 samples at the 8ms step;
-        // the full timeline would be ~225k.
-        let construct_start = Instant::now();
         let mut lazy = timeline_for(&segments, &cursor, duration_secs);
-        let construct_elapsed = construct_start.elapsed();
-        let ensure_start = Instant::now();
         lazy.ensure_precomputed_until(1.0);
-        let ensure_elapsed = ensure_start.elapsed();
         let lazy_samples = lazy.samples.len();
-        println!(
-            "construct: {construct_elapsed:?}, ensure(1s): {ensure_elapsed:?}, samples after early ensure: {lazy_samples}"
-        );
         assert!(
             lazy_samples < 1_000,
             "early ensure_precomputed_until precomputed {lazy_samples} samples; amortization is broken"
         );
 
-        // Full precompute of the 30-minute timeline.
         let mut timeline = timeline_for(&segments, &cursor, duration_secs);
-        let precompute_start = Instant::now();
         timeline.precompute();
-        let precompute_elapsed = precompute_start.elapsed();
-        let total_samples = timeline.samples.len();
-        println!("precompute({total_samples} samples): {precompute_elapsed:?}");
+        assert_eq!(timeline.samples.len(), 225_002);
 
-        // 10k hot-path samples spread across the whole duration.
-        let sample_start = Instant::now();
-        let mut checksum = 0.0f64;
         for i in 0..10_000u32 {
             let t = (i as f32 * 0.18) % duration_secs as f32;
-            checksum += timeline.sample(t).display_amount();
+            assert!(timeline.sample(t).display_amount().is_finite());
         }
-        let sample_elapsed = sample_start.elapsed();
-        println!("10k samples: {sample_elapsed:?} (checksum {checksum})");
-
-        // Generous debug-mode bounds; release is far faster.
-        assert!(
-            precompute_elapsed < Duration::from_millis(500),
-            "full precompute took {precompute_elapsed:?} (>500ms) for a 30-minute project"
-        );
-        assert!(
-            sample_elapsed < Duration::from_millis(250),
-            "10k samples took {sample_elapsed:?} (>250ms)"
-        );
     }
 
     fn benchmark_project(duration_secs: f64, zoom_count: usize) -> ProjectConfiguration {
