@@ -155,6 +155,7 @@ pub(crate) struct PagesState {
     diagnostic: DiagnosticStatus,
     diagnostic_mode: diagnostics::SyncMode,
     diagnostic_mic: bool,
+    diagnostic_duration_secs: u64,
     /// Set for the length of a run; the Cancel button flips it and the runner's
     /// watchdog kills the self-test subprocess. It stays readable after Cancel
     /// so the run's later stages can still see it.
@@ -215,6 +216,7 @@ impl PagesState {
             diagnostic: DiagnosticStatus::Idle,
             diagnostic_mode: diagnostics::SyncMode::Both,
             diagnostic_mic: false,
+            diagnostic_duration_secs: diagnostics::DEFAULT_DURATION_SECS,
             diagnostic_cancel: None,
             diagnostic_cancelling: false,
             selftest_binary: None,
@@ -1938,7 +1940,7 @@ impl SettingsWindow {
             "FrameEver will take over your screen with a flashing pattern and play loud beeps for \
              about {seconds} seconds per pipeline. Take your headphones off, leave the volume \
              audible, and leave the machine alone until it finishes.",
-            seconds = diagnostics::DEFAULT_DURATION_SECS
+            seconds = self.pages.diagnostic_duration_secs
         );
         cx.spawn_in(window, async move |this, cx| {
             if !crate::platform::confirm_dialog(
@@ -1973,7 +1975,7 @@ impl SettingsWindow {
         let options = diagnostics::SyncTestOptions {
             mode: self.pages.diagnostic_mode,
             microphone: self.pages.diagnostic_mic,
-            duration_secs: diagnostics::DEFAULT_DURATION_SECS,
+            duration_secs: self.pages.diagnostic_duration_secs,
         };
         let cancel = Arc::new(AtomicBool::new(false));
         self.pages.diagnostic_cancel = Some(cancel.clone());
@@ -2164,6 +2166,28 @@ impl SettingsWindow {
             }
         }));
 
+        let duration = self.pages.diagnostic_duration_secs;
+        let duration_control = ui::SegmentedControl::settings(
+            &theme,
+            "diagnostic-duration",
+            diagnostics::DURATION_CHOICES_SECS
+                .iter()
+                .map(|seconds| {
+                    ui::SegmentOption::new(
+                        t!("{seconds} seconds", seconds = seconds),
+                        *seconds == duration,
+                    )
+                    .disabled(running)
+                })
+                .collect(),
+        )
+        .on_select(cx.listener(|this, index: &usize, _window, cx| {
+            if let Some(seconds) = ui::option_at(diagnostics::DURATION_CHOICES_SECS, *index) {
+                this.pages.diagnostic_duration_secs = seconds;
+                cx.notify();
+            }
+        }));
+
         let options = self.rows(vec![
             self.setting_row(
                 t!("Recording mode"),
@@ -2171,6 +2195,11 @@ impl SettingsWindow {
                     "Which pipeline to test. Both runs the studio leg and then the instant one."
                 )),
                 mode_control.into_any_element(),
+            ),
+            self.setting_row(
+                t!("Test duration"),
+                Some(t!("Longer runs are more sensitive to slow drift.")),
+                duration_control.into_any_element(),
             ),
             self.setting_row(
                 t!("Test microphone"),

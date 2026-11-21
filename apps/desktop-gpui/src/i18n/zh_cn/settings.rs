@@ -303,6 +303,12 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Which pipeline to test. Both runs the studio leg and then the instant one.",
         "选择要测试的流程。“两者”会先测试工作室流程，再测试即时流程。",
     ),
+    ("Test duration", "测试时长"),
+    (
+        "Longer runs are more sensitive to slow drift.",
+        "运行时间越长，越容易发现缓慢的偏移。",
+    ),
+    ("{seconds} seconds", "{seconds} 秒"),
     ("Test microphone", "测试麦克风"),
     (
         "Also record your microphone and check that it hears the beeps in time. Needs speakers the mic can actually hear.",

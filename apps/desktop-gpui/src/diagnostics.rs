@@ -51,6 +51,8 @@ const KEEP_REPORTS: usize = 5;
 /// window feel endless.
 pub const DEFAULT_DURATION_SECS: u64 = 20;
 
+pub const DURATION_CHOICES_SECS: &[u64] = &[DEFAULT_DURATION_SECS, 40, 60];
+
 /// `FRAMEEVER_GPUI_SELFTEST_BIN`: an explicit path to the `cap` binary, which wins
 /// over every probe below. The verification harness sets it; nothing else does.
 const SELFTEST_BIN_ENV: &str = "FRAMEEVER_GPUI_SELFTEST_BIN";
@@ -996,6 +998,21 @@ mod tests {
                 "--mic"
             ]
         );
+    }
+
+    #[test]
+    fn every_offered_duration_reaches_the_cli_unclamped() {
+        assert_eq!(DURATION_CHOICES_SECS.first(), Some(&DEFAULT_DURATION_SECS));
+        for seconds in DURATION_CHOICES_SECS {
+            assert!((18..=120).contains(seconds), "{seconds}");
+            let args = sync_test_args(&SyncTestOptions {
+                mode: SyncMode::Both,
+                microphone: false,
+                duration_secs: *seconds,
+            });
+            let at = args.iter().position(|arg| arg == "--duration").unwrap();
+            assert_eq!(args[at + 1], seconds.to_string());
+        }
     }
 
     /// The app never surfaces the recorded project, so every run asks the CLI
