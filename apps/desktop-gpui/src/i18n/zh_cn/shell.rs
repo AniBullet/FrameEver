@@ -177,6 +177,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Import", "导入"),
     ("Import image", "导入图片"),
     ("Low storage", "存储空间不足"),
+    ("Recording stopped", "录制已停止"),
+    (
+        "The screen being recorded is no longer available, for example because the display went to sleep. Your recording was saved.",
+        "录制的屏幕已不可用（例如显示器进入睡眠）。录制文件已保存。",
+    ),
     ("OK", "确定"),
     (
         "Are you sure you want to delete this recording?",

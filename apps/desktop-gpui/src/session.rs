@@ -267,6 +267,7 @@ pub struct RecordingSession {
     pub error: Option<String>,
     pub storage_warning: bool,
     pub storage_notice: Option<String>,
+    pub capture_source_lost: bool,
     stopped_for_low_storage: bool,
     stopped_elapsed: Option<Duration>,
     /// The config of the live (or last) recording, kept for restart.
@@ -337,6 +338,7 @@ impl RecordingSession {
             error: None,
             storage_warning: false,
             storage_notice: None,
+            capture_source_lost: false,
             stopped_for_low_storage: false,
             stopped_elapsed: None,
             last_config: None,
@@ -688,6 +690,7 @@ impl RecordingSession {
         self.error = None;
         self.storage_warning = false;
         self.storage_notice = None;
+        self.capture_source_lost = false;
         self.stopped_for_low_storage = false;
         self.stopped_elapsed = None;
         self.last_config = Some(StartConfig {
@@ -1001,7 +1004,9 @@ impl RecordingSession {
         let generation = self.recording_generation;
         let task = gpui_tokio::Tokio::spawn(cx, done);
         self.failure_monitor = Some(cx.spawn(async move |this, cx| {
-            let error = match task.await {
+            let outcome = task.await;
+            let source_lost = capture_ended_cleanly(&outcome);
+            let error = match outcome {
                 Ok(Ok(())) => t!("Recording ended unexpectedly.").to_string(),
                 Ok(Err(error)) => error.to_string(),
                 Err(error) => t!("Recording completion task failed: {error}", error = error),
@@ -1010,6 +1015,13 @@ impl RecordingSession {
                 if !recording_failure_is_current(this.phase, this.recording_generation, generation)
                     || this.active.is_none()
                 {
+                    return;
+                }
+                if source_lost {
+                    tracing::warn!("capture source went away; stopping and saving the recording");
+                    this.capture_source_lost = true;
+                    this.stop(cx);
+                    cx.notify();
                     return;
                 }
                 tracing::error!(%error, "recording pipeline failed");
@@ -1538,11 +1550,13 @@ impl RecordingSession {
                     }
                     Ok(Err(error)) => {
                         tracing::error!("recording failed to stop cleanly: {error:#}");
+                        this.capture_source_lost = false;
                         this.storage_notice = low_storage.then(|| t!("Recording stopped because storage is low. Your recording files were kept. Free up space, then recover the recording below.").into());
                         this.error = Some(format!("{error:#}"));
                     }
                     Err(join_error) => {
                         tracing::error!("recording stop task died: {join_error}");
+                        this.capture_source_lost = false;
                         this.storage_notice = low_storage.then(|| t!("Recording stopped because storage is low. Your recording files were kept. Free up space, then recover the recording below.").into());
                         this.error = Some(t!("Stop task failed.").into());
                     }
@@ -1819,6 +1833,12 @@ impl RecordingSession {
     }
 }
 
+fn capture_ended_cleanly<E>(
+    outcome: &Result<Result<(), frameever_recording::PipelineDoneError>, E>,
+) -> bool {
+    cfg!(target_os = "macos") && matches!(outcome, Ok(Ok(())))
+}
+
 fn recording_failure_is_current(phase: Phase, current: u64, completed: u64) -> bool {
     current == completed && matches!(phase, Phase::Recording { .. })
 }
@@ -2088,6 +2108,14 @@ mod countdown_tests {
 #[cfg(test)]
 mod recording_failure_tests {
     use super::*;
+
+    #[test]
+    fn a_capture_that_ends_cleanly_before_stop_is_saved_not_failed() {
+        let ended: Result<Result<(), frameever_recording::PipelineDoneError>, ()> = Ok(Ok(()));
+        assert_eq!(capture_ended_cleanly(&ended), cfg!(target_os = "macos"));
+        let task_died: Result<Result<(), frameever_recording::PipelineDoneError>, ()> = Err(());
+        assert!(!capture_ended_cleanly(&task_died));
+    }
 
     #[test]
     fn only_current_recording_failure_can_request_stop() {

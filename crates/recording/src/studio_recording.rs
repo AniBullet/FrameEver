@@ -785,7 +785,6 @@ struct Pipeline {
     pub cursor: Option<CursorPipeline>,
     pub track_failures: SharedTrackFailures,
     pub watcher_task: Option<JoinHandle<()>>,
-    #[cfg(windows)]
     stopping: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -1086,7 +1085,6 @@ impl Pipeline {
     pub async fn stop(mut self) -> anyhow::Result<PipelineStopOutcome> {
         let stop_started = Instant::now();
         let epoch = self.epoch();
-        #[cfg(windows)]
         self.stopping
             .store(true, std::sync::atomic::Ordering::Release);
         #[cfg(target_os = "macos")]
@@ -1303,11 +1301,23 @@ impl Pipeline {
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
-        #[cfg(windows)]
         let stopping = self.stopping.clone();
         let track_failures = self.track_failures.clone();
         self.watcher_task = Some(tokio::spawn(async move {
             while let Some((track, required, res)) = futures.next().await {
+                #[cfg(target_os = "macos")]
+                if required && res.is_ok() && !stopping.load(std::sync::atomic::Ordering::Acquire) {
+                    warn!(?track, "Studio screen capture ended before Stop");
+                    completion_tx.send_if_modified(|current| {
+                        if current.is_none() {
+                            *current = Some(Ok(()));
+                            true
+                        } else {
+                            false
+                        }
+                    });
+                    continue;
+                }
                 #[cfg(windows)]
                 let res = match res {
                     Ok(()) if !stopping.load(std::sync::atomic::Ordering::Acquire) => {
@@ -1651,7 +1661,6 @@ impl ActorBuilder {
         self,
         #[cfg(target_os = "macos")] shareable_content: Option<SendableShareableContent>,
     ) -> anyhow::Result<ActorHandle> {
-        #[cfg(windows)]
         let recording_dir = self.output_path.clone();
         let startup = spawn_studio_recording_actor(
             self.output_path,
@@ -1679,20 +1688,27 @@ impl ActorBuilder {
         {
             let scope = crate::output_pipeline::PipelineBuildScope::new();
             let result = crate::output_pipeline::finish_pipeline_startup(&scope, startup).await;
-            match result {
-                Err(error) if recording_dir.join("recording-meta.json").exists() => {
-                    match persist_failed_recording(&recording_dir, &format!("{error:#}")) {
-                        Ok(()) => Err(error),
-                        Err(persist) => Err(error.context(format!(
-                            "Could not preserve failed Studio startup: {persist:#}"
-                        ))),
-                    }
-                }
-                result => result,
-            }
+            preserve_failed_startup(&recording_dir, result)
         }
         #[cfg(not(windows))]
-        startup.await
+        preserve_failed_startup(&recording_dir, startup.await)
+    }
+}
+
+fn preserve_failed_startup<T>(
+    recording_dir: &Path,
+    result: anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    match result {
+        Err(error) if recording_dir.join("recording-meta.json").exists() => {
+            match persist_failed_recording(recording_dir, &format!("{error:#}")) {
+                Ok(()) => Err(error),
+                Err(persist) => Err(error.context(format!(
+                    "Could not preserve failed Studio startup: {persist:#}"
+                ))),
+            }
+        }
+        result => result,
     }
 }
 
@@ -2911,7 +2927,6 @@ async fn create_segment_pipeline(
         system_audio,
         track_failures: Arc::new(std::sync::Mutex::new(Vec::new())),
         watcher_task: None,
-        #[cfg(windows)]
         stopping: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     })
 }
@@ -3033,6 +3048,41 @@ mod tests {
         AudioMuxer, AudioSource, ChannelAudioSource, ChannelAudioSourceConfig, ChannelVideoSource,
         ChannelVideoSourceConfig, Muxer, SetupCtx, TaskPool, VideoFrame, VideoMuxer,
     };
+
+    #[test]
+    fn a_failed_start_marks_its_recording_failed() {
+        let temp = tempfile::tempdir().unwrap();
+        write_in_progress_meta(temp.path(), None).unwrap();
+        let error =
+            preserve_failed_startup::<()>(temp.path(), Err(anyhow!("screen capture setup failed")))
+                .unwrap_err();
+        assert_eq!(format!("{error:#}"), "screen capture setup failed");
+        let status = RecordingMeta::load_for_project(temp.path())
+            .unwrap()
+            .studio_meta()
+            .unwrap()
+            .status();
+        assert!(
+            matches!(&status, StudioRecordingStatus::Failed { error } if error == "screen capture setup failed"),
+            "{status:?}"
+        );
+
+        let started = tempfile::tempdir().unwrap();
+        write_in_progress_meta(started.path(), None).unwrap();
+        preserve_failed_startup(started.path(), Ok(())).unwrap();
+        assert!(matches!(
+            RecordingMeta::load_for_project(started.path())
+                .unwrap()
+                .studio_meta()
+                .unwrap()
+                .status(),
+            StudioRecordingStatus::InProgress
+        ));
+
+        let unwritten = tempfile::tempdir().unwrap();
+        assert!(preserve_failed_startup::<()>(unwritten.path(), Err(anyhow!("no meta"))).is_err());
+        assert!(!unwritten.path().join("recording-meta.json").exists());
+    }
 
     fn sidecar_response() -> CursorActorResponse {
         CursorActorResponse {
@@ -3896,7 +3946,6 @@ mod tests {
             cursor: None,
             track_failures: Arc::new(std::sync::Mutex::new(Vec::new())),
             watcher_task: None,
-            #[cfg(windows)]
             stopping: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
@@ -4019,6 +4068,7 @@ mod tests {
                 cursor: None,
                 track_failures: Arc::new(std::sync::Mutex::new(Vec::new())),
                 watcher_task: None,
+                stopping: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             };
 
             let stopping = tokio::spawn(pipeline.stop());
@@ -4072,6 +4122,92 @@ mod tests {
             assert_eq!(failure.stage, TrackFailureStage::Stop);
             assert!(failure.error.contains("system audio finalization failed"));
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    type CompletionSender = watch::Sender<Option<Result<(), PipelineDoneError>>>;
+
+    #[cfg(target_os = "macos")]
+    async fn watched_screen_pipeline() -> (
+        Pipeline,
+        flume::Sender<TestVideoFrame>,
+        DoneFut,
+        CompletionSender,
+        tempfile::TempDir,
+    ) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let timestamps = Timestamps::now();
+        let (screen_tx, screen_rx) = flume::bounded(4);
+        let screen = OutputPipeline::builder(temp_dir.path().join("display.mp4"))
+            .with_video::<ChannelVideoSource<TestVideoFrame>>(ChannelVideoSourceConfig::new(
+                test_video_info(),
+                screen_rx,
+            ))
+            .with_timestamps(timestamps)
+            .build::<SuccessfulVideoMuxer>(())
+            .await
+            .unwrap();
+        screen_tx
+            .send_async(TestVideoFrame {
+                timestamp: Timestamp::Instant(timestamps.instant()),
+            })
+            .await
+            .unwrap();
+        let (completion_tx, completion_rx) = watch::channel(None);
+        let mut pipeline = Pipeline {
+            start_time: timestamps,
+            start_gate: None,
+            screen,
+            microphone: None,
+            camera: None,
+            system_audio: None,
+            cursor: None,
+            track_failures: Arc::new(std::sync::Mutex::new(Vec::new())),
+            watcher_task: None,
+            stopping: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        pipeline.spawn_watcher(completion_tx.clone());
+        (
+            pipeline,
+            screen_tx,
+            completion_rx_to_done_fut(completion_rx),
+            completion_tx,
+            temp_dir,
+        )
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn macos_screen_capture_ending_before_stop_completes_the_recording() {
+        let (pipeline, screen_tx, done, _actor_completion, _temp_dir) =
+            watched_screen_pipeline().await;
+        assert!(done.clone().now_or_never().is_none());
+
+        pipeline.screen.cancel();
+        drop(screen_tx);
+
+        let result = tokio::time::timeout(Duration::from_secs(2), done)
+            .await
+            .expect("the recording never reported that capture ended");
+        assert!(result.is_ok(), "{result:?}");
+        assert!(pipeline.track_failures.lock().unwrap().is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn macos_pause_or_stop_does_not_complete_the_recording() {
+        let (pipeline, screen_tx, done, _actor_completion, _temp_dir) =
+            watched_screen_pipeline().await;
+        let stopping = tokio::spawn(pipeline.stop());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        drop(screen_tx);
+        tokio::time::timeout(Duration::from_secs(2), stopping)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(done.now_or_never().is_none());
     }
 
     fn test_finished_output_pipeline() -> FinishedOutputPipeline {
@@ -4242,7 +4378,6 @@ mod tests {
             cursor: None,
             track_failures: Arc::new(std::sync::Mutex::new(Vec::new())),
             watcher_task: None,
-            #[cfg(windows)]
             stopping: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         pipeline.spawn_start_time_persister();
@@ -4332,7 +4467,6 @@ mod tests {
             cursor: None,
             track_failures: Arc::new(std::sync::Mutex::new(Vec::new())),
             watcher_task: None,
-            #[cfg(windows)]
             stopping: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         let pipeline = Pipeline {
@@ -5227,7 +5361,6 @@ mod tests {
             cursor: None,
             track_failures: Arc::new(std::sync::Mutex::new(Vec::new())),
             watcher_task: None,
-            #[cfg(windows)]
             stopping: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         pipeline.spawn_watcher(completion_tx);

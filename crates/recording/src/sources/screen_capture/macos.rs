@@ -783,6 +783,15 @@ impl output_pipeline::VideoSource for VideoSource {
                             }
                         }
 
+                        if let Ok(guard) = active_capturer.lock() {
+                            match guard.as_ref() {
+                                Some(c) => c.mark_stopped(),
+                                None => original_capturer.mark_stopped(),
+                            }
+                        } else {
+                            original_capturer.mark_stopped();
+                        }
+                        error!(error = %err, "Screen capture stream stopped with an error");
                         return Err(anyhow!(format!("{err}")));
                     }
                 }
@@ -1237,6 +1246,7 @@ impl output_pipeline::AudioSource for SystemAudioSource {
                                     if is_system_stop_error(err.as_ref()) {
                                         system_stop_count += 1;
                                         if system_stop_count > MAX_CAPTURE_RESTARTS {
+                                            capturer_for_monitor.mark_stopped();
                                             warn!("Screen capture audio stream stopped by the system (exhausted restarts)");
                                             return Err(anyhow!(system_stop_message()));
                                         }
@@ -1247,6 +1257,7 @@ impl output_pipeline::AudioSource for SystemAudioSource {
                                         tokio::time::sleep(RESTART_DELAY + Duration::from_secs(1)).await;
                                         continue;
                                     }
+                                    capturer_for_monitor.mark_stopped();
                                     return Err(anyhow!("{err}"));
                                 }
                                 Err(broadcast::error::RecvError::Closed) => break,

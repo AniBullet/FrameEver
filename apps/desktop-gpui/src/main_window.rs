@@ -900,7 +900,22 @@ impl MainWindow {
             if phase == Phase::Idle && previous_phase != Phase::Idle {
                 this.refresh_project_count(window, cx);
                 this.scan_incomplete_recordings(window, cx, std::time::Duration::ZERO);
-                if let Some(notice) = session.read(cx).storage_notice.clone() {
+                let notice = {
+                    let session = session.read(cx);
+                    session
+                        .storage_notice
+                        .clone()
+                        .map(|notice| (t!("Low storage"), notice))
+                        .or_else(|| {
+                            session.capture_source_lost.then(|| {
+                                (
+                                    t!("Recording stopped"),
+                                    t!("The screen being recorded is no longer available, for example because the display went to sleep. Your recording was saved.").into(),
+                                )
+                            })
+                        })
+                };
+                if let Some((title, notice)) = notice {
                     let main = cx.global::<app_windows::AppWindows>().main;
                     cx.spawn(async move |_, cx| {
                         let receiver = cx.update(|cx| {
@@ -909,7 +924,7 @@ impl MainWindow {
                             main.update(cx, |_, window, cx| {
                                 window.prompt(
                                     gpui::PromptLevel::Warning,
-                                    t!("Low storage"),
+                                    &title,
                                     Some(&notice),
                                     &[gpui::PromptButton::cancel(t!("OK"))],
                                     cx,
