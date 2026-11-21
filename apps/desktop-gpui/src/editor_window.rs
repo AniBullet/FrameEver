@@ -5944,7 +5944,7 @@ pub(crate) struct EditorNotice {
 /// How long a notice stays up.
 const EDITOR_NOTICE_DURATION: Duration = Duration::from_millis(2500);
 
-fn fresh_caption_source_id(project: &ProjectConfiguration) -> String {
+fn fresh_caption_source_id(project: &ProjectConfiguration, prefix: &str) -> String {
     use std::hash::{BuildHasher, Hasher};
 
     loop {
@@ -5955,7 +5955,7 @@ fn fresh_caption_source_id(project: &ProjectConfiguration) -> String {
         let random = std::collections::hash_map::RandomState::new()
             .build_hasher()
             .finish();
-        let id = format!("cap-split-{millis}-{random:x}");
+        let id = format!("{prefix}-{millis}-{random:x}");
         if project
             .captions
             .as_ref()
@@ -6007,7 +6007,12 @@ fn split_caption_segment(
     if split_source <= f64::from(source.start) || split_source >= f64::from(source.end) {
         return false;
     }
-    let tail_id = fresh_caption_source_id(project);
+    let tail_prefix = if crate::transcription::is_manual_caption(&source) {
+        "caption"
+    } else {
+        "cap-split"
+    };
+    let tail_id = fresh_caption_source_id(project, tail_prefix);
     let Some(timeline) = project.timeline.as_mut() else {
         return false;
     };
@@ -13541,6 +13546,29 @@ mod tests {
             crate::transcription::tied_caption_window(&untied, 0, &durations),
             None
         );
+    }
+
+    #[test]
+    fn both_halves_of_a_split_typed_caption_stay_typed() {
+        let mut project: ProjectConfiguration = serde_json::from_value(serde_json::json!({
+            "timeline": {
+                "segments": [
+                    { "recordingSegment": 0, "start": 0.0, "end": 10.0, "timescale": 1.0 }
+                ],
+                "zoomSegments": []
+            },
+            "captions": {
+                "segments": [{ "id": "caption-typed", "start": 2.0, "end": 6.0, "text": "Typed" }],
+                "settings": { "enabled": true },
+                "sourceTimed": true
+            }
+        }))
+        .unwrap();
+        frameever_project::synchronize_captions(&mut project, &[10.0]);
+        assert!(split_caption_segment(&mut project, 0, 2.0, &[10.0]));
+        let halves = &project.captions.as_ref().unwrap().segments;
+        assert_eq!(halves.len(), 2);
+        assert!(halves.iter().all(crate::transcription::is_manual_caption));
     }
 
     #[test]
