@@ -126,6 +126,22 @@ fn studio_capture_stopped(error: &anyhow::Error) -> bool {
 
 pub(crate) const EMPTY_SEGMENTS_DIR: &str = "empty-segments";
 
+fn rename_with_retries(source: &Path, target: &Path) -> std::io::Result<()> {
+    const ATTEMPTS: u32 = 10;
+    const WAIT: Duration = Duration::from_millis(20);
+    let mut attempt = 1;
+    loop {
+        match std::fs::rename(source, target) {
+            Ok(()) => return Ok(()),
+            Err(error) if attempt < ATTEMPTS && error.kind() != std::io::ErrorKind::NotFound => {
+                attempt += 1;
+                std::thread::sleep(WAIT);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 fn captured_no_video(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         cause.is::<NoVideoFramesCaptured>()
@@ -135,7 +151,7 @@ fn captured_no_video(error: &anyhow::Error) -> bool {
     })
 }
 
-fn screen_captured_nothing(outcome: &OutputPipelineStopOutcome) -> bool {
+fn captured_nothing(outcome: &OutputPipelineStopOutcome) -> bool {
     match &outcome.media_error {
         Some(error) => captured_no_video(error),
         None => {
@@ -348,7 +364,7 @@ impl Actor {
             let target_dir = segments_dir.with_file_name(EMPTY_SEGMENTS_DIR);
             let target = target_dir.join(format!("segment-{index}-{}", self.empty_segments));
             std::fs::create_dir_all(&target_dir)
-                .and_then(|()| std::fs::rename(&source, &target))
+                .and_then(|()| rename_with_retries(&source, &target))
                 .with_context(|| {
                     format!("Could not move aside segment {index}, which captured no screen frames")
                 })?;
@@ -523,7 +539,7 @@ impl Actor {
             })
         };
 
-        if self.segments.is_empty() && self.empty_segments > 0 {
+        if !discard && self.segments.is_empty() && self.empty_segments > 0 {
             let error = anyhow!(known_failure.unwrap_or_else(|| {
                 "Screen capture delivered no frames, so nothing was recorded".to_string()
             }));
@@ -1205,11 +1221,9 @@ impl Pipeline {
             ));
         }
 
-        let screen_empty = screen.as_ref().is_ok_and(screen_captured_nothing);
+        let screen_empty = screen.as_ref().is_ok_and(captured_nothing);
         let camera = camera.filter(|result| {
-            let empty = result
-                .as_ref()
-                .is_ok_and(|outcome| outcome.media_error.as_ref().is_some_and(captured_no_video));
+            let empty = result.as_ref().is_ok_and(captured_nothing);
             if empty {
                 warn!("Studio camera captured no frames in this segment; leaving it out");
             }
@@ -4054,6 +4068,48 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn discarding_a_recording_with_no_frames_yet_still_stops_cleanly() {
+            let temp = tempfile::tempdir().unwrap();
+            let senders = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let prepare_senders = senders.clone();
+            let display = temp.path().join("content/segments/segment-0/display.mp4");
+            let handle = paused_handle_after(
+                temp.path(),
+                Arc::new(move |_, _| {
+                    let senders = prepare_senders.clone();
+                    let display = display.clone();
+                    async move {
+                        std::fs::create_dir_all(display.parent().unwrap())?;
+                        let (tx, rx) = flume::bounded(4);
+                        senders.lock().unwrap().push(tx);
+                        let timestamps = Timestamps::now();
+                        Ok(Pipeline {
+                            start_time: timestamps,
+                            start_gate: None,
+                            screen: empty_screen_pipeline(display, timestamps, rx, false).await?,
+                            microphone: None,
+                            camera: None,
+                            system_audio: None,
+                            cursor: None,
+                            track_failures: Default::default(),
+                            watcher_task: None,
+                            stopping: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                        })
+                    }
+                    .boxed()
+                }),
+                0,
+            );
+            handle.resume().await.unwrap();
+            let report = handle.stop_with_intent(StudioStopIntent::Discard).await;
+            assert!(report.accepted_intent && report.stop_acknowledged);
+            report
+                .result
+                .unwrap_or_else(|error| panic!("discard failed: {error}"));
+            drop(senders);
+        }
+
+        #[tokio::test]
         async fn failed_resume_waits_for_owned_cleanup_before_stop() {
             let temp = tempfile::tempdir().unwrap();
             let (release, hold) = tokio::sync::oneshot::channel::<()>();
@@ -4646,7 +4702,7 @@ mod tests {
                 temp_dir.path().join("camera.mp4"),
                 timestamps,
                 camera_rx,
-                true,
+                reports_empty,
             )
             .await
             .unwrap();

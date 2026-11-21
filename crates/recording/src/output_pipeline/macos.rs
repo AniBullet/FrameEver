@@ -1455,15 +1455,13 @@ impl Muxer for AVFoundationCameraMuxer {
                 match state.encoder.lock() {
                     Ok(mut encoder) => {
                         if let Err(e) = encoder.finish(Some(timestamp)) {
-                            let err = if matches!(
-                                e,
-                                frameever_enc_avfoundation::FinishError::NoFrames
-                            ) {
-                                anyhow::Error::new(NoVideoFramesCaptured)
-                                    .context("Camera MP4 encoder wrote no video frames")
-                            } else {
-                                anyhow!("Failed to finish camera MP4 encoder: {e}")
-                            };
+                            let err =
+                                if matches!(e, frameever_enc_avfoundation::FinishError::NoFrames) {
+                                    anyhow::Error::new(NoVideoFramesCaptured)
+                                        .context("Camera MP4 encoder wrote no video frames")
+                                } else {
+                                    anyhow!("Failed to finish camera MP4 encoder: {e}")
+                                };
                             warn!("{err:#}");
                             if finish_error.is_none() {
                                 finish_error = Some(err);
