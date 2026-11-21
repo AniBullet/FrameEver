@@ -15,7 +15,7 @@ The state of the work on one page. Keep it that short: when something here stops
 
 Suggested order, from the blocking links and from which tickets touch the same files:
 
-1. Fixes: #196 (macOS, checked by the macOS CI run), #207 (sharp paused preview, preview quality default), then #209 (import keeps 4:4:4; blocked by #207; #208 is done), and #210 (late audio and captions, feature-sized, expect to split it). #195 is done; its three largest ports became #216 (clip media clean-up), #217 (frozen-instance recovery) and #218 (area ratio snapping), which can follow in any order.
+1. Fixes: #207 (sharp paused preview, preview quality default), then #209 (import keeps 4:4:4; blocked by #207; #208 is done), and #210 (late audio and captions, feature-sized, expect to split it). #195 and #196 are done; the three largest ports of #195 became #216 (clip media clean-up), #217 (frozen-instance recovery) and #218 (area ratio snapping), which can follow in any order.
 2. #206 (disconnect warning), then #205 (empty Studio segment). Both touch the recording session and the Studio actor, so they go before #202.
 3. #197 (design) blocks #198 to #203. Deliver it surface by surface so #199 and #198 can start first; #202 and #203 are the largest and go last.
 4. #204 waits for the owner: whether the app gets the in-app automations runner.
