@@ -470,6 +470,34 @@ pub fn audio_trim_start_bounds(segment: &AudioTrackSegment, bounds: DragBounds) 
     }
 }
 
+pub fn window_trim_start_bounds((window_start, _): (f64, f64), bounds: DragBounds) -> DragBounds {
+    let min = bounds.min.max(window_start);
+    DragBounds {
+        min,
+        max: bounds.max.max(min),
+    }
+}
+
+pub fn window_trim_end_bounds((_, window_end): (f64, f64), bounds: DragBounds) -> DragBounds {
+    let max = bounds.max.min(window_end);
+    DragBounds {
+        min: bounds.min.min(max),
+        max,
+    }
+}
+
+pub fn window_move_bounds(
+    (window_start, window_end): (f64, f64),
+    (start, end): (f64, f64),
+    bounds: DragBounds,
+) -> DragBounds {
+    let min = bounds.min.max(window_start - start);
+    DragBounds {
+        min,
+        max: bounds.max.min(window_end - end).max(min),
+    }
+}
+
 pub fn audio_trim_end_bounds(segment: &AudioTrackSegment, bounds: DragBounds) -> DragBounds {
     let min = bounds.min.min(segment.end);
     let max = segment
@@ -1976,6 +2004,7 @@ pub fn clip_trim_start(
         .unwrap_or(f64::INFINITY);
     let available = clip_available_timeline_duration(timeline, index, recording_duration);
     let max_duration = max_segment.min(available);
+    let recorded_end = segment.end.min(max_segment);
 
     // `prevSegmentIsSameClip ? prevSegment.end : 0` -- a clip split in two may
     // not be trimmed back over its own left-hand half. That floor only means
@@ -1999,7 +2028,7 @@ pub fn clip_trim_start(
     Some(
         new_start
             .max(previous_floor)
-            .max(segment.end - max_duration)
+            .max(recorded_end - max_duration)
             .min(ceiling),
     )
 }
@@ -2029,7 +2058,7 @@ pub fn clip_trim_end(
         .get(index + 1)
         .filter(|next| next.recording_clip == segment.recording_clip)
         .filter(|next| next.start >= segment.end)
-        .map_or(max_segment, |next| next.start);
+        .map_or(max_segment.max(segment.end), |next| next.start);
 
     // Mirror of the start handle's growth guard for sub-minimum clips.
     let floor = (segment.start + min_recorded).min(segment.end);
@@ -3365,6 +3394,34 @@ mod tests {
         }];
         let timeline = fast.timeline.as_ref().unwrap();
         assert_eq!(clip_min_recorded_duration(timeline, 1, 0.001), 2.4);
+    }
+
+    #[test]
+    fn clip_trim_keeps_a_migrated_held_tail() {
+        let timeline: TimelineConfiguration = serde_json::from_value(serde_json::json!({
+            "segments": [
+                { "recordingSegment": 0, "start": 4.0, "end": 14.0, "timescale": 1.0 }
+            ],
+            "zoomSegments": []
+        }))
+        .unwrap();
+        let (displays, recording, spp) = ([10.0], 10.0, 0.001);
+        assert_eq!(
+            clip_trim_end(&timeline, 0, 13.9, spp, &displays, recording),
+            Some(13.9)
+        );
+        assert_eq!(
+            clip_trim_end(&timeline, 0, 20.0, spp, &displays, recording),
+            Some(14.0)
+        );
+        assert_eq!(
+            clip_trim_start(&timeline, 0, 0.0, spp, &displays, recording),
+            Some(0.0)
+        );
+        assert_eq!(
+            clip_trim_start(&timeline, 0, 2.5, spp, &displays, recording),
+            Some(2.5)
+        );
     }
 
     #[test]
