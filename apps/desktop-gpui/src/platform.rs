@@ -683,14 +683,25 @@ mod mac {
         super::MAIN_WINDOW_LEVEL + 1
     }
 
-    /// The level `windows.rs` gives every `TargetSelectOverlay`:
-    /// `CGWindowLevelForKey(10) - 1`, i.e. one below the recording controls
-    /// bar. Same mislabeled constant as [`recording_controls_level`] (key 10 is
-    /// `kCGModalPanelWindowLevelKey`, level 8), so the shipping overlay really
-    /// runs at level 7 -- above ordinary app windows, below the bar. Reproduced
-    /// verbatim rather than "fixed" from over here.
     pub fn target_overlay_level() -> isize {
+        unsafe { CGWindowLevelForKey(9) as isize + 1 }
+    }
+
+    pub fn recording_area_level() -> isize {
         recording_controls_level() - 1
+    }
+
+    pub fn set_panel_level(native: &NativeWindow, level: isize) {
+        if unsafe { native.0.level() } != level {
+            native.0.setLevel(level);
+        }
+    }
+
+    pub fn raise_panel_native(native: &NativeWindow, level: isize) {
+        if unsafe { native.0.level() } < level {
+            native.0.setLevel(level);
+        }
+        order_front_native(native);
     }
 
     /// A retained `NSWindow` that can outlive a `&Window` borrow -- what
@@ -2269,6 +2280,19 @@ pub use windows::*;
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn target_picker_sits_above_the_menu_bar_and_recording_stacking_is_unchanged() {
+        const MAIN_MENU_LEVEL: isize = 24;
+        const STATUS_LEVEL: isize = 25;
+        const POP_UP_MENU_LEVEL: isize = 101;
+        let picker = super::target_overlay_level();
+        assert!(picker > STATUS_LEVEL && picker > MAIN_MENU_LEVEL);
+        assert!(picker < POP_UP_MENU_LEVEL);
+        assert_eq!(super::recording_controls_level(), 8);
+        assert_eq!(super::recording_area_level(), 7);
+    }
+
     #[test]
     fn dock_hide_waits_for_the_latest_show_without_extending_on_read() {
         use std::time::{Duration, Instant};

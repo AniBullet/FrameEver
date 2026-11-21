@@ -219,6 +219,16 @@ pub fn target_overlay_level() -> isize {
     1
 }
 
+pub fn recording_area_level() -> isize {
+    1
+}
+
+pub fn set_panel_level(_native: &NativeWindow, _level: isize) {}
+
+pub fn raise_panel_native(native: &NativeWindow, _level: isize) {
+    order_front_native(native);
+}
+
 pub fn teleprompter_level() -> isize {
     1
 }

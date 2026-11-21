@@ -2319,6 +2319,7 @@ fn disarm_target_selection(cx: &mut App) {
         select.arm(None, recording_mode, PickerPurpose::Record, None, cx);
     });
     sync_camera_presentation(cx);
+    settle_camera_level(cx);
 }
 
 fn area_overlay_matches(
@@ -2435,7 +2436,14 @@ fn make_recording_area_passive(handle: WindowHandle<OverlayWindow>, cx: &mut App
         let Some(native) = native else {
             return;
         };
-        if !native.is_some_and(|native| platform::set_window_click_through(&native, true)) {
+        let passive = native.is_some_and(|native| {
+            let passive = platform::set_window_click_through(&native, true);
+            if passive {
+                platform::set_panel_level(&native, platform::recording_area_level());
+            }
+            passive
+        });
+        if !passive {
             tracing::warn!("recording area click-through failed; removing the outline");
             cx.update(|cx| {
                 let display = cx
@@ -2752,6 +2760,8 @@ fn open_overlay(
             show: false,
             is_resizable: false,
             is_minimizable: false,
+            #[cfg(target_os = "macos")]
+            app_owns_titlebar_drag: true,
             window_background: gpui::WindowBackgroundAppearance::Transparent,
             ..Default::default()
         },
@@ -2812,8 +2822,9 @@ fn open_overlay(
                         window.refresh();
                     })
                     .ok();
-                if let Some(camera) = cx.update(visible_camera_frame)
-                    && let Err(error) = camera.raise()
+                if let Some((camera, level)) =
+                    cx.update(|cx| Some((visible_camera_frame(cx)?, camera_level(cx))))
+                    && let Err(error) = camera.raise(level)
                 {
                     tracing::warn!(%error, "could not raise the camera above the target picker");
                 }
@@ -3423,6 +3434,16 @@ pub fn open_camera_window(cx: &mut App) {
             sync_camera_presentation(cx);
             sync_opened_camera_with_picker(cx);
             refresh_target_overlays(cx);
+            #[cfg(target_os = "macos")]
+            cx.spawn(async move |cx| {
+                if let Some((camera, level)) =
+                    cx.update(|cx| Some((visible_camera_frame(cx)?, camera_level(cx))))
+                    && let Err(error) = camera.raise(level)
+                {
+                    tracing::warn!(%error, "could not raise the camera above the target picker");
+                }
+            })
+            .detach();
         }
         Err(error) => tracing::error!("camera window failed to open: {error:#}"),
     }
@@ -3589,6 +3610,42 @@ pub(crate) fn studio_camera_snapshot(
         .ok()
 }
 
+fn camera_level(cx: &App) -> isize {
+    let picking = TargetSelect::global(cx).read(cx).mode.is_some()
+        && !cx.global::<AppWindows>().overlays.is_empty();
+    if picking {
+        platform::target_overlay_level() + 1
+    } else {
+        platform::recording_controls_level()
+    }
+}
+
+fn settle_camera_level(cx: &mut App) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let Some(handle) = cx.global::<AppWindows>().camera else {
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let native = cx.update(|cx| {
+            if cx.global::<AppWindows>().camera != Some(handle) {
+                return None;
+            }
+            let level = camera_level(cx);
+            handle
+                .update(cx, |_, window, _| platform::native_window(window))
+                .ok()
+                .flatten()
+                .map(|native| (native, level))
+        });
+        if let Some((native, level)) = native {
+            platform::set_panel_level(&native, level);
+        }
+    })
+    .detach();
+}
+
 fn visible_camera_frame(cx: &mut App) -> Option<CameraFrame> {
     if camera_preview_is_inline(cx) {
         return None;
@@ -3610,12 +3667,12 @@ fn camera_snapshot(cx: &mut App) -> Option<CameraSnapshot> {
 }
 
 impl CameraFrame {
-    fn raise(&self) -> anyhow::Result<()> {
+    fn raise(&self, level: isize) -> anyhow::Result<()> {
         match &self.native {
             #[cfg(target_os = "macos")]
-            CameraNativeFrame::Mac { native, .. } => platform::order_front_native(native),
+            CameraNativeFrame::Mac { native, .. } => platform::raise_panel_native(native, level),
             #[cfg(target_os = "windows")]
-            CameraNativeFrame::Windows(native) => platform::order_front_native(native),
+            CameraNativeFrame::Windows(native) => platform::raise_panel_native(native, level),
         }
         Ok(())
     }
@@ -7928,7 +7985,7 @@ pub(crate) fn open_countdown(
             f64::from(f32::from(bounds.origin.y)),
             f64::from(f32::from(bounds.size.width)),
             f64::from(f32::from(bounds.size.height)),
-            platform::target_overlay_level(),
+            platform::recording_area_level(),
         );
         handle
             .update(cx, |_, window, _| {

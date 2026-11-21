@@ -61,7 +61,7 @@ pub(crate) fn open_ink_overlays(
                 f64::from(f32::from(bounds.origin.y)),
                 f64::from(f32::from(bounds.size.width)),
                 f64::from(f32::from(bounds.size.height)),
-                platform::target_overlay_level(),
+                platform::recording_area_level(),
             );
         }
         opened.push(handle);
