@@ -241,7 +241,13 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "已保存。在任意应用中按 {keys} 即可{effect}。",
     ),
     ("Type shortcut…", "输入快捷键…"),
-    ("Record shortcut", "录制快捷键"),
+    ("Not set", "未设置"),
+    ("Replace", "替换"),
+    ("Already used by \"{shortcut}\".", "已被“{shortcut}”使用。"),
+    (
+        "Same keys as \"{shortcut}\", so both run.",
+        "与“{shortcut}”按键相同，两个都会运行。",
+    ),
     (
         "Couldn't load CLI status: {error}",
         "无法读取 CLI 状态：{error}",

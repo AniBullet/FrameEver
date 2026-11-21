@@ -94,6 +94,12 @@ struct ListeningHotkey {
     action: &'static str,
     modifiers: gpui::Modifiers,
     error: Option<&'static str>,
+    conflict: Option<ShortcutConflict>,
+}
+
+struct ShortcutConflict {
+    hotkey: Hotkey,
+    owner: &'static str,
 }
 
 struct SavedShortcut {
@@ -598,22 +604,31 @@ pub(crate) fn assign_shortcut(
     action: &'static str,
     hotkey: &Hotkey,
 ) -> Option<&'static str> {
-    let mut moved_from = None;
-    for other in catalog::all_shortcuts() {
-        let taken = hotkeys
-            .get(other)
-            .and_then(store::hotkey_from_value)
-            .is_some_and(|bound| bound == *hotkey);
-        if other != action && taken {
-            hotkeys.remove(other);
-            moved_from.get_or_insert(other);
-        }
+    let owners = shortcut_owners(hotkeys, hotkey, action);
+    for owner in &owners {
+        hotkeys.remove(*owner);
     }
     hotkeys.insert(
         action.to_string(),
         serde_json::to_value(hotkey).unwrap_or(Value::Null),
     );
-    moved_from
+    owners.first().copied()
+}
+
+fn shortcut_owners(
+    hotkeys: &Map<String, Value>,
+    hotkey: &Hotkey,
+    action: &str,
+) -> Vec<&'static str> {
+    catalog::all_shortcuts()
+        .filter(|other| *other != action)
+        .filter(|other| {
+            hotkeys
+                .get(*other)
+                .and_then(store::hotkey_from_value)
+                .is_some_and(|bound| bound == *hotkey)
+        })
+        .collect()
 }
 
 fn screenshot_outcome(behaviour: store::PostScreenshotBehaviour) -> &'static str {
@@ -973,6 +988,7 @@ impl SettingsWindow {
             action,
             modifiers: window.modifiers(),
             error: None,
+            conflict: None,
         });
         // Keys must reach the root's on_key_down, not a focused field.
         self.focus_root(window, cx);
@@ -1025,6 +1041,10 @@ impl SettingsWindow {
             self.shortcuts_cancel(cx);
             return true;
         }
+        if bare && keystroke.key == "enter" && listening.conflict.is_some() {
+            self.shortcuts_replace(cx);
+            return true;
+        }
         if bare && matches!(keystroke.key.as_str(), "backspace" | "delete") {
             self.pages.listening = None;
             self.pages.hotkeys.remove(action);
@@ -1036,11 +1056,37 @@ impl SettingsWindow {
             Ok(hotkey) => hotkey,
             Err(error) => {
                 listening.error = Some(error);
+                listening.conflict = None;
                 cx.notify();
                 return true;
             }
         };
 
+        if let Some(owner) = shortcut_owners(&self.pages.hotkeys, &hotkey, action)
+            .first()
+            .copied()
+        {
+            listening.error = None;
+            listening.conflict = Some(ShortcutConflict { hotkey, owner });
+            cx.notify();
+            return true;
+        }
+        self.shortcuts_save(action, hotkey, cx);
+        true
+    }
+
+    fn shortcuts_replace(&mut self, cx: &mut Context<Self>) {
+        let Some(listening) = self.pages.listening.as_mut() else {
+            return;
+        };
+        let action = listening.action;
+        let Some(conflict) = listening.conflict.take() else {
+            return;
+        };
+        self.shortcuts_save(action, conflict.hotkey, cx);
+    }
+
+    fn shortcuts_save(&mut self, action: &'static str, hotkey: Hotkey, cx: &mut Context<Self>) {
         let moved_from = assign_shortcut(&mut self.pages.hotkeys, action, &hotkey);
         self.pages.listening = None;
         self.shortcuts_commit(cx);
@@ -1060,7 +1106,6 @@ impl SettingsWindow {
             })
             .ok();
         }));
-        true
     }
 
     /// Persist the map and swap the OS registrations. Deferred because the
@@ -1123,12 +1168,38 @@ impl SettingsWindow {
 
         let (detail, detail_color, detail_icon): (String, Hsla, Option<(&str, Hsla)>) =
             if let Some(listening) = listening {
-                match listening.error {
-                    Some(error) => (tr(error).into(), red, None),
-                    None => (tr(RECORDING_HINT).into(), theme.settings_muted(), None),
+                match (listening.error, &listening.conflict) {
+                    (Some(error), _) => (tr(error).into(), red, None),
+                    (None, Some(conflict)) => (
+                        t!(
+                            "Already used by \"{shortcut}\".",
+                            shortcut = shortcut_label(conflict.owner)
+                        ),
+                        amber,
+                        None,
+                    ),
+                    (None, None) => (tr(RECORDING_HINT).into(), theme.settings_muted(), None),
                 }
             } else if unavailable && binding.is_some() {
                 (tr(UNAVAILABLE).into(), amber, None)
+            } else if let Some(shared) =
+                binding
+                    .as_ref()
+                    .filter(|_| saved.is_none())
+                    .and_then(|binding| {
+                        shortcut_owners(&self.pages.hotkeys, binding, action)
+                            .first()
+                            .copied()
+                    })
+            {
+                (
+                    t!(
+                        "Same keys as \"{shortcut}\", so both run.",
+                        shortcut = shortcut_label(shared)
+                    ),
+                    amber,
+                    None,
+                )
             } else if let (Some(saved), Some(binding)) = (saved, binding.as_ref()) {
                 let mut text = t!(
                     "Saved. Press {keys} in any app to {effect}.",
@@ -1153,6 +1224,19 @@ impl SettingsWindow {
         let group: SharedString = format!("shortcut-row-{action}").into();
 
         let field = self.render_shortcut_field(action, binding.as_ref(), listening, cx);
+        let conflicting = listening.is_some_and(|listening| listening.conflict.is_some());
+        let replace = conflicting.then(|| {
+            div()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(self.button(
+                    SharedString::from(format!("shortcut-replace-{action}")),
+                    (ui::ButtonVariant::Gray, None),
+                    t!("Replace"),
+                    false,
+                    cx,
+                    |this, _window, cx| this.shortcuts_replace(cx),
+                ))
+        });
         let clear = div()
             .id(SharedString::from(format!("shortcut-clear-{action}")))
             .flex()
@@ -1232,7 +1316,8 @@ impl SettingsWindow {
                     .justify_end()
                     .gap(px(4.))
                     .flex_shrink_0()
-                    .child(clear)
+                    .when_some(replace, |this, replace| this.gap(px(8.)).child(replace))
+                    .when(!conflicting, |this| this.child(clear))
                     .child(field),
             )
             .into_any_element()
@@ -1291,6 +1376,21 @@ impl SettingsWindow {
             });
 
         let field = match (listening, binding) {
+            (
+                Some(ListeningHotkey {
+                    conflict: Some(conflict),
+                    ..
+                }),
+                _,
+            ) => base
+                .border_color(theme.settings_text())
+                .bg(theme.settings_card_bg())
+                .children(
+                    hotkey_display_keys(&conflict.hotkey)
+                        .iter()
+                        .map(|key| shortcut_key_cap(&theme, key)),
+                )
+                .into_any_element(),
             (Some(listening), _) => {
                 let held = held_modifier_keys(listening.modifiers);
                 let mut field = base
@@ -1339,7 +1439,7 @@ impl SettingsWindow {
                         .px(px(4.))
                         .text_size(px(12.))
                         .text_color(theme.settings_muted())
-                        .child(t!("Record shortcut")),
+                        .child(t!("Not set")),
                 )
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -4813,6 +4913,80 @@ mod tests {
         assert!(shortcut_needs_modifier(&hotkey(
             "Space", false, false, false, false
         )));
+    }
+
+    #[test]
+    fn keys_another_shortcut_uses_move_only_through_assign() {
+        let mut bindings = Map::new();
+        let keys = hotkey("KeyR", true, false, false, true);
+        let other = hotkey("KeyS", true, false, false, true);
+        bindings.insert(
+            "openRecordingPickerArea".into(),
+            serde_json::to_value(&keys).unwrap(),
+        );
+        bindings.insert(
+            "screenshotArea".into(),
+            serde_json::to_value(&other).unwrap(),
+        );
+
+        assert_eq!(
+            shortcut_owners(&bindings, &keys, "startStudioRecording"),
+            vec!["openRecordingPickerArea"]
+        );
+        assert!(shortcut_owners(&bindings, &keys, "openRecordingPickerArea").is_empty());
+        assert!(
+            shortcut_owners(
+                &bindings,
+                &hotkey("KeyR", false, true, false, true),
+                "startStudioRecording"
+            )
+            .is_empty()
+        );
+        assert!(bindings.contains_key("openRecordingPickerArea"));
+
+        assert_eq!(
+            assign_shortcut(&mut bindings, "startStudioRecording", &keys),
+            Some("openRecordingPickerArea")
+        );
+        assert!(!bindings.contains_key("openRecordingPickerArea"));
+        assert_eq!(
+            bindings
+                .get("startStudioRecording")
+                .and_then(store::hotkey_from_value),
+            Some(keys.clone())
+        );
+        assert_eq!(
+            bindings
+                .get("screenshotArea")
+                .and_then(store::hotkey_from_value),
+            Some(other)
+        );
+        assert_eq!(
+            assign_shortcut(&mut bindings, "startStudioRecording", &keys),
+            None
+        );
+    }
+
+    #[test]
+    fn keys_shared_in_an_older_store_name_each_other() {
+        let mut bindings = Map::new();
+        let keys = hotkey("F5", false, false, false, false);
+        for action in ["stopRecording", "restartRecording"] {
+            bindings.insert(action.into(), serde_json::to_value(&keys).unwrap());
+        }
+        assert_eq!(
+            shortcut_owners(&bindings, &keys, "stopRecording"),
+            vec!["restartRecording"]
+        );
+        assert_eq!(
+            shortcut_owners(&bindings, &keys, "restartRecording"),
+            vec!["stopRecording"]
+        );
+        assert_eq!(
+            assign_shortcut(&mut bindings, "togglePauseRecording", &keys),
+            Some("stopRecording")
+        );
+        assert_eq!(bindings.len(), 1);
     }
 
     #[test]
