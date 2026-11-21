@@ -986,6 +986,7 @@ mod tests {
             "updateDownloadPolicy" => Row::UpdateDownloads,
             "updateChannel" => Row::UpdateChannel,
             "editorPreviewQuality"
+            | "EDITOR_PREVIEW_QUALITY_CHOSEN_KEY"
             | "editorSidebarWidth"
             | "EDITOR_PREVIEW_SPEED_KEY"
             | "deleteInstantRecordingsAfterUpload"

@@ -468,6 +468,20 @@ pub fn set_store_setting(section: &str, key: &str, value: Value) -> bool {
     })
 }
 
+pub fn set_editor_preview_quality(quality: EditorPreviewQuality) -> bool {
+    update_store_section(GENERAL_SETTINGS, |general| {
+        general.insert(
+            "editorPreviewQuality".to_string(),
+            Value::from(quality.as_json()),
+        );
+        general.insert(
+            EDITOR_PREVIEW_QUALITY_CHOSEN_KEY.to_string(),
+            Value::Bool(true),
+        );
+        true
+    })
+}
+
 /// Replace or remove one top-level store section. `authStore.set(null)` in
 /// the Tauri app drops the whole `auth` object; writing keys one at a time
 /// would leave a half-signed-out session behind.
@@ -869,7 +883,47 @@ impl EditorPreviewQuality {
             Self::Quarter => 0.25,
         }
     }
+
+    fn from_general(general: &Map<String, Value>) -> Self {
+        let stored = general
+            .get("editorPreviewQuality")
+            .and_then(Value::as_str)
+            .and_then(Self::from_json);
+        match stored {
+            Some(quality)
+                if quality != Self::Half
+                    || bool_at(general, EDITOR_PREVIEW_QUALITY_CHOSEN_KEY, false) =>
+            {
+                quality
+            }
+            _ => Self::for_this_machine(),
+        }
+    }
+
+    pub fn for_this_machine() -> Self {
+        Self::for_adapter(
+            SOFTWARE_RENDERING.load(std::sync::atomic::Ordering::Acquire)
+                || frameever_rendering::force_software_wgpu_adapter(),
+        )
+    }
+
+    fn for_adapter(software: bool) -> Self {
+        if FULL_ON_HARDWARE && !software {
+            Self::Full
+        } else {
+            Self::Half
+        }
+    }
+
+    pub fn note_rendering_adapter(software: bool) {
+        SOFTWARE_RENDERING.store(software, std::sync::atomic::Ordering::Release);
+    }
 }
+
+const FULL_ON_HARDWARE: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+
+static SOFTWARE_RENDERING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// One entry of `general_settings.excludedWindows` (`WindowExclusion`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -1077,6 +1131,7 @@ pub const RECORDING_START_SAFETY: &str = "recording_start_safety";
 /// and the Recording settings card both write it.
 pub const AUDIO_ENHANCEMENT: &str = "audio_enhancement";
 pub const EDITOR_PREVIEW_SPEED_KEY: &str = "editorPreviewSpeed";
+pub const EDITOR_PREVIEW_QUALITY_CHOSEN_KEY: &str = "editorPreviewQualityChosen";
 pub const STUDIO_SOUND_BY_DEFAULT_KEY: &str = "enabledByDefault";
 
 pub fn studio_sound_by_default() -> bool {
@@ -1538,7 +1593,7 @@ impl GeneralSettings {
                 .unwrap_or_else(default_excluded_windows),
             update_channel: enum_at(general, "updateChannel"),
             update_download_policy: enum_at(general, "updateDownloadPolicy"),
-            editor_preview_quality: enum_at(general, "editorPreviewQuality"),
+            editor_preview_quality: EditorPreviewQuality::from_general(general),
             editor_sidebar_width: opt_f32_at(general, "editorSidebarWidth"),
             editor_preview_speed: general
                 .get(EDITOR_PREVIEW_SPEED_KEY)
@@ -3684,6 +3739,71 @@ mod tests {
             ..Default::default()
         };
         assert!(bundle_first.matches(Some("com.cap.desktop"), None, Some("Wrong")));
+    }
+
+    #[test]
+    fn editor_preview_quality_defaults_per_machine_until_chosen() {
+        let read = |quality: Option<&str>, chosen: Option<bool>| {
+            let mut general = Map::new();
+            if let Some(quality) = quality {
+                general.insert("editorPreviewQuality".to_string(), Value::from(quality));
+            }
+            if let Some(chosen) = chosen {
+                general.insert(
+                    EDITOR_PREVIEW_QUALITY_CHOSEN_KEY.to_string(),
+                    Value::from(chosen),
+                );
+            }
+            GeneralSettings::from_sections(&general, &Map::new(), &Map::new())
+                .editor_preview_quality
+        };
+        let machine = EditorPreviewQuality::for_this_machine();
+        assert_eq!(read(None, None), machine);
+        assert_eq!(read(Some("half"), None), machine);
+        assert_eq!(read(Some("half"), Some(false)), machine);
+        assert_eq!(read(Some("bogus"), Some(true)), machine);
+        assert_eq!(read(Some("half"), Some(true)), EditorPreviewQuality::Half);
+        assert_eq!(read(Some("full"), None), EditorPreviewQuality::Full);
+        assert_eq!(read(Some("quarter"), None), EditorPreviewQuality::Quarter);
+        assert_eq!(read(Some("full"), Some(true)), EditorPreviewQuality::Full);
+    }
+
+    #[test]
+    fn a_software_adapter_keeps_the_preview_on_half() {
+        assert_eq!(
+            EditorPreviewQuality::for_adapter(true),
+            EditorPreviewQuality::Half
+        );
+        let hardware = if FULL_ON_HARDWARE {
+            EditorPreviewQuality::Full
+        } else {
+            EditorPreviewQuality::Half
+        };
+        assert_eq!(EditorPreviewQuality::for_adapter(false), hardware);
+    }
+
+    #[test]
+    fn choosing_half_keeps_it_over_the_machine_default() {
+        let store = TempStore::new(
+            "preview-quality",
+            Some(r#"{ "general_settings": { "editorPreviewQuality": "half", "theme": "dark" } }"#),
+        );
+        assert_eq!(
+            GeneralSettings::load().editor_preview_quality,
+            EditorPreviewQuality::for_this_machine()
+        );
+        assert!(set_editor_preview_quality(EditorPreviewQuality::Half));
+        let written = store.read();
+        assert_eq!(written["general_settings"]["editorPreviewQuality"], "half");
+        assert_eq!(
+            written["general_settings"][EDITOR_PREVIEW_QUALITY_CHOSEN_KEY],
+            true
+        );
+        assert_eq!(written["general_settings"]["theme"], "dark");
+        assert_eq!(
+            GeneralSettings::load().editor_preview_quality,
+            EditorPreviewQuality::Half
+        );
     }
 
     #[test]
