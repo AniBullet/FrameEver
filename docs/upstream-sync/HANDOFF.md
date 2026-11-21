@@ -16,7 +16,7 @@ The state of the work on one page. Keep it that short: when something here stops
 Suggested order, from the blocking links and from which tickets touch the same files:
 
 1. Fixes: #207 to #210 are done. #195 and #196 are done; the three largest ports of #195 became #216 (clip media clean-up), #217 (frozen-instance recovery) and #218 (area ratio snapping), which can follow in any order.
-2. #206 (disconnect warning), then #205 (empty Studio segment). Both touch the recording session and the Studio actor, so they go before #202.
+2. #205 (empty Studio segment). It touches the recording session and the Studio actor, so it goes before #202. #206 is done. The app already switches microphone and camera during a Studio recording (`RecordingSession::change_input`), so read #202 against the code before porting.
 3. #197 (design) blocks #198 to #203. Deliver it surface by surface so #199 and #198 can start first; #202 and #203 are the largest and go last.
 4. #204 waits for the owner: whether the app gets the in-app automations runner. So does #220: whether chapter marks of a late-audio project move with the migration from #210.
 
