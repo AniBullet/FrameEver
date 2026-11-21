@@ -38,6 +38,7 @@ use crate::{
 /// camelCase store keys.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HotkeyAction {
+    StartRecording,
     StartStudioRecording,
     StartInstantRecording,
     StopRecording,
@@ -61,7 +62,8 @@ pub enum HotkeyAction {
     PushToTalk,
 }
 
-const ACTION_KEYS: [(&str, HotkeyAction); 21] = [
+const ACTION_KEYS: [(&str, HotkeyAction); 22] = [
+    ("startRecording", HotkeyAction::StartRecording),
     ("startStudioRecording", HotkeyAction::StartStudioRecording),
     ("startInstantRecording", HotkeyAction::StartInstantRecording),
     ("stopRecording", HotkeyAction::StopRecording),
@@ -732,8 +734,14 @@ pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
                 dispatch_state(action, state, cx);
             }
         }
-        HotkeyAction::StartStudioRecording => start_from_hotkey(Mode::Studio, cx),
-        HotkeyAction::StartInstantRecording => start_from_hotkey(Mode::Instant, cx),
+        HotkeyAction::StartRecording
+        | HotkeyAction::StartStudioRecording
+        | HotkeyAction::StartInstantRecording
+        | HotkeyAction::CycleRecordingMode => match mode_plan(action, selected_mode(cx)) {
+            ModePlan::Start(mode) => start_from_hotkey(mode, cx),
+            ModePlan::Select(mode) => app_windows::set_recording_mode(mode, cx),
+            ModePlan::Unrelated => {}
+        },
         HotkeyAction::StopRecording => {
             RecordingSession::global(cx).update(cx, |session, cx| session.stop(cx));
         }
@@ -742,9 +750,6 @@ pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
         }
         HotkeyAction::TogglePauseRecording => {
             RecordingSession::global(cx).update(cx, |session, cx| session.toggle_pause(cx));
-        }
-        HotkeyAction::CycleRecordingMode => {
-            app_windows::set_recording_mode(next_recording_mode(Mode::from_store()), cx);
         }
         HotkeyAction::OpenRecordingPicker => {
             app_windows::show_main_window(cx);
@@ -784,6 +789,30 @@ pub(crate) fn dispatch(action: HotkeyAction, cx: &mut App) {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModePlan {
+    Start(Mode),
+    Select(Mode),
+    Unrelated,
+}
+
+pub(crate) fn mode_plan(action: HotkeyAction, selected: Mode) -> ModePlan {
+    match action {
+        HotkeyAction::StartRecording => ModePlan::Start(selected),
+        HotkeyAction::StartStudioRecording => ModePlan::Start(Mode::Studio),
+        HotkeyAction::StartInstantRecording => ModePlan::Start(Mode::Instant),
+        HotkeyAction::CycleRecordingMode => ModePlan::Select(next_recording_mode(selected)),
+        _ => ModePlan::Unrelated,
+    }
+}
+
+fn selected_mode(cx: &App) -> Mode {
+    let main = cx.global::<app_windows::AppWindows>().main;
+    main.read(cx)
+        .map(|view| view.mode())
+        .unwrap_or_else(|_| Mode::from_store())
+}
+
 fn next_recording_mode(mode: Mode) -> Mode {
     match mode {
         Mode::Studio => Mode::Instant,
@@ -807,15 +836,7 @@ fn microphone_available(name: &str) -> bool {
 /// (`hotkeys.rs:158-177`, `lib.rs:5529-5551` over there): confirm a start
 /// without a working microphone, then record. Mic/camera come off the main
 /// window's current selections through its ordinary start path.
-///
-/// The mode is set through [`app_windows::set_recording_mode`] first, so the
-/// pill, the tray tick and the shared store all follow the hotkey; the Tauri
-/// listener hands the mode straight to the engine and leaves the setting
-/// where it was. Deliberate: this app's start path reads the window's mode,
-/// and a recording visibly in Studio mode with the pill saying Instant is the
-/// worse mismatch.
 fn start_from_hotkey(mode: Mode, cx: &mut App) {
-    app_windows::set_recording_mode(mode, cx);
     let main = cx.global::<app_windows::AppWindows>().main;
     let armed = main.read(cx).ok().and_then(|view| view.armed_target());
     let stored = stored_target();
@@ -946,12 +967,8 @@ pub(crate) fn start_now(
         return;
     }
     app_windows::keep_countdown_passive(cx);
-    // The start waited on the target lookup (and maybe the microphone
-    // prompt); another Start or Cycle shortcut can change the mode meanwhile,
-    // and the start path reads the window's mode.
-    app_windows::set_recording_mode(mode, cx);
     main.update(cx, |view, window, cx| {
-        view.start_recording_with_target(target, Vec::new(), window, cx)
+        view.start_recording_in_mode(target, mode, window, cx)
     })
     .ok();
 }
@@ -1000,11 +1017,52 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn only_the_cycle_shortcut_changes_the_selected_mode() {
+        for selected in [Mode::Studio, Mode::Instant] {
+            for (key, action) in ACTION_KEYS {
+                let expected = match action {
+                    HotkeyAction::StartRecording => ModePlan::Start(selected),
+                    HotkeyAction::StartStudioRecording => ModePlan::Start(Mode::Studio),
+                    HotkeyAction::StartInstantRecording => ModePlan::Start(Mode::Instant),
+                    HotkeyAction::CycleRecordingMode => {
+                        ModePlan::Select(next_recording_mode(selected))
+                    }
+                    _ => ModePlan::Unrelated,
+                };
+                assert_eq!(
+                    mode_plan(action, selected),
+                    expected,
+                    "{key} in {selected:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn start_shortcuts_leave_the_selected_mode_for_the_next_one() {
+        let mut selected = Mode::Studio;
+        for action in [
+            HotkeyAction::StartInstantRecording,
+            HotkeyAction::StartStudioRecording,
+            HotkeyAction::StartInstantRecording,
+        ] {
+            if let ModePlan::Select(mode) = mode_plan(action, selected) {
+                selected = mode;
+            }
+        }
+        assert_eq!(
+            mode_plan(HotkeyAction::StartRecording, selected),
+            ModePlan::Start(Mode::Studio)
+        );
+    }
+
     /// Every store key the Tauri `HotkeyAction`'s camelCase serde produces
     /// maps to a variant here, and an unknown key registers nothing.
     #[test]
     fn action_keys_match_the_tauri_serde_names() {
         for key in [
+            "startRecording",
             "startStudioRecording",
             "startInstantRecording",
             "stopRecording",

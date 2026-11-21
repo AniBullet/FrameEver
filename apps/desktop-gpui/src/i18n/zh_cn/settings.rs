@@ -140,6 +140,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Screenshot an area", "截取区域"),
     ("Screenshot a window", "截取窗口"),
     ("Screenshot the display", "截取显示器"),
+    ("Start in selected mode", "以所选模式开始录制"),
     ("Start Studio recording", "开始工作室录制"),
     ("Start Instant recording", "开始即时录制"),
     ("Record an area", "录制区域"),
@@ -174,6 +175,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     (
         "capture the display under your pointer and {screenshot}",
         "捕获指针所在的显示器并{screenshot}",
+    ),
+    (
+        "start a recording in the mode selected in FrameEver",
+        "以帧刻中所选的模式开始录制",
     ),
     (
         "record your selected screen or window in Studio mode{studio_stop}",

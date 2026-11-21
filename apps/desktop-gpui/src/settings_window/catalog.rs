@@ -82,10 +82,11 @@ pub struct Group {
 pub const SCREENSHOT_SHORTCUTS: [&str; 3] =
     ["screenshotArea", "screenshotWindow", "screenshotDisplay"];
 
-pub const RECORDING_SHORTCUTS: [&str; 9] = [
+pub const RECORDING_SHORTCUTS: [&str; 10] = [
     "openRecordingPickerArea",
     "openRecordingPickerWindow",
     "openRecordingPickerDisplay",
+    "startRecording",
     "startStudioRecording",
     "startInstantRecording",
     "openRecordingPicker",
@@ -118,6 +119,7 @@ pub fn shortcut_label(action: &str) -> &'static str {
         "screenshotArea" => n!("Screenshot an area"),
         "screenshotWindow" => n!("Screenshot a window"),
         "screenshotDisplay" => n!("Screenshot the display"),
+        "startRecording" => n!("Start in selected mode"),
         "startStudioRecording" => n!("Start Studio recording"),
         "startInstantRecording" => n!("Start Instant recording"),
         "openRecordingPickerArea" => n!("Record an area"),
@@ -279,6 +281,7 @@ const SHORTCUTS: &[Group] = &[
             Row::Shortcut(RECORDING_SHORTCUTS[6]),
             Row::Shortcut(RECORDING_SHORTCUTS[7]),
             Row::Shortcut(RECORDING_SHORTCUTS[8]),
+            Row::Shortcut(RECORDING_SHORTCUTS[9]),
         ],
     },
     Group {
@@ -740,6 +743,7 @@ mod tests {
                     "Record an area",
                     "Record a window",
                     "Record a display",
+                    "Start in selected mode",
                     "Start Studio recording",
                     "Start Instant recording",
                     "Open recording picker",

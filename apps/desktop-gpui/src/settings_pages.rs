@@ -664,6 +664,7 @@ fn shortcut_effect(
             "capture the display under your pointer and {screenshot}",
             screenshot = screenshot
         ),
+        "startRecording" => t!("start a recording in the mode selected in FrameEver").into(),
         "startStudioRecording" => t!(
             "record your selected screen or window in Studio mode{studio_stop}",
             studio_stop = studio_stop
@@ -4822,7 +4823,7 @@ mod tests {
             .chain(catalog::WHILE_RECORDING_SHORTCUTS.iter())
             .copied()
             .collect();
-        assert_eq!(shown.len(), 21);
+        assert_eq!(shown.len(), 22);
         assert!(shown.contains(&"addChapterMarker"));
         assert!(shown.contains(&"toggleMicrophoneMute"));
         assert!(shown.contains(&"pushToTalk"));

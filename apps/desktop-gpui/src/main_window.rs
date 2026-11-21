@@ -117,6 +117,13 @@ pub enum Mode {
     Studio,
 }
 
+fn recording_mode_for(mode: Mode) -> recording::RecordingMode {
+    match mode {
+        Mode::Instant => recording::RecordingMode::Instant,
+        Mode::Studio => recording::RecordingMode::Studio,
+    }
+}
+
 fn effective_recording_mode(preferred: Mode, editor_recording: bool) -> Mode {
     if editor_recording {
         Mode::Studio
@@ -1877,13 +1884,6 @@ impl MainWindow {
         }
     }
 
-    fn recording_mode(&self, cx: &gpui::App) -> recording::RecordingMode {
-        match self.effective_mode(cx) {
-            Mode::Instant => recording::RecordingMode::Instant,
-            Mode::Studio => recording::RecordingMode::Studio,
-        }
-    }
-
     /// Dev-only end-to-end driver (`FRAMEEVER_GPUI_AUTO_RECORD=studio:5`): synthetic
     /// clicks are dropped without Accessibility permission, so the automated
     /// check arms a target and drives start/stop through the same methods the
@@ -2191,11 +2191,34 @@ impl MainWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.start_recording_as(target, excluded_windows, None, cx);
+    }
+
+    pub fn start_recording_in_mode(
+        &mut self,
+        target: ScreenCaptureTarget,
+        mode: Mode,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.start_recording_as(target, Vec::new(), Some(mode), cx);
+    }
+
+    fn start_recording_as(
+        &mut self,
+        target: ScreenCaptureTarget,
+        excluded_windows: Vec<scap_targets::WindowId>,
+        requested: Option<Mode>,
+        cx: &mut Context<Self>,
+    ) {
         if self.session.read(cx).phase != Phase::Idle || self.checking_storage {
             return;
         }
         let editor_flow = self.session.read(cx).editor_recording_target().is_some();
-        let mode = self.recording_mode(cx);
+        let mode = recording_mode_for(effective_recording_mode(
+            requested.unwrap_or(self.mode),
+            editor_flow,
+        ));
         if matches!(target, ScreenCaptureTarget::CameraOnly) && self.camera.is_none() {
             self.session.update(cx, |session, cx| {
                 session.error =
