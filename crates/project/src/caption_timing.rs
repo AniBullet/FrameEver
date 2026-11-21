@@ -3,7 +3,7 @@ use crate::{
 };
 use std::collections::HashMap;
 
-const MAX_CAPTION_WORD_DURATION: f32 = 2.5;
+pub(crate) const MAX_CAPTION_WORD_DURATION: f32 = 2.5;
 
 pub(crate) fn clip_timeline_offsets(timeline: &TimelineConfiguration) -> Vec<f64> {
     let mut offset = 0.0;
@@ -130,6 +130,7 @@ fn clamp_caption_segment_words(segment: &CaptionSegment) -> CaptionSegment {
         end: segment.end.min(last_word_end),
         text: segment.text.clone(),
         words: clamped_words,
+        recording_clip: segment.recording_clip,
     }
 }
 
@@ -170,6 +171,33 @@ fn build_source_to_edited_mappings(
             }
         })
         .collect()
+}
+
+fn end_mappings_at_media(
+    mappings: &mut [SourceToEditedMapping],
+    timeline: &TimelineConfiguration,
+    recording_durations: &[f64],
+) {
+    for (mapping, segment) in mappings.iter_mut().zip(&timeline.segments) {
+        let clip = segment.recording_clip as usize;
+        if clip + 1 < recording_durations.len()
+            && let Some(&duration) = recording_durations.get(clip)
+            && segment.end > duration
+        {
+            let media_end = mapping.source_start - segment.start + duration;
+            mapping.source_end = media_end.max(mapping.source_start);
+        }
+    }
+}
+
+pub fn held_tail_clip(
+    recording_clip: u32,
+    source_end: f64,
+    recording_durations: &[f64],
+) -> Option<u32> {
+    let clip = recording_clip as usize;
+    let media_end = recording_durations.get(..=clip)?.iter().sum::<f64>();
+    (source_end > media_end).then_some(recording_clip)
 }
 
 fn map_time_range_within_mapping(
@@ -243,7 +271,9 @@ fn map_captions_to_edited_timeline(
             .collect();
     }
 
-    let mappings = build_source_to_edited_mappings(timeline, recording_durations);
+    let clip_mappings = build_source_to_edited_mappings(timeline, recording_durations);
+    let mut mappings = build_source_to_edited_mappings(timeline, recording_durations);
+    end_mappings_at_media(&mut mappings, timeline, recording_durations);
     let holds = timeline.hold_windows();
     let hold_adjusted = |start: f64, end: f64| {
         if holds.is_empty() {
@@ -261,7 +291,17 @@ fn map_captions_to_edited_timeline(
     for caption in &sanitized {
         let mut mapped_caption_segments: Vec<MappedCaption> = Vec::new();
 
-        for mapping in &mappings {
+        let caption_mappings: Vec<&SourceToEditedMapping> = match caption.recording_clip {
+            Some(clip) => clip_mappings
+                .iter()
+                .zip(&timeline.segments)
+                .filter(|(_, segment)| segment.recording_clip == clip)
+                .map(|(mapping, _)| mapping)
+                .collect(),
+            None => mappings.iter().collect(),
+        };
+
+        for mapping in caption_mappings {
             if !caption.words.is_empty() {
                 let mut mapped_words = Vec::new();
                 for word in &caption.words {
@@ -432,6 +472,7 @@ pub fn synchronize_captions(project: &mut ProjectConfiguration, recording_durati
                     end,
                     text: caption.text.clone(),
                     words,
+                    recording_clip: None,
                 })
             })
             .collect();
@@ -455,7 +496,7 @@ mod tests {
                 "segments":[{"start":0.0,"end":5.0,"timescale":1.0},{"start":6.0,"end":10.0,"timescale":1.0}],
                 "zoomSegments":[]
             })).unwrap()),
-            captions: Some(CaptionsData { source_timed, segments:vec![CaptionSegment { id:"spoken".into(),start,end,text:"hello".into(),words:vec![CaptionWord { text:"hello".into(),start,end }] }], ..Default::default() }),
+            captions: Some(CaptionsData { source_timed, segments:vec![CaptionSegment { id:"spoken".into(),start,end,text:"hello".into(),words:vec![CaptionWord { text:"hello".into(),start,end }], recording_clip: None, }], ..Default::default() }),
             ..Default::default()
         }
     }

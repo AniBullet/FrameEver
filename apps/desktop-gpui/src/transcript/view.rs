@@ -2178,6 +2178,7 @@ mod tests {
                     end: 7.0,
                     text: "First take. Second um take.".into(),
                     words: spoken,
+                    recording_clip: None,
                 }],
                 source_timed: true,
                 ..Default::default()

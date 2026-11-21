@@ -6054,6 +6054,7 @@ fn add_pasted_caption_sources(
                         })
                     })
                     .collect(),
+                recording_clip: None,
             })
         })
         .collect();
@@ -13713,6 +13714,7 @@ mod tests {
                     end: 4.0,
                     text: "hello world".into(),
                     words,
+                    recording_clip: None,
                 }],
                 source_timed: true,
                 ..Default::default()
@@ -13755,6 +13757,7 @@ mod tests {
                 end: 6.0,
                 text: "hello world".into(),
                 words: vec![word("hello", 3.0, 4.0), word("world", 5.0, 6.0)],
+                recording_clip: None,
             }],
             source_timed: true,
             ..Default::default()
@@ -13840,6 +13843,7 @@ mod tests {
                             end: 4.0,
                         },
                     ],
+                    recording_clip: None,
                 }],
                 source_timed: true,
                 ..Default::default()

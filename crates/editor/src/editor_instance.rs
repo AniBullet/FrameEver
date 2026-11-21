@@ -549,12 +549,25 @@ impl EditorInstance {
             }
         }
 
+        let migrated = frameever_project::migrate_late_audio_alignment(&mut project, meta, || {
+            match &preloaded_recordings {
+                Some(recordings) => recordings
+                    .segments
+                    .iter()
+                    .map(|segment| segment.display.duration)
+                    .collect(),
+                None => display_durations(&recording_meta, meta),
+            }
+        });
+
         if project.clips.is_empty() {
             project.clips = initial_clip_configuration(&recording_meta.project_path, meta);
 
             if let Err(e) = project.write(&recording_meta.project_path) {
                 warn!("Failed to save auto-generated clip offsets: {}", e);
             }
+        } else if migrated && let Err(e) = project.write(&recording_meta.project_path) {
+            warn!("Failed to save late audio alignment: {}", e);
         }
 
         // Segment setup (decoder init + kicking off audio decodes) is
@@ -640,11 +653,14 @@ impl EditorInstance {
 
         frameever_project::clamp_timeline_to_sources(
             &mut project,
-            &recordings
-                .segments
-                .iter()
-                .map(|segment| segment.display.duration)
-                .collect::<Vec<_>>(),
+            &frameever_project::late_audio_trim_limits(
+                meta,
+                &recordings
+                    .segments
+                    .iter()
+                    .map(|segment| segment.display.duration)
+                    .collect::<Vec<_>>(),
+            ),
         );
         frameever_project::synchronize_legacy_keyboard(&recording_meta, &mut project);
         frameever_project::synchronize_captions(
@@ -2113,6 +2129,21 @@ pub fn initial_clip_configuration(
             offsets: frameever_project::ClipOffsets::default(),
             offsets_auto_calculated: false,
         }],
+    }
+}
+
+fn display_durations(recording_meta: &RecordingMeta, meta: &StudioRecordingMeta) -> Vec<f64> {
+    match meta {
+        StudioRecordingMeta::SingleSegment { segment } => {
+            vec![display_video_duration(&recording_meta.path(&segment.display.path)).unwrap_or(0.0)]
+        }
+        StudioRecordingMeta::MultipleSegments { inner } => inner
+            .segments
+            .iter()
+            .map(|segment| {
+                display_video_duration(&recording_meta.path(&segment.display.path)).unwrap_or(0.0)
+            })
+            .collect(),
     }
 }
 

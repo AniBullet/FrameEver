@@ -5,18 +5,20 @@ pub mod cursor;
 pub mod filler_words;
 pub mod input_display;
 pub mod keyboard;
+mod late_audio;
 mod meta;
 mod shapes;
 
 pub use animated_gradient::*;
 pub use caption_timing::{
-    caption_text_from_words, derive_caption_track_segments, is_cjk, is_cjk_punctuation,
-    source_caption_id, synchronize_captions,
+    caption_text_from_words, derive_caption_track_segments, held_tail_clip, is_cjk,
+    is_cjk_punctuation, source_caption_id, synchronize_captions,
 };
 pub use configuration::*;
 pub use cursor::*;
 pub use input_display::{InputDisplay, InputDisplayStyle};
 pub use keyboard::*;
+pub use late_audio::{late_audio_trim_limits, migrate_late_audio_alignment};
 pub use meta::*;
 pub use shapes::*;
 

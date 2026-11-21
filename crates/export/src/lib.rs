@@ -180,19 +180,21 @@ impl ExporterBuilder {
         );
 
         synthesize_default_timeline(&mut project_config, &recordings);
+        let display_durations = recordings
+            .segments
+            .iter()
+            .map(|segment| segment.display.duration)
+            .collect::<Vec<_>>();
         fill_clip_offsets(
             &mut project_config,
             &recording_meta.project_path,
             studio_meta,
+            &display_durations,
         );
 
         frameever_project::clamp_timeline_to_sources(
             &mut project_config,
-            &recordings
-                .segments
-                .iter()
-                .map(|segment| segment.display.duration)
-                .collect::<Vec<_>>(),
+            &frameever_project::late_audio_trim_limits(studio_meta, &display_durations),
         );
         frameever_project::synchronize_legacy_keyboard(&recording_meta, &mut project_config);
         frameever_project::synchronize_captions(
@@ -868,7 +870,11 @@ fn fill_clip_offsets(
     config: &mut ProjectConfiguration,
     project_path: &std::path::Path,
     studio_meta: &StudioRecordingMeta,
+    recording_durations: &[f64],
 ) {
+    frameever_project::migrate_late_audio_alignment(config, studio_meta, || {
+        recording_durations.to_vec()
+    });
     if config.clips.is_empty() {
         config.clips = frameever_editor::initial_clip_configuration(project_path, studio_meta);
     }
@@ -920,7 +926,7 @@ mod clip_offset_tests {
         let meta = camera_recording();
         let mut config = ProjectConfiguration::default();
         assert!(config.clips.is_empty());
-        fill_clip_offsets(&mut config, dir.path(), &meta);
+        fill_clip_offsets(&mut config, dir.path(), &meta, &[10.0]);
         let offsets = config.clips[0].offsets;
         assert!((offsets.mic - 0.1695).abs() < 1e-4, "mic {}", offsets.mic);
         assert!(
@@ -946,8 +952,96 @@ mod clip_offset_tests {
             }],
             ..Default::default()
         };
-        fill_clip_offsets(&mut config, dir.path(), &camera_recording());
+        fill_clip_offsets(&mut config, dir.path(), &camera_recording(), &[10.0]);
         assert_eq!(config.clips[0].offsets.mic, 0.5);
+    }
+
+    fn late_mic_recording(mic_start: f64) -> StudioRecordingMeta {
+        let mut meta = camera_recording();
+        let StudioRecordingMeta::MultipleSegments { inner } = &mut meta else {
+            unreachable!()
+        };
+        inner.segments[0].mic.as_mut().unwrap().start_time = Some(mic_start);
+        meta
+    }
+
+    fn auto_clip(mic: f32, system_audio: f32, auto: bool) -> ProjectConfiguration {
+        ProjectConfiguration {
+            clips: vec![ClipConfiguration {
+                index: 0,
+                offsets: ClipOffsets {
+                    camera: 0.0,
+                    mic,
+                    system_audio,
+                },
+                offsets_auto_calculated: auto,
+            }],
+            clip_alignment_version: 0,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn saved_auto_offsets_of_a_late_mic_are_recomputed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = auto_clip(0.0, 5.2026, true);
+        fill_clip_offsets(
+            &mut config,
+            dir.path(),
+            &late_mic_recording(5.2026),
+            &[10.0],
+        );
+        let offsets = config.clips[0].offsets;
+        assert!((offsets.mic - -5.0).abs() < 1e-4, "mic {}", offsets.mic);
+        assert!((offsets.system_audio - 0.2026).abs() < 1e-4);
+        assert_eq!(offsets.camera, 0.0);
+        assert!(config.clips[0].offsets_auto_calculated);
+    }
+
+    #[test]
+    fn user_offsets_of_a_late_mic_keep_their_sync() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = auto_clip(0.25, 5.2026, false);
+        fill_clip_offsets(
+            &mut config,
+            dir.path(),
+            &late_mic_recording(5.2026),
+            &[10.0],
+        );
+        let offsets = config.clips[0].offsets;
+        assert!((offsets.mic - -4.75).abs() < 1e-4, "mic {}", offsets.mic);
+        assert!((offsets.system_audio - 0.2026).abs() < 1e-4);
+        assert!(!config.clips[0].offsets_auto_calculated);
+    }
+
+    #[test]
+    fn current_projects_are_not_moved_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = auto_clip(-5.0, 0.2026, true);
+        config.clip_alignment_version = frameever_project::CLIP_ALIGNMENT_VERSION;
+        fill_clip_offsets(
+            &mut config,
+            dir.path(),
+            &late_mic_recording(5.2026),
+            &[10.0],
+        );
+        assert_eq!(config.clips[0].offsets.mic.to_bits(), (-5.0f32).to_bits());
+        assert_eq!(
+            config.clips[0].offsets.system_audio.to_bits(),
+            0.2026f32.to_bits()
+        );
+    }
+
+    #[test]
+    fn saved_auto_offsets_of_a_normal_recording_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = auto_clip(0.123, 0.456, true);
+        fill_clip_offsets(&mut config, dir.path(), &camera_recording(), &[10.0]);
+        assert_eq!(config.clips[0].offsets.mic.to_bits(), 0.123f32.to_bits());
+        assert_eq!(
+            config.clips[0].offsets.system_audio.to_bits(),
+            0.456f32.to_bits()
+        );
     }
 }
 

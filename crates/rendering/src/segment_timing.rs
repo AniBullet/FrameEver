@@ -111,6 +111,21 @@ mod tests {
     }
 
     #[test]
+    fn late_mic_does_not_skip_screen_or_camera() {
+        let metadata: StudioRecordingMeta = serde_json::from_value(serde_json::json!({
+            "segments": [{
+                "display": { "path": "display", "fps": 30, "start_time": -0.05 },
+                "camera": { "path": "camera", "fps": 30, "start_time": -0.05 },
+                "mic": { "path": "mic.ogg", "start_time": 19.95 }
+            }]
+        }))
+        .unwrap();
+        let timing = segment_video_timing(&metadata, 0);
+        assert_eq!(timing.latest_start_time, Some(-0.05));
+        assert_eq!((timing.screen_offset, timing.camera_offset), (0.0, 0.0));
+    }
+
+    #[test]
     fn frame_times_retain_cast_before_add_and_camera_offset_order() {
         let segment_time = 1.0_f32;
         let offset = 16_777_216.75_f64;

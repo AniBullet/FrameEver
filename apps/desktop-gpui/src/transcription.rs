@@ -1902,6 +1902,7 @@ fn caption_segments_from_groups(groups: Vec<Vec<CaptionWord>>) -> Vec<CaptionSeg
                 end: chunk.last().map_or(0.0, |word| word.end),
                 text: caption_text_from_words(chunk),
                 words: chunk.to_vec(),
+                recording_clip: None,
             });
         }
     }
@@ -2825,6 +2826,7 @@ mod tests {
             end,
             text: caption_text_from_words(&words),
             words,
+            recording_clip: None,
         }
     }
 
@@ -3104,6 +3106,7 @@ mod tests {
             end: texts.len() as f32 * 0.5,
             text: texts.join(" "),
             words: spoken(texts),
+            recording_clip: None,
         };
         for (texts, expected) in [
             (

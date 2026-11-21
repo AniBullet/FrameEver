@@ -33,6 +33,13 @@ impl LoadedProject {
                 .map_err(|error| anyhow!("recordings: {error}"))?,
         );
         frameever_export::synthesize_default_timeline(&mut config, &recordings);
+        frameever_project::migrate_late_audio_alignment(&mut config, &studio_meta, || {
+            recordings
+                .segments
+                .iter()
+                .map(|segment| segment.display.duration)
+                .collect()
+        });
         frameever_project::synchronize_legacy_keyboard(&recording_meta, &mut config);
         frameever_project::synchronize_captions(
             &mut config,

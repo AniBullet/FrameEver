@@ -2634,6 +2634,12 @@ pub struct CaptionSegment {
     pub text: String,
     #[serde(default)]
     pub words: Vec<CaptionWord>,
+    #[serde(
+        rename = "recordingSegment",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub recording_clip: Option<u32>,
 }
 
 #[derive(Type, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
@@ -3052,6 +3058,8 @@ pub struct ProjectConfiguration {
     /// grade.
     #[serde(default)]
     pub color_correction: ColorCorrectionConfiguration,
+    #[serde(default)]
+    pub clip_alignment_version: u32,
     /// How text segment font sizes are interpreted. 0 (legacy): the renderer
     /// multiplied `font_size` by `size.y / 0.2`, coupling glyph size to the
     /// box. 1: `font_size` alone determines glyph size (1080p-relative);
@@ -3070,6 +3078,7 @@ pub struct ProjectConfiguration {
 
 pub const TEXT_SIZE_VERSION: u32 = 1;
 pub const TEXT_ANIM_VERSION: u32 = 1;
+pub const CLIP_ALIGNMENT_VERSION: u32 = 1;
 
 /// The keys [`ProjectConfiguration::load`] migrates on presence, read in a pass
 /// that skips every value instead of building a JSON tree of a file that can
@@ -3117,6 +3126,7 @@ impl Default for ProjectConfiguration {
             screen_motion_blur: Self::default_screen_motion_blur(),
             screen_movement_spring: Default::default(),
             color_correction: Default::default(),
+            clip_alignment_version: CLIP_ALIGNMENT_VERSION,
             text_size_version: TEXT_SIZE_VERSION,
             text_anim_version: TEXT_ANIM_VERSION,
         }
@@ -3145,6 +3155,7 @@ impl ProjectConfiguration {
             (None, None) => None,
         };
         preset.timeline = self.timeline.clone();
+        preset.clip_alignment_version = self.clip_alignment_version;
         preset.text_size_version = self.text_size_version;
         preset.text_anim_version = self.text_anim_version;
         preset.overlay_order = self.overlay_order.clone();

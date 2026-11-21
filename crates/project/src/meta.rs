@@ -765,6 +765,12 @@ impl MultipleSegments {
     }
 }
 
+pub const LATE_AUDIO_START_SECS: f64 = 1.0;
+
+fn is_late_audio_start(audio_start: f64, video_start: f64) -> bool {
+    audio_start - video_start > LATE_AUDIO_START_SECS
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct MultipleSegment {
     pub display: VideoMeta,
@@ -868,21 +874,48 @@ impl MultipleSegment {
     }
 
     pub fn latest_start_time(&self) -> Option<f64> {
-        let mut value = self.display.start_time?;
+        let video_start = self.video_start_time()?;
+        let mut value = video_start;
 
-        if let Some(camera) = &self.camera {
-            value = value.max(camera.start_time?);
-        }
-
-        if let Some(mic) = &self.mic {
-            value = value.max(mic.start_time?);
-        }
-
-        if let Some(system_audio) = &self.system_audio {
-            value = value.max(system_audio.start_time?);
+        for audio in self.aligned_audio() {
+            let start = audio.start_time?;
+            if !is_late_audio_start(start, video_start) {
+                value = value.max(start);
+            }
         }
 
         Some(value)
+    }
+
+    pub fn has_late_audio(&self) -> bool {
+        let Some(video_start) = self.video_start_time() else {
+            return false;
+        };
+        self.aligned_audio()
+            .filter_map(|audio| audio.start_time)
+            .any(|start| is_late_audio_start(start, video_start))
+    }
+
+    pub(crate) fn legacy_latest_start_time(&self) -> Option<f64> {
+        let mut value = self.video_start_time()?;
+        for audio in self.aligned_audio() {
+            value = value.max(audio.start_time?);
+        }
+        Some(value)
+    }
+
+    fn video_start_time(&self) -> Option<f64> {
+        let display_start = self.display.start_time?;
+        match &self.camera {
+            Some(camera) => Some(display_start.max(camera.start_time?)),
+            None => Some(display_start),
+        }
+    }
+
+    fn aligned_audio(&self) -> impl Iterator<Item = &AudioMeta> {
+        [self.mic.as_ref(), self.system_audio.as_ref()]
+            .into_iter()
+            .flatten()
     }
 
     pub fn calculate_audio_offsets(&self) -> crate::ClipOffsets {
@@ -968,6 +1001,7 @@ mod metadata_save_tests {
                 end: 2.0,
                 text: text.into(),
                 words: Vec::new(),
+                recording_clip: None,
             }],
             ..Default::default()
         };
@@ -1413,6 +1447,67 @@ mod test {
             let offsets = early.calculate_audio_offsets_with_calibration(Some(0.05));
             assert_eq!(offsets.camera, 0.0);
             assert!((offsets.mic - 0.05).abs() < 1e-6);
+        }
+
+        #[test]
+        fn mic_that_never_started_does_not_move_the_video() {
+            let mut segment = segment(-0.053, Some(19.947), None);
+            segment.camera = Some(video(Some(-0.053)));
+            assert!(segment.has_late_audio());
+            assert_eq!(segment.latest_start_time(), Some(-0.053));
+            let offsets = segment.calculate_audio_offsets();
+            assert_eq!(offsets.camera, 0.0);
+            assert!((offsets.mic - -20.0).abs() < 1e-4);
+        }
+
+        #[test]
+        fn mic_recovered_mid_segment_keeps_its_recorded_time() {
+            let segment = segment(0.045, Some(5.045), Some(0.0));
+            assert!(segment.has_late_audio());
+            assert_eq!(segment.latest_start_time(), Some(0.045));
+            let offsets = segment.calculate_audio_offsets_with_calibration(Some(0.05));
+            assert!((offsets.mic - -4.95).abs() < 1e-4);
+            assert!((offsets.system_audio - 0.095).abs() < 1e-4);
+        }
+
+        #[test]
+        fn late_system_audio_is_excluded_but_on_time_mic_still_aligns() {
+            let segment = segment(1.0, Some(1.04), Some(8.0));
+            assert!(segment.has_late_audio());
+            assert_eq!(segment.latest_start_time(), Some(1.04));
+            let offsets = segment.calculate_audio_offsets();
+            assert_eq!(offsets.mic, 0.0);
+            assert!((offsets.system_audio - -6.96).abs() < 1e-4);
+        }
+
+        #[test]
+        fn audio_within_threshold_keeps_historical_alignment() {
+            for lag in [0.0, 0.03, 0.155, 0.5, crate::LATE_AUDIO_START_SECS] {
+                let segment = segment(2.0, Some(2.0 + lag), None);
+                assert!(!segment.has_late_audio(), "lag {lag}");
+                assert_eq!(segment.latest_start_time(), Some(2.0 + lag));
+                assert_eq!(segment.calculate_audio_offsets().mic, 0.0);
+            }
+            let late = segment(2.0, Some(2.0 + crate::LATE_AUDIO_START_SECS + 0.01), None);
+            assert!(late.has_late_audio());
+            assert_eq!(late.latest_start_time(), Some(2.0));
+        }
+
+        #[test]
+        fn late_audio_is_measured_from_the_later_video_track() {
+            let mut segment = segment(0.0, Some(3.5), None);
+            segment.camera = Some(video(Some(3.0)));
+            assert!(!segment.has_late_audio());
+            assert_eq!(segment.latest_start_time(), Some(3.5));
+
+            segment.camera = Some(video(None));
+            assert!(!segment.has_late_audio());
+            assert_eq!(segment.latest_start_time(), None);
+
+            segment.camera = None;
+            segment.mic.as_mut().unwrap().start_time = None;
+            assert!(!segment.has_late_audio());
+            assert_eq!(segment.latest_start_time(), None);
         }
     }
 }
