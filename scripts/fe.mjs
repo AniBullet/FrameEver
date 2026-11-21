@@ -874,9 +874,19 @@ function test({ flags, positional }) {
 	});
 	if (flags.all) {
 		step("Encoder, export, utils, converter and CLI tests");
-		run("cargo", ["test", "-p", "frameever-enc-ffmpeg", "--lib"], {
-			env: withFfmpeg(),
-		});
+		const oneVideoToolboxSessionAtATime =
+			process.platform === "darwin" ? ["--", "--test-threads=1"] : [];
+		run(
+			"cargo",
+			[
+				"test",
+				"-p",
+				"frameever-enc-ffmpeg",
+				"--lib",
+				...oneVideoToolboxSessionAtATime,
+			],
+			{ env: withFfmpeg() },
+		);
 		run("cargo", ["test", "-p", "frameever-utils", "--lib"]);
 		run("cargo", ["test", "-p", "frameever-converter"]);
 		run("cargo", ["test", "-p", CONVERTER_APP], { cwd: gpuiDir });

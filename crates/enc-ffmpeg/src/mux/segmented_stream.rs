@@ -20,7 +20,7 @@ const HARDWARE_FAILURES_BEFORE_FALLBACK: u32 = 3;
 
 const HARDWARE_FAILURES_IN_WINDOW_BEFORE_FALLBACK: u32 = 8;
 
-const RUNTIME_SOFTWARE_FALLBACK: bool = cfg!(windows);
+const RUNTIME_SOFTWARE_FALLBACK: bool = cfg!(any(windows, target_os = "macos"));
 
 #[derive(Debug, Default, Clone, Copy)]
 struct CodecFailureHistory {
@@ -576,6 +576,12 @@ impl SegmentedVideoEncoder {
 
     pub fn take_encoder_fallback(&mut self) -> Option<EncoderFallback> {
         self.pending_fallback.take()
+    }
+
+    pub fn unrecovered_encoder_failure(&self) -> Option<(&str, ffmpeg::Error)> {
+        self.unrecovered_codec_failure
+            .as_ref()
+            .map(|(encoder, error)| (encoder.as_str(), *error))
     }
 
     pub fn take_flush_failure(&mut self) -> Option<EncoderFlushFailure> {
@@ -2015,6 +2021,10 @@ mod encoder_fallback_tests {
                 .to_string()
                 .contains("libx264 video encoder stopped working")
         );
+        assert_eq!(
+            encoder.unrecovered_encoder_failure(),
+            Some(("libx264", HARDWARE_FAILURE))
+        );
         assert!(temp.path().join(INIT_SEGMENT_NAME).is_file());
         let manifest = read_manifest(temp.path());
         assert_eq!(manifest["is_complete"], false);
@@ -2077,9 +2087,160 @@ mod encoder_fallback_tests {
         assert_eq!(history.recent_failures(), 0);
     }
 
+    #[cfg(target_os = "macos")]
+    fn sized_test_frame(width: u32, height: u32) -> ffmpeg::frame::Video {
+        let mut frame = ffmpeg::frame::Video::new(ffmpeg::format::Pixel::NV12, width, height);
+        for plane_idx in 0..frame.planes() {
+            frame.data_mut(plane_idx).fill(128);
+        }
+        frame
+    }
+
+    #[cfg(target_os = "macos")]
+    fn record_videotoolbox_input(
+        base_path: &Path,
+        total_frames: u64,
+        failure: Option<(usize, Option<H264Preset>)>,
+    ) -> Option<(SegmentedVideoEncoder, Vec<bool>)> {
+        let (width, height) = (640, 360);
+        let mut encoder = SegmentedVideoEncoder::init(
+            base_path.to_path_buf(),
+            VideoInfo {
+                width,
+                height,
+                ..test_video_info()
+            },
+            SegmentedVideoEncoderConfig {
+                prefer_videotoolbox_hw_input: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        if !encoder.is_videotoolbox_hw_input() {
+            assert!(
+                std::env::var_os("FRAMEEVER_REQUIRE_VIDEOTOOLBOX").is_none(),
+                "zero-copy VideoToolbox input is required but unavailable"
+            );
+            eprintln!("skipped: zero-copy VideoToolbox input unavailable");
+            return None;
+        }
+        assert_eq!(encoder.encoder.codec_name(), "h264_videotoolbox");
+        if let Some((healthy_frames, replacement)) = failure {
+            encoder.encoder.inject_codec_failure_after(
+                healthy_frames,
+                HARDWARE_FAILURE,
+                replacement,
+            );
+        }
+        let accepted = (0..total_frames)
+            .map(|i| {
+                let pixel_buffer = encoder
+                    .encoder
+                    .test_videotoolbox_frame(&sized_test_frame(width, height));
+                let pixel_buffer = unsafe { (*pixel_buffer.as_ptr()).data[3] }.cast();
+                unsafe {
+                    encoder.queue_hw_pixel_buffer(pixel_buffer, Duration::from_micros(i * 33_333))
+                }
+                .is_ok()
+            })
+            .collect();
+        Some((encoder, accepted))
+    }
+
+    #[cfg(target_os = "macos")]
     #[test]
-    fn runtime_software_fallback_is_windows_only() {
-        assert_eq!(RUNTIME_SOFTWARE_FALLBACK, cfg!(windows));
+    fn videotoolbox_input_failure_mid_recording_continues_on_the_software_encoder() {
+        ffmpeg::init().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let healthy_frames = 30;
+        let total_frames = 120;
+        let Some((mut encoder, accepted)) = record_videotoolbox_input(
+            temp.path(),
+            total_frames,
+            Some((healthy_frames, Some(H264Preset::Ultrafast))),
+        ) else {
+            return;
+        };
+
+        let fallback = encoder
+            .take_encoder_fallback()
+            .expect("the failed VideoToolbox encoder is replaced");
+        assert_eq!(fallback.failed_encoder, "h264_videotoolbox");
+        assert_eq!(fallback.replacement, "libx264");
+        assert_eq!(fallback.error, HARDWARE_FAILURE);
+        let rejected = accepted.iter().filter(|accepted| !**accepted).count();
+        assert_eq!(rejected, HARDWARE_FAILURES_BEFORE_FALLBACK as usize - 1);
+        assert!(encoder.is_videotoolbox_hw_input());
+        assert!(encoder.unrecovered_encoder_failure().is_none());
+        encoder.finish().unwrap();
+
+        let decoded = decode_every_packet(&recorded_track(temp.path()));
+        let software_frames =
+            total_frames as usize - healthy_frames - HARDWARE_FAILURES_BEFORE_FALLBACK as usize;
+        assert!(
+            decoded.frames > software_frames && decoded.frames <= total_frames as usize,
+            "{} frames decoded, {software_frames} from libx264",
+            decoded.frames
+        );
+        assert!(
+            (decoded.last_pts_secs - (total_frames - 1) as f64 / 30.0).abs() < 0.01,
+            "frames after the switch keep the capture timeline, last pts {:.3}s",
+            decoded.last_pts_secs
+        );
+        assert_eq!(read_manifest(temp.path())["is_complete"], true);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn videotoolbox_input_without_a_replacement_reports_the_stopped_encoder() {
+        ffmpeg::init().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let Some((mut encoder, accepted)) =
+            record_videotoolbox_input(temp.path(), 60, Some((30, None)))
+        else {
+            return;
+        };
+
+        assert!(accepted[..30].iter().all(|accepted| *accepted));
+        assert!(accepted[30..].iter().all(|accepted| !*accepted));
+        assert!(encoder.take_encoder_fallback().is_none());
+        assert_eq!(
+            encoder.unrecovered_encoder_failure(),
+            Some(("h264_videotoolbox", HARDWARE_FAILURE))
+        );
+        assert!(matches!(
+            encoder.finish(),
+            Err(FinishError::EncoderStopped { error, .. }) if error == HARDWARE_FAILURE
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn healthy_videotoolbox_input_keeps_the_hardware_encoder() {
+        ffmpeg::init().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let total_frames = 90;
+        let Some((mut encoder, accepted)) =
+            record_videotoolbox_input(temp.path(), total_frames, None)
+        else {
+            return;
+        };
+
+        assert!(accepted.iter().all(|accepted| *accepted));
+        assert!(encoder.take_encoder_fallback().is_none());
+        assert_eq!(encoder.encoder.codec_name(), "h264_videotoolbox");
+        encoder.finish().unwrap();
+        assert!(encoder.take_flush_failure().is_none());
+        let decoded = decode_every_packet(&recorded_track(temp.path()));
+        assert_eq!(decoded.frames, total_frames as usize);
+    }
+
+    #[test]
+    fn runtime_software_fallback_covers_windows_and_macos() {
+        assert_eq!(
+            RUNTIME_SOFTWARE_FALLBACK,
+            cfg!(any(windows, target_os = "macos"))
+        );
     }
 
     #[test]
