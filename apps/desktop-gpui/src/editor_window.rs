@@ -7248,6 +7248,7 @@ impl EditorWindow {
         self.name_input
             .update(cx, |input, cx| input.set_text(draft.clone(), cx));
         tracing::info!(name = %draft, "renamed project");
+        cx.defer(crate::app_windows::refresh_library_everywhere);
         cx.notify();
         Ok(())
     }
