@@ -793,29 +793,29 @@ impl ControlsWindow {
 
     fn render_microphone(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let muted = self.session.read(cx).mic_muted;
-        let can_mute = self.can_mute(cx);
+        let state = self.microphone_state(cx);
+        let live = state == MicrophoneButton::Live;
+        let lost = state == MicrophoneButton::Lost;
+        let can_press = self.can_press_microphone(cx);
         self.level_bar.update(cx, |bar, cx| {
             bar.configure(
-                self.has_microphone && !muted,
+                live,
                 theme.success.into(),
                 theme.muted_foreground.into(),
                 cx,
             );
         });
 
-        let icon = if !self.has_microphone || muted {
-            "icons/mic-off.svg"
-        } else {
+        let icon = if live {
             "icons/mic.svg"
-        };
-        let icon_color: gpui::Hsla = if muted {
-            theme.danger_text.into()
-        } else if self.has_microphone {
-            theme.foreground.into()
         } else {
-            // `IconLucideMicOff text-gray-7`.
-            theme.muted_foreground.into()
+            "icons/mic-off.svg"
+        };
+        let icon_color: gpui::Hsla = match state {
+            MicrophoneButton::Lost => theme.warning_text.into(),
+            MicrophoneButton::Muted => theme.danger_text.into(),
+            MicrophoneButton::Live => theme.foreground.into(),
+            MicrophoneButton::Absent => theme.muted_foreground.into(),
         };
 
         self.ring(
@@ -831,7 +831,12 @@ impl ControlsWindow {
                 .rounded(px(8.)),
             Control::Microphone,
         )
-        .when(can_mute, |this| {
+        .when(lost, |this| {
+            this.tooltip(move |_, cx| {
+                ui::Tooltip::new(&theme, t!("Microphone disconnected")).view(cx)
+            })
+        })
+        .when(can_press, |this| {
             this.rounded(px(8.))
                 .hover(|style| style.bg(Theme::with_alpha(theme.foreground, 0.06)))
                 .active(|style| style.bg(Theme::with_alpha(theme.foreground, 0.10)))
@@ -840,9 +845,7 @@ impl ControlsWindow {
                 }))
         })
         .child(svg().path(icon).size(px(20.)).text_color(icon_color))
-        .when(self.has_microphone && !muted, |this| {
-            this.child(self.level_bar.clone())
-        })
+        .when(live, |this| this.child(self.level_bar.clone()))
     }
 
     fn option_row(
@@ -1304,6 +1307,19 @@ impl ControlsWindow {
         !matches!(session.phase, Phase::Recording { .. }) || session.pause_unavailable()
     }
 
+    fn microphone_state(&self, cx: &gpui::App) -> MicrophoneButton {
+        let session = self.session.read(cx);
+        microphone_button(
+            self.has_microphone,
+            session.mic_disconnected,
+            session.mic_muted,
+        )
+    }
+
+    fn can_press_microphone(&self, cx: &gpui::App) -> bool {
+        self.microphone_state(cx) == MicrophoneButton::Lost || self.can_mute(cx)
+    }
+
     fn can_mute(&self, cx: &gpui::App) -> bool {
         let session = self.session.read(cx);
         session.mode() == Some(RecordingMode::Instant)
@@ -1368,7 +1384,7 @@ impl ControlsWindow {
         let busy = self.busy(cx);
         groups.push(vec![
             (Control::Stop, self.can_stop(cx)),
-            (Control::Microphone, self.can_mute(cx)),
+            (Control::Microphone, self.can_press_microphone(cx)),
             (Control::Pause, !busy),
             (Control::Restart, !busy),
             (Control::Issue, self.issue(cx).is_some()),
@@ -1390,7 +1406,11 @@ impl ControlsWindow {
         }
         match control {
             Control::Microphone => {
-                if self.can_mute(cx) {
+                if self.microphone_state(cx) == MicrophoneButton::Lost {
+                    if !self.options_open {
+                        self.toggle_options(window, cx);
+                    }
+                } else if self.can_mute(cx) {
                     self.session
                         .update(cx, |session, cx| session.toggle_mic_mute(cx));
                 }
@@ -1931,6 +1951,58 @@ fn recording_time_label(
         )
     } else {
         ControlsWindow::format_elapsed(elapsed)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MicrophoneButton {
+    Lost,
+    Absent,
+    Muted,
+    Live,
+}
+
+fn microphone_button(has_microphone: bool, lost: bool, muted: bool) -> MicrophoneButton {
+    match (has_microphone, lost, muted) {
+        (false, _, _) => MicrophoneButton::Absent,
+        (true, true, _) => MicrophoneButton::Lost,
+        (true, false, true) => MicrophoneButton::Muted,
+        (true, false, false) => MicrophoneButton::Live,
+    }
+}
+
+#[cfg(test)]
+mod microphone_button_tests {
+    use super::*;
+
+    #[test]
+    fn a_lost_microphone_shows_before_muted_or_live() {
+        assert_eq!(microphone_button(true, true, false), MicrophoneButton::Lost);
+        assert_eq!(microphone_button(true, true, true), MicrophoneButton::Lost);
+    }
+
+    #[test]
+    fn a_recording_without_a_microphone_never_shows_one_as_lost() {
+        assert_eq!(
+            microphone_button(false, true, false),
+            MicrophoneButton::Absent
+        );
+        assert_eq!(
+            microphone_button(false, false, true),
+            MicrophoneButton::Absent
+        );
+    }
+
+    #[test]
+    fn a_connected_microphone_is_muted_or_live() {
+        assert_eq!(
+            microphone_button(true, false, true),
+            MicrophoneButton::Muted
+        );
+        assert_eq!(
+            microphone_button(true, false, false),
+            MicrophoneButton::Live
+        );
     }
 }
 

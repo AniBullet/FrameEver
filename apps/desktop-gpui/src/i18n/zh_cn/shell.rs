@@ -577,6 +577,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("Camera access needed", "需要摄像头权限"),
     ("Camera disconnected", "摄像头已断开"),
+    ("Microphone disconnected", "麦克风已断开"),
     (
         "Recording continues without it.",
         "录制继续，只是没有摄像头画面。",
