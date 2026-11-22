@@ -749,11 +749,10 @@ enum State {
 }
 
 impl State {
-    fn try_as_open(&mut self) -> Result<&mut OpenState, FeedLockedError> {
-        let is_stale = matches!(self, Self::Locked { token, .. } if token.strong_count() == 0);
+    fn release_dropped_lock(&mut self) -> bool {
+        let dropped = matches!(self, Self::Locked { token, .. } if token.strong_count() == 0);
 
-        if is_stale {
-            warn!("Detected stale microphone feed lock, auto-recovering");
+        if dropped {
             replace_with_or_abort(self, |state| {
                 if let Self::Locked { inner, .. } = state {
                     Self::Open(OpenState {
@@ -764,6 +763,13 @@ impl State {
                     state
                 }
             });
+        }
+        dropped
+    }
+
+    fn try_as_open(&mut self) -> Result<&mut OpenState, FeedLockedError> {
+        if self.release_dropped_lock() {
+            warn!("Detected stale microphone feed lock, auto-recovering");
         }
 
         if let Self::Open(open_state) = self {
@@ -1707,6 +1713,9 @@ impl MicrophoneFeed {
     {
         trace!("MicrophoneFeed.SetInput('{}')", &msg.label);
 
+        if self.state.release_dropped_lock() {
+            debug!("MicrophoneFeed.SetInput: the recording's lock was already dropped");
+        }
         match &mut self.state {
             State::Open(state) => {
                 let id = self.input_id_counter;
@@ -3149,6 +3158,25 @@ mod tests {
         assert!(
             result.is_ok(),
             "late connection notification stopped the feed: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn another_microphone_can_be_selected_as_soon_as_the_lock_is_dropped() {
+        let (feed, lock, _connection) = locked_test_microphone().await;
+        drop(lock);
+        let selected = feed
+            .ask(SetInput {
+                label: "FrameEver test: no such microphone".to_string(),
+                settings: None,
+            })
+            .await;
+        feed.kill();
+        feed.wait_for_shutdown().await;
+        assert!(
+            selected.is_ok(),
+            "a dropped lock still refused the switch: {:?}",
+            selected.err()
         );
     }
 
