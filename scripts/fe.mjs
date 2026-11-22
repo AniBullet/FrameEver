@@ -502,13 +502,30 @@ export function runCopyPath(binary = appBinary()) {
 	);
 }
 
-export function previousDevAppStops(pidText, copy, windows) {
+function processCommand(pid) {
+	const ps = spawnSync("ps", ["-ww", "-p", pid, "-o", "comm="], {
+		encoding: "utf8",
+	});
+	return ps.stdout?.trim() ?? "";
+}
+
+export function previousDevAppStops(
+	pidText,
+	copy,
+	windows,
+	commandOf = processCommand,
+) {
 	const pid = pidText.trim();
 	const known = /^\d+$/.test(pid);
-	if (!windows) return known ? [["kill", [pid]]] : [];
+	const image = path.basename(copy);
+	if (!windows) {
+		const isTestApp = known && path.basename(commandOf(pid)) === image;
+		return isTestApp ? [["kill", [pid]]] : [];
+	}
+	const onlyTestApp = ["/FI", `IMAGENAME eq ${image}`];
 	return [
-		...(known ? [["taskkill", ["/F", "/T", "/PID", pid]]] : []),
-		["taskkill", ["/F", "/IM", path.basename(copy)]],
+		...(known ? [["taskkill", ["/F", "/T", ...onlyTestApp, "/PID", pid]]] : []),
+		["taskkill", ["/F", "/IM", image]],
 	];
 }
 

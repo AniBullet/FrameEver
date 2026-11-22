@@ -75,6 +75,34 @@ test('a job says which folders it searched when no repository is found', async (
   await ui.unmount()
 })
 
+test('when an app job ends, the recorded PID is stopped only as the test app', async ($, on) => {
+  const commands: string[][] = []
+  on('command.register', () => ({ value: { command: 'fe-dev' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1000 }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('fs.write', () => ({ value: undefined }))
+  on('session.root', () => ({ value: 'H:\\repos\\frameever' }))
+  on('session.cwd', () => ({ value: 'H:\\repos\\frameever' }))
+  on('fs.read', (_, e) => ({ value: e.path.endsWith('fe-dev.pid') ? '4242\n' : '' }))
+  on('process.spawn', async function* () {
+    return { value: { code: 0, signal: null } }
+  })
+  on('process.run', (_, e) => {
+    commands.push([...e.argv])
+    return { value: { exitCode: 0, stdout: '', stderr: '' } }
+  })
+
+  await $.session.start({ cwd: 'H:\\repos\\frameever', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'run-dev' })
+  expect(commands).toEqual([
+    ['taskkill', '/F', '/T', '/FI', 'IMAGENAME eq frameever-gpui.fe-run.exe', '/PID', '4242'],
+  ])
+  await ui.unmount()
+})
+
 test('the pane draws every group of buttons on every surface', async ($, on) => {
   on('command.register', () => ({ value: { command: 'fe-dev' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))

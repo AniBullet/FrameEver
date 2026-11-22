@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -359,16 +360,57 @@ test("a new dev run first stops the previous dev copy, never the installed app",
 	const { previousDevAppStops } = await import("./fe.mjs");
 	const copy = path.join("debug", "frameever-gpui.fe-run.exe");
 	assert.deepEqual(previousDevAppStops("4242\n", copy, true), [
-		["taskkill", ["/F", "/T", "/PID", "4242"]],
+		[
+			"taskkill",
+			[
+				"/F",
+				"/T",
+				"/FI",
+				"IMAGENAME eq frameever-gpui.fe-run.exe",
+				"/PID",
+				"4242",
+			],
+		],
 		["taskkill", ["/F", "/IM", "frameever-gpui.fe-run.exe"]],
 	]);
 	assert.deepEqual(previousDevAppStops("", copy, true), [
 		["taskkill", ["/F", "/IM", "frameever-gpui.fe-run.exe"]],
 	]);
-	assert.deepEqual(
-		previousDevAppStops("4242", "debug/frameever-gpui.fe-run", false),
-		[["kill", ["4242"]]],
-	);
+});
+
+test("on macOS a recorded PID is stopped only while the test app has it", async () => {
+	const { previousDevAppStops } = await import("./fe.mjs");
+	const copy = "/repo/target/debug/frameever-gpui.fe-run";
+	const stops = (command) =>
+		previousDevAppStops("4242", copy, false, () => command);
+	assert.deepEqual(stops(copy), [["kill", ["4242"]]]);
+	assert.deepEqual(stops("/bin/zsh"), []);
+	assert.deepEqual(stops("/repo/target/debug/frameever-gpui"), []);
+	assert.deepEqual(stops(""), []);
+});
+
+test("a recorded PID that now belongs to another program is left running", {
+	skip: process.platform !== "win32",
+}, async () => {
+	const { previousDevAppStops } = await import("./fe.mjs");
+	const other = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], {
+		stdio: "ignore",
+	});
+	const exited = new Promise((resolve) => other.once("exit", resolve));
+	try {
+		const copy = `frameever-gpui.test-${process.pid}.exe`;
+		const stops = previousDevAppStops(String(other.pid), copy, true);
+		for (const [command, args] of stops) {
+			spawnSync(command, args, { stdio: "ignore" });
+		}
+		const outcome = await Promise.race([
+			exited.then(() => "stopped"),
+			new Promise((resolve) => setTimeout(resolve, 500, "running")),
+		]);
+		assert.equal(outcome, "running");
+	} finally {
+		other.kill();
+	}
 });
 
 test("each crate keeps its newest incremental caches and drops the rest", () => {

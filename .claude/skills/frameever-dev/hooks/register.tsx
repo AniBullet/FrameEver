@@ -101,6 +101,7 @@ const LANGUAGES: { value: AppLanguage; label: string }[] = [
 ]
 
 const DEV_PID_FILE = 'apps\\desktop-gpui\\target\\testdata\\fe-dev.pid'
+const DEV_APP_IMAGE = 'frameever-gpui.fe-run.exe'
 const LAST_JOB_LOG = 'apps\\desktop-gpui\\target\\testdata\\fe-pane-last.log'
 
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*[A-Za-z]`, 'g')
@@ -161,7 +162,9 @@ async function resolveRoot($: EngineInterface) {
 async function stopApp($: EngineInterface) {
   const pid = await $.fs.read(`${root}\\${DEV_PID_FILE}`).catch(() => '')
   if (/^\d+$/.test(pid.trim())) {
-    await $.process.run(['taskkill', '/F', '/T', '/PID', pid.trim()]).catch(() => undefined)
+    await $.process
+      .run(['taskkill', '/F', '/T', '/FI', `IMAGENAME eq ${DEV_APP_IMAGE}`, '/PID', pid.trim()])
+      .catch(() => undefined)
   }
 }
 
