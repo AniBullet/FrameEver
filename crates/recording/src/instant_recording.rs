@@ -80,9 +80,14 @@ pub struct ActorHandle {
             >,
         >,
     >,
+    microphone_switch: Option<crate::sources::MicrophoneSwitch>,
 }
 
 impl ActorHandle {
+    pub fn microphone_switch(&self) -> Option<crate::sources::MicrophoneSwitch> {
+        self.microphone_switch.clone()
+    }
+
     pub async fn stop(&self) -> anyhow::Result<CompletedRecording> {
         Ok(self.actor_ref.ask(Stop).await.map_err(crate::actor_error)?)
     }
@@ -440,7 +445,7 @@ struct ScreenPipelineInput {
 async fn create_pipeline(
     content_dir: PathBuf,
     screen: ScreenPipelineInput,
-    mic_feed: Option<Arc<MicrophoneFeedLock>>,
+    mic_feed: Option<crate::sources::SwitchableMicrophoneConfig>,
     system_audio_source: Option<crate::sources::screen_capture::SystemAudioSourceConfig>,
     max_output_size: Option<u32>,
     start_time: Timestamps,
@@ -503,7 +508,7 @@ async fn create_pipeline(
         }
 
         if let Some(mic) = mic_feed {
-            builder = builder.with_audio_source::<crate::sources::Microphone>(mic);
+            builder = builder.with_audio_source::<crate::sources::SwitchableMicrophone>(mic);
         }
 
         let segment_tx_for_audio = segment_channel.as_ref().map(|(tx, _)| tx.clone());
@@ -768,6 +773,20 @@ async fn build_instant_recording_actor(
     #[cfg(windows)]
     frameever_mediafoundation_utils::thread_init();
 
+    let (microphone_switch, mut microphone) = match inputs.mic_feed.clone() {
+        Some(lock) => {
+            let (switch, switch_requests) = crate::sources::MicrophoneSwitch::channel();
+            (
+                Some(switch),
+                Some(crate::sources::SwitchableMicrophoneConfig {
+                    lock,
+                    switch_requests,
+                }),
+            )
+        }
+        None => (None, None),
+    };
+
     let (mut pipeline, video_info) = match inputs.capture_target {
         ScreenCaptureTarget::CameraOnly => {
             let camera_feed = inputs.camera_feed.clone().ok_or_else(|| {
@@ -786,8 +805,8 @@ async fn build_instant_recording_actor(
                 .with_timestamps(timestamps)
                 .with_start_gate(inputs.start_gate.clone());
 
-            if let Some(mic_feed) = inputs.mic_feed.clone() {
-                builder = builder.with_audio_source::<crate::sources::Microphone>(mic_feed);
+            if let Some(mic) = microphone.take() {
+                builder = builder.with_audio_source::<crate::sources::SwitchableMicrophone>(mic);
             }
 
             #[cfg(target_os = "macos")]
@@ -902,7 +921,7 @@ async fn build_instant_recording_actor(
                     source: screen_capture,
                     info: screen_info,
                 },
-                inputs.mic_feed.clone(),
+                microphone.take(),
                 system_audio_source,
                 max_output_size,
                 timestamps,
@@ -951,6 +970,7 @@ async fn build_instant_recording_actor(
         done_fut: done_fut.clone(),
         health_rx,
         segment_rx: segment_rx.map(|rx| std::sync::Mutex::new(Some(rx))),
+        microphone_switch,
     };
 
     tokio::spawn(async move {
@@ -1619,9 +1639,12 @@ mod non_linux_stop_tests {
             ActorHandle {
                 actor_ref: Actor::spawn(stopped_actor(None)),
                 capture_target: ScreenCaptureTarget::CameraOnly,
-                done_fut: futures::FutureExt::shared(futures::FutureExt::boxed(futures::future::ready(Ok(())))),
+                done_fut: futures::FutureExt::shared(futures::FutureExt::boxed(
+                    futures::future::ready(Ok(())),
+                )),
                 health_rx: None,
                 segment_rx: None,
+                microphone_switch: None,
             }
         });
         std::thread::spawn(move || drop(handle)).join().unwrap();

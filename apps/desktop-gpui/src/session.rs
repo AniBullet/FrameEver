@@ -12,6 +12,7 @@ use std::{
 };
 
 use frameever_utils::disk_space::{DiskSpaceStatus, RecordingStorageMonitor};
+use futures_util::FutureExt as _;
 use gpui::{App, AppContext as _, Context, Entity, Global, Task};
 
 use crate::i18n::t;
@@ -572,6 +573,10 @@ impl RecordingSession {
             pause_unavailable: self.pause_unavailable(),
             started_with_microphone: self.microphone_label().is_some(),
             started_with_camera: self.camera_id().is_some(),
+            camera_only: matches!(
+                self.capture_target(),
+                Some(frameever_recording::sources::screen_capture::ScreenCaptureTarget::CameraOnly)
+            ),
         }
     }
 
@@ -1167,6 +1172,10 @@ impl RecordingSession {
         let Some(previous) = self.current_input(kind, cx) else {
             return;
         };
+        if self.mode() == Some(crate::recording::RecordingMode::Instant) {
+            self.change_instant_input(choice, previous, ticket, cx);
+            return;
+        }
         let Some(handle) = self.begin_input_change(ticket, cx) else {
             return;
         };
@@ -1196,6 +1205,82 @@ impl RecordingSession {
                 if end == InputChangeEnd::Resume && resumable {
                     this.toggle_pause(cx);
                 }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn change_instant_input(
+        &mut self,
+        choice: InputChoice,
+        previous: InputChoice,
+        ticket: InputChangeTicket,
+        cx: &mut Context<Self>,
+    ) {
+        if self.changing_input || !matches!(self.phase, Phase::Recording { .. }) {
+            return;
+        }
+        let switching = match &choice {
+            InputChoice::Microphone(label) => {
+                let settings = crate::store::RecordingDeviceSettings::for_microphone(label);
+                let meter = crate::feeds::Feeds::global(cx).read(cx).mic_meter();
+                let Some(switch) = self.active.as_ref().and_then(|active| {
+                    active.switch_instant_microphone(label.clone(), settings, meter)
+                }) else {
+                    return;
+                };
+                switch.boxed()
+            }
+            InputChoice::Camera(selection) => {
+                let ready = crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
+                    feeds.set_camera(Some(selection.clone()), cx);
+                    feeds.input_readiness().camera
+                });
+                async move {
+                    let ready =
+                        ready.ok_or_else(|| anyhow::anyhow!(t!("The camera is unavailable")))?;
+                    ready.await.map_err(anyhow::Error::msg)?;
+                    Ok(())
+                }
+                .boxed()
+            }
+        };
+        self.changing_input = true;
+        self.input_change = ticket.change;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let attached = tokio_spawn(cx, switching).await;
+            this.update(cx, |this, cx| {
+                if ticket.finish(this.input_change, this.phase) == InputChangeEnd::Stale {
+                    return;
+                }
+                this.changing_input = false;
+                let switched = match attached {
+                    Ok(()) => Switched::Attached(None),
+                    Err(cause) => Switched::Unchanged { cause },
+                };
+                match (&choice, &switched, &previous) {
+                    (InputChoice::Microphone(label), Switched::Attached(_), _) => {
+                        crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
+                            feeds.adopt_recording_microphone(label.clone(), cx)
+                        });
+                    }
+                    (
+                        InputChoice::Camera(selection),
+                        Switched::Unchanged { .. },
+                        InputChoice::Camera(previous),
+                    ) => {
+                        crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
+                            if feeds.camera.as_ref() == Some(selection) {
+                                feeds.set_camera(Some(previous.clone()), cx);
+                            }
+                        });
+                    }
+                    _ => {}
+                }
+                this.settle_input_change(&choice, &previous, switched, ticket, cx);
                 cx.notify();
             })
             .ok();
@@ -2021,6 +2106,7 @@ struct InputChangeGate {
     pause_unavailable: bool,
     started_with_microphone: bool,
     started_with_camera: bool,
+    camera_only: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2057,8 +2143,15 @@ impl InputChangeGate {
             InputKind::Microphone => self.started_with_microphone,
             InputKind::Camera => self.started_with_camera,
         };
+        let mode_allows = match self.mode {
+            Some(crate::recording::RecordingMode::Studio) => true,
+            Some(crate::recording::RecordingMode::Instant) => {
+                kind == InputKind::Microphone || !self.camera_only
+            }
+            None => false,
+        };
         started_with
-            && self.mode == Some(crate::recording::RecordingMode::Studio)
+            && mode_allows
             && matches!(self.phase, Phase::Recording { .. })
             && !self.changing_input
             && !self.pause_unavailable
@@ -2067,7 +2160,8 @@ impl InputChangeGate {
     fn begin(&self, kind: InputKind, change: u64) -> Option<InputChangeTicket> {
         self.allows(kind).then_some(InputChangeTicket {
             change,
-            resume_after: self.phase == Phase::Recording { paused: false },
+            resume_after: self.mode == Some(crate::recording::RecordingMode::Studio)
+                && self.phase == Phase::Recording { paused: false },
         })
     }
 }
@@ -2503,7 +2597,44 @@ mod input_change_tests {
             pause_unavailable: false,
             started_with_microphone: true,
             started_with_camera: false,
+            camera_only: false,
         }
+    }
+
+    fn instant_recording() -> InputChangeGate {
+        InputChangeGate {
+            mode: Some(RecordingMode::Instant),
+            started_with_camera: true,
+            ..studio_recording()
+        }
+    }
+
+    #[test]
+    fn an_instant_take_switches_while_it_keeps_recording() {
+        let mut gate = instant_recording();
+        for kind in [InputKind::Microphone, InputKind::Camera] {
+            let ticket = gate.begin(kind, 1).unwrap();
+            assert!(!ticket.resume_after);
+            assert_eq!(
+                ticket.finish(1, Phase::Recording { paused: false }),
+                InputChangeEnd::StayPaused
+            );
+        }
+        gate.changing_input = true;
+        assert!(!gate.allows(InputKind::Microphone));
+        gate.changing_input = false;
+        gate.pause_unavailable = true;
+        assert!(!gate.allows(InputKind::Microphone));
+    }
+
+    #[test]
+    fn an_instant_camera_only_take_keeps_the_camera_it_records() {
+        let gate = InputChangeGate {
+            camera_only: true,
+            ..instant_recording()
+        };
+        assert!(gate.allows(InputKind::Microphone));
+        assert!(!gate.allows(InputKind::Camera));
     }
 
     #[test]

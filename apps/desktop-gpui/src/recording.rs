@@ -88,11 +88,13 @@ pub struct ActiveRecording {
     /// Recording-scoped mic mute (payload zeroing at the consumer seam; the
     /// stream cadence is unaffected). `None` when the recording has no mic.
     pub mic_mute: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
-    _mic_feed: Option<Arc<RecordingOwnedFeed<MicrophoneFeed>>>,
+    owned_microphone: Arc<Mutex<Option<OwnedMicrophone>>>,
     _camera_feed: Option<Arc<RecordingOwnedFeed<CameraFeed>>>,
-    // The mic error channel must outlive the stream or error sends panic the
-    // sender side into logs; we keep it and drain nothing.
-    _mic_errors: Option<flume::Receiver<cpal::StreamError>>,
+}
+
+struct OwnedMicrophone {
+    _feed: Arc<RecordingOwnedFeed<MicrophoneFeed>>,
+    _errors: flume::Receiver<cpal::StreamError>,
 }
 
 async fn finalize_studio(
@@ -509,6 +511,32 @@ impl ActiveRecording {
             Handle::Studio(handle) => Some(handle.clone()),
             Handle::Instant(_) => None,
         }
+    }
+
+    fn microphone_switch(&self) -> Option<frameever_recording::sources::MicrophoneSwitch> {
+        match &self.handle {
+            Handle::Studio(_) => None,
+            Handle::Instant(handle) => handle.microphone_switch(),
+        }
+    }
+
+    pub(crate) fn switch_instant_microphone(
+        &self,
+        label: String,
+        settings: Option<microphone::MicrophoneDeviceSettings>,
+        meter: Option<flume::Sender<microphone::MicrophoneSamples>>,
+    ) -> Option<impl Future<Output = anyhow::Result<()>> + Send + 'static> {
+        let switch = self.microphone_switch()?;
+        let owned = self.owned_microphone.clone();
+        Some(async move {
+            let (feed, lock, errors) = setup_microphone(&label, settings, meter).await?;
+            switch.switch(lock).await?;
+            *owned.lock().unwrap() = Some(OwnedMicrophone {
+                _feed: feed,
+                _errors: errors,
+            });
+            Ok(())
+        })
     }
 
     pub fn done_fut(&self) -> frameever_recording::DoneFut {
@@ -1812,9 +1840,13 @@ async fn start_attempt(
         start_gate: config.start_gate.clone(),
         instant_metadata_lock,
         mic_mute,
-        _mic_feed: mic_feed,
+        owned_microphone: Arc::new(Mutex::new(mic_feed.zip(mic_errors).map(
+            |(feed, errors)| OwnedMicrophone {
+                _feed: feed,
+                _errors: errors,
+            },
+        ))),
         _camera_feed: camera_feed,
-        _mic_errors: mic_errors,
     })
 }
 

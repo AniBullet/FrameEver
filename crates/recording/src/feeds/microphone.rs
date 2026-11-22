@@ -2518,7 +2518,7 @@ impl Message<Unlock> for MicrophoneFeed {
 /// Test-only microphone feeds driven by a synthetic device instead of
 /// hardware, so recording tests exercise the real feed, lock and pipeline
 /// paths with samples whose capture times are known exactly.
-#[cfg(feature = "test-utils")]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod synthetic {
     use super::*;
 
@@ -2595,6 +2595,11 @@ pub mod synthetic {
                 .ask(Lock)
                 .await
                 .map_err(|error| anyhow::anyhow!("synthetic microphone lock: {error}"))
+        }
+
+        pub async fn kill(&self) {
+            self.feed.kill();
+            self.feed.wait_for_shutdown().await;
         }
 
         /// Takes the device away the way the app does when it disappears or
