@@ -3,7 +3,7 @@ use crate::{
 };
 use std::collections::HashMap;
 
-pub(crate) const MAX_CAPTION_WORD_DURATION: f32 = 2.5;
+pub const MAX_CAPTION_WORD_DURATION: f32 = 2.5;
 
 pub(crate) fn clip_timeline_offsets(timeline: &TimelineConfiguration) -> Vec<f64> {
     let mut offset = 0.0;

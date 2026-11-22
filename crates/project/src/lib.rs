@@ -11,8 +11,8 @@ mod shapes;
 
 pub use animated_gradient::*;
 pub use caption_timing::{
-    caption_text_from_words, derive_caption_track_segments, held_tail_clip, is_cjk,
-    is_cjk_punctuation, source_caption_id, synchronize_captions,
+    MAX_CAPTION_WORD_DURATION, caption_text_from_words, derive_caption_track_segments,
+    held_tail_clip, is_cjk, is_cjk_punctuation, source_caption_id, synchronize_captions,
 };
 pub use configuration::*;
 pub use cursor::*;

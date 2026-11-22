@@ -229,6 +229,12 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("No room for another caption here", "这里放不下新的字幕"),
     ("Add caption at playhead", "在播放头处添加字幕"),
     ("New caption", "新字幕"),
+    ("Download captions", "下载字幕"),
+    ("Captions saved", "字幕已保存"),
+    (
+        "Could not save the captions: {error}",
+        "无法保存字幕：{error}",
+    ),
     ("Clip {number}", "片段 {number}"),
     ("Split {number}", "分割 {number}"),
     ("Clips", "片段"),

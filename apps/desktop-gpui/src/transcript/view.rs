@@ -1448,6 +1448,11 @@ impl EditorWindow {
             .map(|edl| edl.kept_count)
             .or_else(|| self.transcript.doc.as_ref().map(|doc| doc.words.len()))
             .filter(|_| has_doc);
+        let has_cues = self
+            .project
+            .timeline
+            .as_ref()
+            .is_some_and(|timeline| !timeline.caption_segments.is_empty());
         crate::editor_side_panel::panel_header(
             &theme,
             t!("Transcript"),
@@ -1472,6 +1477,18 @@ impl EditorWindow {
                                 cx,
                             );
                         })),
+                )
+                .child(
+                    ui::EditorButton::plain(&theme, "transcript-download")
+                        .left_icon("icons/download.svg")
+                        .tooltip(&theme, t!("Download captions"))
+                        .disabled(!has_cues)
+                        .pressed(self.caption_download_menu_open())
+                        .on_open(cx.listener(
+                            |this, bounds: &gpui::Bounds<gpui::Pixels>, window, cx| {
+                                this.open_caption_download_menu(*bounds, window, cx);
+                            },
+                        )),
                 )
                 .when(has_doc, |actions| {
                     actions

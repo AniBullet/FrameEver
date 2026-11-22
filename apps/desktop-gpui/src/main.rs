@@ -19,6 +19,7 @@ mod camera_blur;
 mod camera_blur_portable;
 mod camera_loading;
 mod camera_window;
+mod caption_export;
 mod command_palette;
 mod controls_window;
 mod countdown_window;
