@@ -7,6 +7,7 @@ pub mod mp4;
 pub mod preview;
 pub mod range;
 pub mod settings;
+pub mod tracks;
 
 pub use range::ExportRange;
 
