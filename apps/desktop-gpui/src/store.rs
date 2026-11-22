@@ -1580,7 +1580,7 @@ impl GeneralSettings {
             // is how the setting was re-defaulted without inheriting the old
             // key's values.
             custom_cursor_capture: bool_at(general, "custom_cursor_capture2", true),
-            auto_zoom_on_clicks: bool_at(general, "autoZoomOnClicks", false),
+            auto_zoom_on_clicks: bool_at(general, "autoZoomOnClicks", true),
             default_zoom_amount: opt_f32_at(general, "defaultZoomAmount"),
             capture_keyboard_events: bool_at(general, "captureKeyboardEvents", true),
             macbook_notch_overlay: bool_at(general, "macbookNotchOverlay", false),
@@ -3197,6 +3197,7 @@ mod tests {
         assert_eq!(settings.instant_mode_max_resolution, 1920);
         assert_eq!(GeneralSettings::default().new_zoom_amount(), 2.0);
         assert_eq!(GeneralSettings::default().zoom_amount_for(0), 1.5);
+        assert!(GeneralSettings::default().auto_zoom_on_clicks);
         assert_eq!(settings.zoom_amount_for(0), 2.5);
         assert_eq!(GeneralSettings::default().recording_auto_stop_minutes, 0);
         assert!(!GeneralSettings::default().instant_click_highlight);

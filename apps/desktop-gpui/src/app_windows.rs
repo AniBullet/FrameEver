@@ -4768,6 +4768,7 @@ fn load_editor_project_candidate(
                 view.set_summary(summary, window, cx);
                 view.set_project(config, window, cx);
                 view.set_instance(instance.clone());
+                view.apply_pending_auto_zoom(window, cx);
             })
             .is_err()
         {
