@@ -381,10 +381,22 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("The microphone is unavailable", "麦克风不可用"),
     ("The camera is unavailable", "摄像头不可用"),
-    ("The recording did not pause in time", "录制没有及时暂停"),
+    ("Couldn't switch to {device}.", "无法切换到 {device}。"),
     (
-        "Could not change the device: {error}. The recording stays paused.",
-        "无法更换设备：{error}。录制保持暂停。",
+        "Couldn't switch to {device}. The recording continues.",
+        "无法切换到 {device}。录制继续。",
+    ),
+    (
+        "Couldn't switch to {device}. The recording stays paused.",
+        "无法切换到 {device}。录制保持暂停。",
+    ),
+    (
+        "The microphone is off. Choose one in Recording options.",
+        "麦克风已关闭。在录制选项里重新选一个。",
+    ),
+    (
+        "The camera is off. Choose one in Recording options.",
+        "摄像头已关闭。在录制选项里重新选一个。",
     ),
     ("Recording options", "录制选项"),
     (

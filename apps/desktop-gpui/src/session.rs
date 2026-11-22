@@ -20,6 +20,11 @@ use crate::recorded_time::{
 };
 use crate::recording::{self, ActiveRecording, StartConfig};
 
+mod input_switch;
+
+pub(crate) use input_switch::{InputFailure, InputFailures};
+use input_switch::{SwitchSteps, Switched, switch_or_restore};
+
 #[derive(Debug)]
 struct CameraCapturePreparationFailed;
 
@@ -281,6 +286,8 @@ pub struct RecordingSession {
     pub mic_muted: bool,
     pub mic_disconnected: bool,
     pub changing_input: bool,
+    input_change: u64,
+    pub(crate) input_failures: InputFailures,
     /// The project dir of the studio recording that just stopped cleanly.
     /// Taken by the phase observer to honour `postStudioRecordingBehaviour`
     /// (`openEditor` by default) the way the Tauri app does.
@@ -346,6 +353,8 @@ impl RecordingSession {
             mic_muted: false,
             mic_disconnected: false,
             changing_input: false,
+            input_change: 0,
+            input_failures: InputFailures::default(),
             finished_studio: None,
             finished_instant: None,
             deleted_recording: false,
@@ -494,6 +503,21 @@ impl RecordingSession {
         self.pause_pending() || self.pause_uncertain() || self.pipeline_failed
     }
 
+    pub(crate) fn take_controls_unavailable(&self) -> bool {
+        self.changing_input || self.pause_unavailable()
+    }
+
+    fn can_toggle_pause(&self) -> bool {
+        !self.pipeline_failed && !self.changing_input
+    }
+
+    pub(crate) fn confirmed_pause(&self) -> Option<bool> {
+        match self.phase {
+            Phase::Recording { paused } if !self.take_controls_unavailable() => Some(paused),
+            _ => None,
+        }
+    }
+
     /// The live (or last) recording's mode -- the bar exposes mic mute for
     /// instant recordings only (studio records the mic as an editable track,
     /// where muted spans would silently bake zeros in).
@@ -507,6 +531,33 @@ impl RecordingSession {
         self.last_config
             .as_ref()
             .and_then(|config| config.camera.clone())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_for_test(&mut self, microphone: Option<&str>) {
+        self.last_config = Some(StartConfig {
+            mode: recording::RecordingMode::Studio,
+            target: frameever_recording::sources::screen_capture::ScreenCaptureTarget::CameraOnly,
+            microphone: microphone.map(str::to_owned),
+            camera: None,
+            device_settings: Default::default(),
+            input_readiness: Default::default(),
+            system_audio: false,
+            excluded_windows: Vec::new(),
+            camera_feed: None,
+            mic_feed: None,
+            mic_meter: None,
+            start_gate: None,
+        });
+    }
+
+    pub(crate) fn records_microphone(&self, label: &str) -> bool {
+        !self.input_failures.is_off(InputKind::Microphone)
+            && self.microphone_label().as_deref() == Some(label)
+    }
+
+    pub(crate) fn records_camera(&self, id: &recording::DeviceOrModelID) -> bool {
+        !self.input_failures.is_off(InputKind::Camera) && self.camera_id().as_ref() == Some(id)
     }
 
     pub fn can_change_input(&self, kind: InputKind) -> bool {
@@ -688,6 +739,7 @@ impl RecordingSession {
         self.pipeline_failed = false;
         self.phase = Phase::Starting;
         self.error = None;
+        self.input_failures = InputFailures::default();
         self.storage_warning = false;
         self.storage_notice = None;
         self.capture_source_lost = false;
@@ -1108,122 +1160,130 @@ impl RecordingSession {
         let kind = choice.kind();
         let Some(ticket) = self
             .input_change_gate()
-            .begin(kind, self.recording_generation)
+            .begin(kind, self.input_change.wrapping_add(1))
         else {
             return;
         };
-        let Some(handle) = self.begin_input_change(cx) else {
+        let Some(previous) = self.current_input(kind, cx) else {
             return;
         };
-        let watched = choice.watched();
+        let Some(handle) = self.begin_input_change(ticket, cx) else {
+            return;
+        };
         cx.spawn(async move |this, cx| {
-            let result = async {
-                wait_until_paused(&this, cx).await?;
-                tokio_spawn(cx, {
-                    let handle = handle.clone();
-                    async move {
-                        match kind {
-                            InputKind::Microphone => handle.set_mic_feed(None).await,
-                            InputKind::Camera => handle.set_camera_feed(None).await,
-                        }
-                    }
-                })
-                .await?;
-                match choice {
-                    InputChoice::Microphone(label) => {
-                        let (actor, ready) = this.update(cx, |_, cx| {
-                            crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
-                                feeds.set_microphone(Some(label.clone()), cx);
-                                (feeds.mic_actor(), feeds.input_readiness().microphone)
-                            })
-                        })?;
-                        let actor = actor
-                            .ok_or_else(|| anyhow::anyhow!(t!("The microphone is unavailable")))?;
-                        tokio_spawn(
-                            cx,
-                            recording::attach_microphone(handle, actor, label, ready),
-                        )
-                        .await
-                        .map(Some)
-                    }
-                    InputChoice::Camera(selection) => {
-                        let id = selection.id.clone();
-                        let (actor, ready) = this.update(cx, |_, cx| {
-                            crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
-                                feeds.set_camera(Some(selection), cx);
-                                (feeds.camera_actor(), feeds.input_readiness().camera)
-                            })
-                        })?;
-                        let actor = actor
-                            .ok_or_else(|| anyhow::anyhow!(t!("The camera is unavailable")))?;
-                        tokio_spawn(cx, recording::attach_camera(handle, actor, id, ready))
-                            .await
-                            .map(|()| None)
-                    }
-                }
-            }
-            .await;
+            let switched = if wait_until_paused(&this, cx).await {
+                let mut steps = StudioSwitch {
+                    session: &this,
+                    cx: &mut *cx,
+                    handle,
+                    kind,
+                    ticket,
+                };
+                switch_or_restore(&mut steps, &choice, &previous).await
+            } else {
+                Switched::Abandoned
+            };
             this.update(cx, |this, cx| {
-                let end = ticket.finish(this.recording_generation, this.phase, result.is_ok());
+                let end = ticket.finish(this.input_change, this.phase);
                 if end == InputChangeEnd::Stale {
                     return;
                 }
-                if let Some(mute) = this.finish_input_change(result, cx) {
-                    this.input_changed(watched, mute, cx);
-                }
-                if end == InputChangeEnd::Resume {
+                let resumable = this
+                    .capture_target()
+                    .is_none_or(|target| can_resume_after(&target, kind, &switched));
+                this.changing_input = false;
+                this.settle_input_change(&choice, &previous, switched, ticket, cx);
+                if end == InputChangeEnd::Resume && resumable {
                     this.toggle_pause(cx);
                 }
+                cx.notify();
             })
             .ok();
         })
         .detach();
     }
 
+    fn current_input(&self, kind: InputKind, cx: &App) -> Option<InputChoice> {
+        match kind {
+            InputKind::Microphone => self.microphone_label().map(InputChoice::Microphone),
+            InputKind::Camera => {
+                let id = self.camera_id()?;
+                let selection = crate::feeds::Feeds::global(cx)
+                    .read(cx)
+                    .camera
+                    .clone()
+                    .filter(|selection| selection.id == id)
+                    .unwrap_or_else(|| crate::deeplink::camera_selection(id));
+                Some(InputChoice::Camera(selection))
+            }
+        }
+    }
+
     fn begin_input_change(
         &mut self,
+        ticket: InputChangeTicket,
         cx: &mut Context<Self>,
     ) -> Option<frameever_recording::studio_recording::ActorHandle> {
         if self.changing_input || !matches!(self.phase, Phase::Recording { .. }) {
             return None;
         }
         let handle = self.active.as_ref()?.studio_handle()?;
-        self.changing_input = true;
         if !self.is_paused() {
             self.toggle_pause(cx);
         }
+        self.changing_input = true;
+        self.input_change = ticket.change;
         cx.notify();
         Some(handle)
     }
 
-    fn finish_input_change<T>(
+    fn settle_input_change(
         &mut self,
-        result: anyhow::Result<T>,
+        choice: &InputChoice,
+        previous: &InputChoice,
+        switched: Switched<Option<Arc<std::sync::atomic::AtomicBool>>>,
+        ticket: InputChangeTicket,
         cx: &mut Context<Self>,
-    ) -> Option<T> {
-        self.changing_input = false;
-        cx.notify();
-        match result {
-            Ok(value) => Some(value),
-            Err(error) => {
-                tracing::error!("changing the recording input failed: {error:#}");
-                self.error = Some(t!(
-                    "Could not change the device: {error}. The recording stays paused.",
-                    error = error
-                ));
-                None
+    ) {
+        let kind = choice.kind();
+        let (cause, off) = match switched {
+            Switched::Abandoned => return,
+            Switched::Attached(mute) => {
+                self.input_failures.set(kind, None);
+                self.input_changed(choice, mute, cx);
+                return;
             }
-        }
+            Switched::Restored { attached, cause } => {
+                self.input_changed(previous, attached, cx);
+                (cause, false)
+            }
+            Switched::Unchanged { cause } => (cause, self.input_failures.is_off(kind)),
+            Switched::LeftOff { cause } => {
+                *self.input_monitor(kind) = None;
+                self.set_input_lost(kind, false, cx);
+                (cause, true)
+            }
+        };
+        tracing::error!("changing the recording input failed: {cause:#}");
+        self.input_failures.set(
+            kind,
+            Some(InputFailure {
+                device: choice.device_name().to_owned(),
+                cause: format!("{cause:#}"),
+                off,
+                attempt: ticket.change,
+            }),
+        );
     }
 
     fn input_changed(
         &mut self,
-        input: WatchedInput,
+        input: &InputChoice,
         mute: Option<Arc<std::sync::atomic::AtomicBool>>,
         cx: &mut Context<Self>,
     ) {
-        match &input {
-            WatchedInput::Microphone(label) => {
+        match input {
+            InputChoice::Microphone(label) => {
                 if let Some(mute) = mute {
                     mute.store(self.mic_muted, std::sync::atomic::Ordering::Relaxed);
                     if let Some(active) = self.active.as_mut() {
@@ -1232,17 +1292,24 @@ impl RecordingSession {
                 }
                 if let Some(config) = self.last_config.as_mut() {
                     config.microphone = Some(label.clone());
+                    config.device_settings.microphone =
+                        crate::store::RecordingDeviceSettings::for_microphone(label);
                 }
                 if !crate::store::set_recording_microphone_name(Some(label)) {
                     tracing::warn!("Could not save the selected microphone");
                 }
                 self.mic_disconnected = false;
             }
-            WatchedInput::Camera(id) => {
+            InputChoice::Camera(selection) => {
                 if let Some(config) = self.last_config.as_mut() {
-                    config.camera = Some(id.clone());
+                    config.camera = Some(selection.id.clone());
+                    config.device_settings.camera =
+                        crate::store::RecordingDeviceSettings::for_camera(
+                            &selection.device_id,
+                            selection.model_id.as_ref(),
+                        );
                 }
-                if !crate::store::set_recording_camera_id(Some(id)) {
+                if !crate::store::set_recording_camera_id(Some(&selection.id)) {
                     tracing::warn!("Could not save the selected camera");
                 }
                 set_camera_disconnected(false, cx);
@@ -1258,6 +1325,7 @@ impl RecordingSession {
         self.microphone_monitor = None;
         self.mic_disconnected = false;
         self.changing_input = false;
+        self.input_change = self.input_change.wrapping_add(1);
         set_camera_disconnected(false, cx);
     }
 
@@ -1575,7 +1643,7 @@ impl RecordingSession {
         let Some(active) = self.active.as_ref() else {
             return;
         };
-        if self.pipeline_failed {
+        if !self.can_toggle_pause() {
             return;
         }
         let Some((ticket, registration)) =
@@ -1645,7 +1713,7 @@ impl RecordingSession {
     /// Cancel the live recording and delete its project directory (the bar's
     /// trash button).
     pub fn delete(&mut self, cx: &mut Context<Self>) {
-        if self.pause_unavailable() {
+        if self.take_controls_unavailable() {
             return;
         }
         if !matches!(self.phase, Phase::Recording { .. }) {
@@ -1685,7 +1753,7 @@ impl RecordingSession {
     /// The bar's restart button: throw away the live recording and immediately
     /// start a new one with the same config.
     pub fn restart(&mut self, cx: &mut Context<Self>) {
-        if !crate::menus::recording_start_allowed(cx) || self.pause_unavailable() {
+        if !crate::menus::recording_start_allowed(cx) || self.take_controls_unavailable() {
             return;
         }
         if !matches!(self.phase, Phase::Recording { .. }) {
@@ -1817,6 +1885,7 @@ impl RecordingSession {
         self.pause_control.uncertain = false;
         self.pause_control_error = None;
         self.pipeline_failed = false;
+        self.input_failures = InputFailures::default();
         self.stop_recording_monitors(cx);
         self.countdown_remaining = None;
         self.countdown_skip = None;
@@ -1854,16 +1923,89 @@ async fn tokio_spawn<T: Send + 'static>(
 async fn wait_until_paused(
     this: &gpui::WeakEntity<RecordingSession>,
     cx: &mut gpui::AsyncApp,
-) -> anyhow::Result<()> {
-    for _ in 0..60 {
-        if this.update(cx, |this, _| this.is_paused())? {
-            return Ok(());
+) -> bool {
+    loop {
+        let Ok((pending, paused)) =
+            this.update(cx, |this, _| (this.pause_pending(), this.is_paused()))
+        else {
+            return false;
+        };
+        if !pending {
+            return paused;
         }
         cx.background_executor()
             .timer(Duration::from_millis(50))
             .await;
     }
-    anyhow::bail!(t!("The recording did not pause in time"))
+}
+
+struct StudioSwitch<'a> {
+    session: &'a gpui::WeakEntity<RecordingSession>,
+    cx: &'a mut gpui::AsyncApp,
+    handle: frameever_recording::studio_recording::ActorHandle,
+    kind: InputKind,
+    ticket: InputChangeTicket,
+}
+
+impl SwitchSteps for StudioSwitch<'_> {
+    type Device = InputChoice;
+    type Attached = Option<Arc<std::sync::atomic::AtomicBool>>;
+
+    async fn detach(&mut self) -> anyhow::Result<()> {
+        let handle = self.handle.clone();
+        let kind = self.kind;
+        tokio_spawn(self.cx, async move {
+            match kind {
+                InputKind::Microphone => handle.set_mic_feed(None).await,
+                InputKind::Camera => handle.set_camera_feed(None).await,
+            }
+        })
+        .await
+    }
+
+    async fn attach(&mut self, device: &InputChoice) -> anyhow::Result<Self::Attached> {
+        let handle = self.handle.clone();
+        match device.clone() {
+            InputChoice::Microphone(label) => {
+                let (actor, ready) = self.session.update(self.cx, |_, cx| {
+                    crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
+                        feeds.set_microphone(Some(label.clone()), cx);
+                        (feeds.mic_actor(), feeds.input_readiness().microphone)
+                    })
+                })?;
+                let actor =
+                    actor.ok_or_else(|| anyhow::anyhow!(t!("The microphone is unavailable")))?;
+                tokio_spawn(
+                    self.cx,
+                    recording::attach_microphone(handle, actor, label, ready),
+                )
+                .await
+                .map(Some)
+            }
+            InputChoice::Camera(selection) => {
+                let id = selection.id.clone();
+                let (actor, ready) = self.session.update(self.cx, |_, cx| {
+                    crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
+                        feeds.set_camera(Some(selection), cx);
+                        (feeds.camera_actor(), feeds.input_readiness().camera)
+                    })
+                })?;
+                let actor =
+                    actor.ok_or_else(|| anyhow::anyhow!(t!("The camera is unavailable")))?;
+                tokio_spawn(self.cx, recording::attach_camera(handle, actor, id, ready))
+                    .await
+                    .map(|()| None)
+            }
+        }
+    }
+
+    fn is_current(&mut self) -> bool {
+        self.session
+            .update(self.cx, |session, _| {
+                self.ticket.finish(session.input_change, session.phase) != InputChangeEnd::Stale
+            })
+            .unwrap_or(false)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1883,7 +2025,7 @@ struct InputChangeGate {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct InputChangeTicket {
-    generation: u64,
+    change: u64,
     resume_after: bool,
 }
 
@@ -1895,13 +2037,13 @@ enum InputChangeEnd {
 }
 
 impl InputChangeTicket {
-    fn finish(&self, generation: u64, phase: Phase, succeeded: bool) -> InputChangeEnd {
+    fn finish(&self, change: u64, phase: Phase) -> InputChangeEnd {
         let Phase::Recording { paused } = phase else {
             return InputChangeEnd::Stale;
         };
-        if generation != self.generation {
+        if change != self.change {
             InputChangeEnd::Stale
-        } else if succeeded && self.resume_after && paused {
+        } else if self.resume_after && paused {
             InputChangeEnd::Resume
         } else {
             InputChangeEnd::StayPaused
@@ -1922,12 +2064,29 @@ impl InputChangeGate {
             && !self.pause_unavailable
     }
 
-    fn begin(&self, kind: InputKind, generation: u64) -> Option<InputChangeTicket> {
+    fn begin(&self, kind: InputKind, change: u64) -> Option<InputChangeTicket> {
         self.allows(kind).then_some(InputChangeTicket {
-            generation,
+            change,
             resume_after: self.phase == Phase::Recording { paused: false },
         })
     }
+}
+
+fn can_resume_after<T>(
+    target: &frameever_recording::sources::screen_capture::ScreenCaptureTarget,
+    kind: InputKind,
+    switched: &Switched<T>,
+) -> bool {
+    use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
+
+    !matches!(
+        (target, kind, switched),
+        (
+            ScreenCaptureTarget::CameraOnly,
+            InputKind::Camera,
+            Switched::LeftOff { .. }
+        )
+    )
 }
 
 #[derive(Clone)]
@@ -1937,13 +2096,6 @@ enum WatchedInput {
 }
 
 impl WatchedInput {
-    fn kind(&self) -> InputKind {
-        match self {
-            Self::Microphone(_) => InputKind::Microphone,
-            Self::Camera(_) => InputKind::Camera,
-        }
-    }
-
     fn connected(&self) -> bool {
         match self {
             Self::Microphone(label) => {
@@ -1954,6 +2106,7 @@ impl WatchedInput {
     }
 }
 
+#[derive(Clone)]
 pub enum InputChoice {
     Microphone(String),
     Camera(crate::feeds::SelectedCamera),
@@ -1967,10 +2120,10 @@ impl InputChoice {
         }
     }
 
-    fn watched(&self) -> WatchedInput {
+    fn device_name(&self) -> &str {
         match self {
-            Self::Microphone(label) => WatchedInput::Microphone(label.clone()),
-            Self::Camera(selection) => WatchedInput::Camera(selection.id.clone()),
+            Self::Microphone(label) => label,
+            Self::Camera(selection) => &selection.label,
         }
     }
 }
@@ -2362,12 +2515,62 @@ mod input_change_tests {
     }
 
     #[test]
-    fn a_change_that_paused_the_take_resumes_it_once_the_new_device_is_in() {
+    fn a_change_that_paused_the_take_resumes_it_whether_or_not_it_worked() {
         let ticket = studio_recording().begin(InputKind::Microphone, 1).unwrap();
         assert_eq!(
-            ticket.finish(1, Phase::Recording { paused: true }, true),
+            ticket.finish(1, Phase::Recording { paused: true }),
             InputChangeEnd::Resume
         );
+    }
+
+    #[test]
+    fn a_camera_only_take_waits_paused_when_no_camera_opens() {
+        use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
+
+        let left_off = || Switched::<()>::LeftOff {
+            cause: anyhow::anyhow!("no camera"),
+        };
+        let target = ScreenCaptureTarget::CameraOnly;
+        assert!(!can_resume_after(&target, InputKind::Camera, &left_off()));
+        assert!(can_resume_after(
+            &target,
+            InputKind::Microphone,
+            &left_off()
+        ));
+        assert!(can_resume_after(
+            &target,
+            InputKind::Camera,
+            &Switched::Attached(())
+        ));
+    }
+
+    #[gpui::test]
+    fn no_entry_point_can_pause_during_a_switch_and_stop_ends_the_switch(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            crate::feeds::Feeds::init(cx);
+            RecordingSession::init(cx);
+            RecordingSession::global(cx).update(cx, |session, cx| {
+                session.phase = Phase::Recording { paused: true };
+                assert!(session.can_toggle_pause());
+                session.changing_input = true;
+                assert!(!session.can_toggle_pause());
+                assert!(session.take_controls_unavailable());
+                assert_eq!(session.confirmed_pause(), None);
+
+                let ticket = InputChangeTicket {
+                    change: session.input_change,
+                    resume_after: true,
+                };
+                session.stop_recording_monitors(cx);
+                assert_eq!(
+                    ticket.finish(session.input_change, session.phase),
+                    InputChangeEnd::Stale
+                );
+                assert_eq!(session.confirmed_pause(), Some(true));
+            });
+        });
     }
 
     #[test]
@@ -2376,16 +2579,7 @@ mod input_change_tests {
         gate.phase = Phase::Recording { paused: true };
         let ticket = gate.begin(InputKind::Microphone, 1).unwrap();
         assert_eq!(
-            ticket.finish(1, Phase::Recording { paused: true }, true),
-            InputChangeEnd::StayPaused
-        );
-    }
-
-    #[test]
-    fn a_failed_change_keeps_the_take_paused_instead_of_stopping_it() {
-        let ticket = studio_recording().begin(InputKind::Microphone, 1).unwrap();
-        assert_eq!(
-            ticket.finish(1, Phase::Recording { paused: true }, false),
+            ticket.finish(1, Phase::Recording { paused: true }),
             InputChangeEnd::StayPaused
         );
     }
@@ -2394,11 +2588,11 @@ mod input_change_tests {
     fn a_change_finishing_after_stop_or_restart_touches_nothing() {
         let ticket = studio_recording().begin(InputKind::Microphone, 1).unwrap();
         assert_eq!(
-            ticket.finish(2, Phase::Recording { paused: true }, true),
+            ticket.finish(2, Phase::Recording { paused: true }),
             InputChangeEnd::Stale
         );
         for phase in [Phase::Idle, Phase::Starting, Phase::Stopping] {
-            assert_eq!(ticket.finish(1, phase, true), InputChangeEnd::Stale);
+            assert_eq!(ticket.finish(1, phase), InputChangeEnd::Stale);
         }
     }
 }

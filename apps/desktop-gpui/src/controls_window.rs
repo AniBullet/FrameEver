@@ -44,7 +44,7 @@ pub struct ControlsWindow {
     microphones: Vec<String>,
     cameras: Vec<(String, crate::recording::DeviceOrModelID)>,
     options_header: Option<SharedString>,
-    dismissed_issue: Option<RecordingIssue>,
+    dismissed_issue: Option<IssueKey>,
     issue_details_open: bool,
     window_height: f32,
     confirmation: Option<DestructiveAction>,
@@ -110,6 +110,14 @@ const DRAW_TOOLS: [InkTool; 3] = [InkTool::Pen, InkTool::Highlighter, InkTool::A
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RecordingIssue {
     message: String,
+    details: Option<String>,
+    key: IssueKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IssueKey {
+    conditions: Vec<String>,
+    failed_switches: Vec<u64>,
     details: Option<String>,
 }
 
@@ -248,15 +256,29 @@ impl ControlsWindow {
                 t!("Low storage. FrameEver will stop soon to save your recording.").to_owned(),
             );
         }
+        let conditions = lines.clone();
+        lines.extend(session.input_failures.messages(session.confirmed_pause()));
+        let causes: Vec<&str> = session
+            .error
+            .as_deref()
+            .into_iter()
+            .chain(session.input_failures.causes())
+            .collect();
+        let details = (!causes.is_empty()).then(|| causes.join("\n"));
         (!lines.is_empty()).then(|| RecordingIssue {
             message: lines.join("\n"),
-            details: session.error.clone(),
+            key: IssueKey {
+                conditions,
+                failed_switches: session.input_failures.attempts(),
+                details: details.clone(),
+            },
+            details,
         })
     }
 
     fn issue_card_shown(&self, cx: &gpui::App) -> Option<RecordingIssue> {
         self.issue(cx)
-            .filter(|issue| self.dismissed_issue.as_ref() != Some(issue))
+            .filter(|issue| self.dismissed_issue.as_ref() != Some(&issue.key))
     }
 
     fn fit_height(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -547,7 +569,7 @@ impl ControlsWindow {
     fn toggle_issue_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let issue = self.issue(cx);
         self.dismissed_issue = if self.issue_card_shown(cx).is_some() {
-            issue
+            issue.map(|issue| issue.key)
         } else {
             None
         };
@@ -970,6 +992,8 @@ impl ControlsWindow {
         let mode = session.mode();
         let microphone = session.microphone_label();
         let camera = session.camera_id();
+        let microphone_off = session.input_failures.is_off(InputKind::Microphone);
+        let camera_off = session.input_failures.is_off(InputKind::Camera);
         let camera_label = camera.as_ref().and_then(|id| {
             self.cameras
                 .iter()
@@ -989,7 +1013,7 @@ impl ControlsWindow {
                 .cloned()
                 .enumerate()
                 .map(|(index, name)| {
-                    let checked = microphone.as_deref() == Some(name.as_str());
+                    let checked = self.session.read(cx).records_microphone(&name);
                     self.choice_row(
                         ("microphone-choice", index),
                         name,
@@ -1007,7 +1031,7 @@ impl ControlsWindow {
                 .cloned()
                 .enumerate()
                 .map(|(index, (name, id))| {
-                    let checked = camera.as_ref() == Some(&id);
+                    let checked = self.session.read(cx).records_camera(&id);
                     self.choice_row(
                         ("camera-choice", index),
                         name,
@@ -1059,24 +1083,30 @@ impl ControlsWindow {
                     .child(divider())
                 },
             )
-            .child(
-                self.device_row(
-                    InputKind::Microphone,
+            .child(self.device_row(
+                InputKind::Microphone,
+                if microphone_off {
+                    t!("Off").into()
+                } else {
                     microphone
                         .clone()
-                        .map_or_else(|| not_used.clone(), Into::into),
-                    microphone.is_some(),
-                    can_change_microphone,
-                    cx,
-                ),
-            )
+                        .map_or_else(|| not_used.clone(), Into::into)
+                },
+                microphone.is_some(),
+                can_change_microphone,
+                cx,
+            ))
             .children(microphone_rows.into_iter().flatten())
             .child(self.device_row(
                 InputKind::Camera,
-                camera.as_ref().map_or_else(
-                    || not_used.clone(),
-                    |_| camera_label.unwrap_or_default().into(),
-                ),
+                if camera_off {
+                    t!("Off").into()
+                } else {
+                    camera.as_ref().map_or_else(
+                        || not_used.clone(),
+                        |_| camera_label.unwrap_or_default().into(),
+                    )
+                },
                 camera.is_some(),
                 can_change_camera,
                 cx,
@@ -1146,7 +1176,7 @@ impl ControlsWindow {
         cx: &mut Context<Self>,
     ) {
         if !matches!(self.session.read(cx).phase, Phase::Recording { .. })
-            || self.session.read(cx).pause_unavailable()
+            || self.session.read(cx).take_controls_unavailable()
         {
             return;
         }
@@ -1304,13 +1334,18 @@ impl ControlsWindow {
 
     fn busy(&self, cx: &gpui::App) -> bool {
         let session = self.session.read(cx);
-        !matches!(session.phase, Phase::Recording { .. }) || session.pause_unavailable()
+        !matches!(session.phase, Phase::Recording { .. }) || session.take_controls_unavailable()
+    }
+
+    fn can_draw(&self, cx: &gpui::App) -> bool {
+        let session = self.session.read(cx);
+        matches!(session.phase, Phase::Recording { .. }) && !session.pause_unavailable()
     }
 
     fn microphone_state(&self, cx: &gpui::App) -> MicrophoneButton {
         let session = self.session.read(cx);
         microphone_button(
-            self.has_microphone,
+            self.has_microphone && !session.input_failures.is_off(InputKind::Microphone),
             session.mic_disconnected,
             session.mic_muted,
         )
@@ -1393,7 +1428,7 @@ impl ControlsWindow {
                 Control::ChapterMark,
                 self.session.read(cx).chapter_marks_available(),
             ),
-            (Control::Draw, !busy),
+            (Control::Draw, self.can_draw(cx)),
             (Control::Options, true),
         ]);
         groups
@@ -1492,9 +1527,7 @@ impl ControlsWindow {
             return;
         };
         let session = self.session.read(cx);
-        if !session.can_change_input(InputKind::Microphone)
-            || session.microphone_label().as_deref() == Some(&*name)
-        {
+        if !session.can_change_input(InputKind::Microphone) || session.records_microphone(&name) {
             return;
         }
         self.expanded = None;
@@ -1504,16 +1537,18 @@ impl ControlsWindow {
     }
 
     fn choose_camera(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some((_, id)) = self.cameras.get(index).cloned() else {
+        let Some((name, id)) = self.cameras.get(index).cloned() else {
             return;
         };
         let session = self.session.read(cx);
-        if !session.can_change_input(InputKind::Camera) || session.camera_id().as_ref() == Some(&id)
-        {
+        if !session.can_change_input(InputKind::Camera) || session.records_camera(&id) {
             return;
         }
         self.expanded = None;
-        let selection = crate::deeplink::camera_selection(id);
+        let selection = crate::feeds::SelectedCamera {
+            label: name,
+            ..crate::deeplink::camera_selection(id)
+        };
         self.session.update(cx, |session, cx| {
             session.change_input(crate::session::InputChoice::Camera(selection), cx)
         });
@@ -1728,6 +1763,7 @@ impl ControlsWindow {
         let session = self.session.read(cx);
         let paused = session.is_paused();
         let busy = self.busy(cx);
+        let can_draw = self.can_draw(cx);
         let pause_pending = session.pause_pending();
         let pause_tooltip = if session.pause_uncertain() {
             t!("Capture state is unconfirmed. Use Stop.")
@@ -1850,10 +1886,10 @@ impl ControlsWindow {
                 this.child(self.render_chapter_mark(cx))
             })
             .child(
-                self.action_button("draw", "icons/pencil.svg", busy, Control::Draw)
+                self.action_button("draw", "icons/pencil.svg", !can_draw, Control::Draw)
                     .when(self.drawing(cx), |this| this.bg(theme.selection))
                     .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Draw on screen")).view(cx))
-                    .when(!busy, |this| {
+                    .when(can_draw, |this| {
                         this.on_click(
                             cx.listener(|this, _, window, cx| {
                                 this.press(Control::Draw, window, cx)
@@ -2056,6 +2092,89 @@ mod repaint_tests {
                 session.error = Some("a different raw failure".into())
             });
             assert!(controls.issue_card_shown(cx).is_some());
+        });
+    }
+
+    #[gpui::test]
+    fn a_failed_switch_warns_by_device_and_lets_an_input_left_off_be_chosen_again(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            Feeds::init(cx);
+            RecordingSession::init(cx);
+        });
+        let (controls, cx) = cx.add_window_view(|window, cx| {
+            ControlsWindow::new(RecordingSession::global(cx), true, window, cx)
+        });
+        controls.update_in(cx, |controls, window, cx| {
+            controls.session.update(cx, |session, _| {
+                session.record_for_test(Some("Built-in"));
+                session.phase = Phase::Recording { paused: false };
+            });
+            assert!(controls.session.read(cx).records_microphone("Built-in"));
+            let fail =
+                |controls: &mut ControlsWindow, attempt, cx: &mut Context<ControlsWindow>| {
+                    controls.session.update(cx, |session, _| {
+                        session.input_failures.set(
+                            InputKind::Microphone,
+                            Some(crate::session::InputFailure {
+                                device: "USB Microphone".into(),
+                                cause: "WASAPI 0x8889000a".into(),
+                                off: true,
+                                attempt,
+                            }),
+                        );
+                    })
+                };
+            fail(controls, 1, cx);
+            let issue = controls.issue(cx).unwrap();
+            assert!(
+                issue
+                    .message
+                    .starts_with("Couldn't switch to USB Microphone. The recording continues.")
+            );
+            assert!(issue.message.contains("The microphone is off."));
+            assert!(!issue.message.contains("0x8889000a"));
+            assert_eq!(issue.details.as_deref(), Some("WASAPI 0x8889000a"));
+            assert!(!controls.session.read(cx).records_microphone("Built-in"));
+            assert!(matches!(
+                controls.microphone_state(cx),
+                MicrophoneButton::Absent
+            ));
+
+            controls.toggle_issue_card(window, cx);
+            controls.session.update(cx, |session, _| {
+                session.phase = Phase::Recording { paused: true }
+            });
+            let paused = controls.issue(cx).unwrap();
+            assert!(paused.message.contains("The recording stays paused."));
+            assert!(controls.issue_card_shown(cx).is_none());
+
+            fail(controls, 2, cx);
+            assert!(controls.issue_card_shown(cx).is_some());
+        });
+    }
+
+    #[gpui::test]
+    fn pause_restart_and_delete_wait_for_a_device_switch(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            Feeds::init(cx);
+            RecordingSession::init(cx);
+        });
+        let (controls, cx) = cx.add_window_view(|window, cx| {
+            let session = RecordingSession::global(cx);
+            session.update(cx, |session, _| {
+                session.phase = Phase::Recording { paused: true };
+                session.changing_input = true;
+            });
+            ControlsWindow::new(session, false, window, cx)
+        });
+        controls.update_in(cx, |controls, window, cx| {
+            assert!(controls.busy(cx));
+            assert!(controls.can_stop(cx));
+            assert!(controls.can_draw(cx));
+            controls.confirm_action(DestructiveAction::Delete, window, cx);
+            assert_eq!(controls.confirmation, None);
         });
     }
 
