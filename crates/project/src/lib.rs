@@ -1,4 +1,5 @@
 mod animated_gradient;
+pub mod auto_zoom;
 mod caption_timing;
 mod configuration;
 pub mod cursor;

@@ -1460,7 +1460,17 @@ impl PostInstantBehaviour {
 
 impl GeneralSettings {
     pub fn new_zoom_amount(&self) -> f32 {
-        self.default_zoom_amount.unwrap_or(1.5)
+        self.zoom_amount_for(frameever_project::auto_zoom::AUTO_ZOOM_VERSION)
+    }
+
+    pub fn zoom_amount_for(&self, auto_zoom_version: u32) -> f32 {
+        self.default_zoom_amount.unwrap_or(
+            if auto_zoom_version >= frameever_project::auto_zoom::AUTO_ZOOM_VERSION {
+                frameever_project::auto_zoom::DEFAULT_AUTO_ZOOM_AMOUNT as f32
+            } else {
+                1.5
+            },
+        )
     }
 
     pub fn instant_input_display(
@@ -3185,7 +3195,9 @@ mod tests {
         assert!(settings.confirm_without_microphone);
         assert!(settings.studio_sound_by_default);
         assert_eq!(settings.instant_mode_max_resolution, 1920);
-        assert_eq!(GeneralSettings::default().new_zoom_amount(), 1.5);
+        assert_eq!(GeneralSettings::default().new_zoom_amount(), 2.0);
+        assert_eq!(GeneralSettings::default().zoom_amount_for(0), 1.5);
+        assert_eq!(settings.zoom_amount_for(0), 2.5);
         assert_eq!(GeneralSettings::default().recording_auto_stop_minutes, 0);
         assert!(!GeneralSettings::default().instant_click_highlight);
     }
