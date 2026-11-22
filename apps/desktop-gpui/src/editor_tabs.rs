@@ -2194,6 +2194,19 @@ impl EditorWindow {
                 ),
             )
             .child(
+                ui::Field::editor_row(&theme, t!("Follow hover highlights")).value(
+                    ui::Toggle::plain(
+                        &theme,
+                        "cursor-hover-anchors",
+                        cursor.follows_hover_highlights(),
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_follow_hover_highlights(window, cx);
+                    }))
+                    .into_any_element(),
+                ),
+            )
+            .child(
                 div()
                     .flex()
                     .flex_col()
@@ -2280,6 +2293,27 @@ impl EditorWindow {
         }
 
         body.into_any_element()
+    }
+
+    pub(crate) fn toggle_follow_hover_highlights(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let follows = !self
+            .style_control_project()
+            .cursor
+            .follows_hover_highlights();
+        self.edit_style(
+            StyleGroup::Cursor,
+            "cursor-hover-anchors",
+            window,
+            cx,
+            |project| {
+                project.cursor.set_follows_hover_highlights(follows);
+                true
+            },
+        );
     }
 
     // -- Keyboard ------------------------------------------------------------

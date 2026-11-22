@@ -15875,6 +15875,41 @@ mod tests {
         }
 
         #[gpui::test]
+        fn follow_hover_highlights_edits_the_segment(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Cursor);
+            editor.update_in(cx, |editor, window, cx| {
+                let base = editor.project.cursor.follows_hover_highlights();
+                for expected in [false, true] {
+                    editor.toggle_follow_hover_highlights(window, cx);
+                    let cursor = &segment(editor)["overrides"]["cursor"];
+                    assert_eq!(cursor["hoverAnchors"], expected);
+                    assert_eq!(editor.project.cursor.follows_hover_highlights(), base);
+                }
+            });
+        }
+
+        #[gpui::test]
+        fn follow_hover_highlights_edits_the_project_outside_a_segment(
+            cx: &mut gpui::TestAppContext,
+        ) {
+            let settings = tempfile::tempdir().unwrap();
+            crate::store::set_test_tauri_store_path(Some(settings.path().join("store")));
+            let (editor, cx, _project) = super::timeline_history::fixture(cx);
+            editor.update_in(cx, |editor, window, cx| {
+                editor.ready_without_engine = true;
+                editor.project.cursor.interaction_anchors = false;
+                editor.project.cursor.hover_anchors = false;
+
+                editor.toggle_follow_hover_highlights(window, cx);
+                assert!(editor.project.cursor.hover_anchors);
+                assert!(editor.project.cursor.interaction_anchors);
+
+                editor.toggle_follow_hover_highlights(window, cx);
+                assert!(!editor.project.cursor.hover_anchors);
+            });
+        }
+
+        #[gpui::test]
         fn a_camera_control_still_edits_the_segment(cx: &mut gpui::TestAppContext) {
             let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Camera);
             editor.update_in(cx, |editor, window, cx| {

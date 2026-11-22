@@ -416,6 +416,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Hide When Idle", "空闲时隐藏"),
     ("Inactivity Delay", "空闲延迟"),
     ("Cursor Movement Style", "光标移动方式"),
+    ("Follow hover highlights", "跟随悬停高亮"),
     ("Smooth Movement", "平滑移动"),
     ("Tension", "张力"),
     ("Friction", "摩擦"),

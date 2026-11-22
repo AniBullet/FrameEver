@@ -82,6 +82,10 @@ _Avoid_: Render, output file, GIF recording
 A choice saved with the project that makes zoomed-in and scaled-down screen content sharper in exports and on the paused preview; playback and tracks exports stay plain. Compare shows the paused frame without it while held. 增强画质 in Chinese.
 _Avoid_: AI upscale, super resolution
 
+**Follow hover highlights**:
+A cursor choice, on in new projects, that puts the smoothed cursor on the pointer where the recorded screen reacted under it (a button lit up, a menu row highlighted). The moments are found while the editor is open and idle and kept beside the screen video. 跟随悬停高亮 in Chinese.
+_Avoid_: Hover anchors, hover snapping, magnetic cursor
+
 **Tracks export**:
 An export of a Studio recording as separate files, one per chosen track (screen, camera, microphone, system audio), each following the cuts and speed of the edit and without background or effects. 分轨导出 in Chinese.
 _Avoid_: Stems, raw export, multitrack
