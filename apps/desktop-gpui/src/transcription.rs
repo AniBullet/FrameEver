@@ -2641,6 +2641,22 @@ pub fn apply_caption_result(
         .as_mut()
         .expect("timeline was just created");
 
+    let mut segments = segments;
+    if let Some(previous) = project
+        .captions
+        .as_ref()
+        .filter(|captions| captions.source_timed)
+    {
+        segments.extend(
+            previous
+                .segments
+                .iter()
+                .filter(|segment| is_manual_caption(segment))
+                .cloned(),
+        );
+        segments.sort_by(|a, b| a.start.total_cmp(&b.start));
+    }
+
     timeline.caption_segments =
         derive_caption_track_segments(&segments, timeline, recording_durations);
 
@@ -3618,6 +3634,129 @@ mod tests {
     }
 
     // -- applyCaptionResultToProject ------------------------------------------
+
+    #[test]
+    fn a_new_transcript_keeps_captions_typed_in_by_hand() {
+        let mut project = ProjectConfiguration {
+            timeline: Some(timeline(serde_json::json!({
+                "segments": [{ "timescale": 1.0, "start": 0.0, "end": 10.0 }],
+                "zoomSegments": []
+            }))),
+            captions: Some(CaptionsData {
+                segments: vec![
+                    caption("segment-0", 1.0, 2.0, &[("old", 1.0, 2.0)]),
+                    caption("caption-1-a", 5.0, 7.0, &[]),
+                    caption("segment-legacy", 8.0, 9.0, &[]),
+                ],
+                source_timed: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        project.captions.as_mut().unwrap().segments[1].text = "Chapter two".into();
+        project.captions.as_mut().unwrap().segments[2].text = "legacy".into();
+
+        apply_caption_result(
+            &mut project,
+            vec![
+                caption("segment-0", 0.5, 1.5, &[("hello", 0.5, 1.5)]),
+                caption("segment-1", 6.0, 6.5, &[("world", 6.0, 6.5)]),
+            ],
+            &[10.0],
+            10.0,
+        );
+
+        let ids: Vec<&str> = project
+            .captions
+            .as_ref()
+            .unwrap()
+            .segments
+            .iter()
+            .map(|segment| segment.id.as_str())
+            .collect();
+        assert_eq!(ids, ["segment-0", "caption-1-a", "segment-1"]);
+        let track: Vec<&str> = project
+            .timeline
+            .as_ref()
+            .unwrap()
+            .caption_segments
+            .iter()
+            .map(|segment| segment.text.as_str())
+            .collect();
+        assert_eq!(track, ["hello", "Chapter two", "world"]);
+    }
+
+    #[test]
+    fn editing_a_caption_typed_in_by_hand_keeps_it_out_of_the_transcript() {
+        let mut project = ProjectConfiguration {
+            timeline: Some(timeline(serde_json::json!({
+                "segments": [{ "timescale": 1.0, "start": 0.0, "end": 10.0 }],
+                "zoomSegments": []
+            }))),
+            captions: Some(CaptionsData {
+                segments: vec![caption("caption-1-a", 5.0, 7.0, &[])],
+                source_timed: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let durations = [10.0];
+        frameever_project::synchronize_captions(&mut project, &durations);
+        let track = &mut project.timeline.as_mut().unwrap().caption_segments[0];
+        track.text = "Step one: open settings".into();
+        track.end = 8.0;
+
+        write_caption_edit_to_source(&mut project, 0, &durations);
+
+        let source = &project.captions.as_ref().unwrap().segments[0];
+        assert_eq!(source.text, "Step one: open settings");
+        assert_eq!((source.start, source.end), (5.0, 8.0));
+        assert!(source.words.is_empty());
+        assert!(
+            crate::transcript::model::flatten_words(project.captions.as_ref().unwrap()).is_empty()
+        );
+    }
+
+    #[test]
+    fn retyping_a_cleared_transcribed_caption_brings_its_words_back() {
+        let mut project = ProjectConfiguration {
+            timeline: Some(timeline(serde_json::json!({
+                "segments": [{ "timescale": 1.0, "start": 0.0, "end": 10.0 }],
+                "zoomSegments": []
+            }))),
+            captions: Some(CaptionsData {
+                segments: vec![caption(
+                    "segment-0",
+                    1.0,
+                    3.0,
+                    &[("hello", 1.0, 2.0), ("world", 2.0, 3.0)],
+                )],
+                source_timed: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let durations = [10.0];
+        frameever_project::synchronize_captions(&mut project, &durations);
+
+        project.timeline.as_mut().unwrap().caption_segments[0].text = String::new();
+        write_caption_edit_to_source(&mut project, 0, &durations);
+        assert!(
+            project.captions.as_ref().unwrap().segments[0]
+                .words
+                .is_empty()
+        );
+
+        project.timeline.as_mut().unwrap().caption_segments[0].text = "fresh take".into();
+        write_caption_edit_to_source(&mut project, 0, &durations);
+
+        let words: Vec<String> =
+            crate::transcript::model::flatten_words(project.captions.as_ref().unwrap())
+                .into_iter()
+                .map(|word| word.text)
+                .collect();
+        assert_eq!(words, ["fresh", "take"]);
+    }
 
     #[test]
     fn apply_caption_result_enables_captions_and_derives_the_track() {

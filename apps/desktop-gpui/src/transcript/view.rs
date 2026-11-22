@@ -1457,6 +1457,22 @@ impl EditorWindow {
                 .flex_row()
                 .items_center()
                 .gap(px(4.))
+                .child(
+                    ui::EditorButton::plain(&theme, "transcript-add-caption")
+                        .left_icon("icons/plus.svg")
+                        .tooltip(&theme, t!("Add caption at playhead"))
+                        .disabled(!self.project_ready())
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let playhead = this.playhead_time();
+                            this.add_caption_at(
+                                playhead,
+                                crate::editor_edits::NEW_CAPTION_LENGTH,
+                                false,
+                                window,
+                                cx,
+                            );
+                        })),
+                )
                 .when(has_doc, |actions| {
                     actions
                         .child(

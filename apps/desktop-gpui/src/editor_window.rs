@@ -4971,6 +4971,13 @@ impl EditorWindow {
                 } else if kind == TrackKind::Audio {
                     cx.stop_propagation();
                     self.open_audio_picker(lane, cx);
+                } else if kind == TrackKind::Caption {
+                    cx.stop_propagation();
+                    let length = (1.0_f64).max(secs_per_pixel * 80.);
+                    if self.add_caption_at(press_time, length, true, window, cx) {
+                        self.seek_to_time(press_time, cx);
+                        self.view.preview_time = None;
+                    }
                 } else if matches!(
                     kind,
                     TrackKind::Text | TrackKind::Shape | TrackKind::Mask | TrackKind::Scene
@@ -6108,7 +6115,7 @@ fn split_caption_segment(
         return false;
     }
     let tail_prefix = if crate::transcription::is_manual_caption(&source) {
-        "caption"
+        crate::transcription::MANUAL_CAPTION_PREFIX.trim_end_matches('-')
     } else {
         "cap-split"
     };
@@ -6764,6 +6771,66 @@ impl EditorWindow {
         self.view.preview_time = None;
         self.audio_picker = None;
         self.note_edit("add-track", Some(kind));
+    }
+
+    pub(crate) fn add_caption_at(
+        &mut self,
+        time: f64,
+        length: f64,
+        centered: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let durations = self.clip_display_durations.clone();
+        if !edits::ensure_timeline(&mut self.project, &durations) {
+            return false;
+        }
+        let total = self.total_duration();
+        let length = length.min(total);
+        let desired = if centered { time } else { time + length / 2.0 };
+        let placement = self.project.timeline.as_ref().and_then(|timeline| {
+            edits::find_placement(&timeline.caption_segments, desired, length, total)
+        });
+        let id = fresh_caption_source_id(
+            &self.project,
+            crate::transcription::MANUAL_CAPTION_PREFIX.trim_end_matches('-'),
+        );
+        let showed_track = self.tracks.caption;
+        self.tracks.caption = true;
+        let mut added = false;
+        if let Some((start, end)) = placement {
+            self.edit_timeline_project(
+                |project| {
+                    added = edits::add_caption_segment(
+                        project,
+                        start..end,
+                        id.clone(),
+                        &t!("New caption"),
+                        &durations,
+                    )
+                    .is_some();
+                    added
+                },
+                window,
+                cx,
+            );
+        }
+        if !added {
+            self.tracks.caption = showed_track;
+            self.show_notice(t!("No room for another caption here"), window, cx);
+            return false;
+        }
+        let index = self.project.timeline.as_ref().and_then(|timeline| {
+            timeline
+                .caption_segments
+                .iter()
+                .position(|segment| frameever_project::source_caption_id(&segment.id) == id)
+        });
+        if let Some(index) = index {
+            self.set_selection(Some(Selection::single(TrackKind::Caption, index)), cx);
+        }
+        self.note_edit("add-caption", Some(TrackKind::Caption));
+        true
     }
 
     /// `finish(e)`: resume the history, and -- if the drag never promoted --
@@ -13647,6 +13714,38 @@ mod tests {
             crate::transcription::tied_caption_window(&untied, 0, &durations),
             None
         );
+    }
+
+    #[test]
+    fn both_halves_of_a_split_hand_added_caption_survive_a_new_transcript() {
+        let mut project: ProjectConfiguration = serde_json::from_value(serde_json::json!({
+            "timeline": {
+                "segments": [{ "start": 0.0, "end": 10.0, "timescale": 1.0 }],
+                "zoomSegments": []
+            },
+            "captions": {
+                "segments": [{ "id": "caption-1-a", "start": 4.0, "end": 6.0, "text": "Chapter two" }],
+                "settings": { "enabled": true },
+                "sourceTimed": true
+            }
+        }))
+        .unwrap();
+        frameever_project::synchronize_captions(&mut project, &[10.0]);
+
+        assert!(split_caption_segment(&mut project, 0, 1.0, &[10.0]));
+        let ids: Vec<String> = project
+            .captions
+            .as_ref()
+            .unwrap()
+            .segments
+            .iter()
+            .map(|segment| segment.id.clone())
+            .collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.iter().all(|id| id.starts_with("caption-")), "{ids:?}");
+
+        crate::transcription::apply_caption_result(&mut project, Vec::new(), &[10.0], 10.0);
+        assert_eq!(project.captions.as_ref().unwrap().segments.len(), 2);
     }
 
     #[test]
