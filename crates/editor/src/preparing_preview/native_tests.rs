@@ -392,7 +392,12 @@ async fn ordinary_composed_frames(
             )
             .await
             .unwrap();
-        let timeline = cache.get(segment.recording_clip, &fixture.cursor, &fixture.project);
+        let timeline = cache.get(
+            segment.recording_clip,
+            &fixture.cursor,
+            &Arc::default(),
+            &fixture.project,
+        );
         let mut zoom = ZoomTransformTimeline::from_project_for_clip(
             &fixture.project,
             &fixture.cursor,
@@ -537,6 +542,7 @@ async fn native_preparing_playback_seeks_match_ordinary_and_handoff_joins_source
     }
     assert_eq!(last_seek_frame, Some(45));
     controller.set_playing(true).await.unwrap();
+    assert!(crate::MediaActivity::any_running());
     let (request, _, _) = tokio::time::timeout(Duration::from_secs(15), received.recv())
         .await
         .unwrap()
@@ -1898,4 +1904,260 @@ async fn benchmark_time_to_the_settled_frame() {
         );
     }
     editor.dispose().await;
+}
+
+static ONE_HOVER_PROJECT_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+struct HoverProject {
+    directory: tempfile::TempDir,
+    _alone: tokio::sync::MutexGuard<'static, ()>,
+    project: ProjectConfiguration,
+}
+
+impl HoverProject {
+    const CACHE: &str = "display.cursor-hover.json";
+    const OTHER_TESTS_PLAYBACK: Duration = Duration::from_secs(180);
+    const ANALYSIS_STARTED_BUT_STILL_IDLING: Duration = Duration::from_millis(300);
+    const PAST_THE_IDLE_SECOND: Duration = Duration::from_millis(2500);
+
+    async fn new() -> Self {
+        let alone = ONE_HOVER_PROJECT_AT_A_TIME.lock().await;
+        ffmpeg::init().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        crate::hover_analysis::tests::highlight_recording(&root.join("display.mp4"));
+        std::fs::write(
+            root.join("cursor.json"),
+            serde_json::to_vec(&crate::hover_analysis::tests::pointer_in_the_middle(
+                crate::hover_analysis::tests::RECORDING_SECS,
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        let mut metadata: RecordingMeta = serde_json::from_value(serde_json::json!({
+            "pretty_name": "Hover analysis test",
+            "segments": [{
+                "display": { "path": "display.mp4", "fps": 30, "start_time": 0.0 },
+                "cursor": "cursor.json"
+            }],
+            "status": { "status": "Complete" }
+        }))
+        .unwrap();
+        metadata.project_path = root.to_path_buf();
+        metadata.save_for_project().unwrap();
+        let mut project = ProjectConfiguration {
+            timeline: Some(
+                serde_json::from_value(serde_json::json!({
+                    "segments": [{ "timescale": 1.0, "start": 0.0, "end": 4.0 }],
+                    "zoomSegments": []
+                }))
+                .unwrap(),
+            ),
+            ..Default::default()
+        };
+        project.camera.hide = true;
+        Self {
+            directory,
+            _alone: alone,
+            project,
+        }
+    }
+
+    fn analysed(&self) -> bool {
+        self.directory.path().join(Self::CACHE).exists()
+    }
+
+    async fn open(&self) -> (Arc<crate::EditorInstance>, DrawnFrames) {
+        self.project.write(self.directory.path()).unwrap();
+        let frames = DrawnFrames::default();
+        let sink = frames.clone();
+        let editor = crate::EditorInstance::new_with_audio_output(
+            self.directory.path().to_path_buf(),
+            |_| {},
+            Box::new(move |output, _| {
+                if let crate::editor::EditorFrameOutput::Rgba(frame) = output {
+                    sink.lock()
+                        .unwrap()
+                        .push((std::time::Instant::now(), visible_rgba(&frame)));
+                }
+            }),
+            None,
+            Arc::new(crate::AudioOutput::new_headless(Box::new(|_, _| {}))),
+        )
+        .await
+        .unwrap();
+        (editor, frames)
+    }
+
+    async fn wait_until_analysed(&self) {
+        tokio::time::timeout(Self::OTHER_TESTS_PLAYBACK, async {
+            while !self.analysed() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("hover analysis never saved its result");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hover_analysis_never_starts_until_hover_highlights_are_followed() {
+    let mut recording = HoverProject::new().await;
+    recording.project.cursor.hover_anchors = false;
+    let (editor, _frames) = recording.open().await;
+    for frame in [0, 15, 30, 45] {
+        editor
+            .preview_tx
+            .send(Some((frame, 30, XY::new(160, 120))))
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(HoverProject::PAST_THE_IDLE_SECOND).await;
+    assert!(!recording.analysed());
+
+    editor
+        .project_config
+        .0
+        .send_modify(|project| project.cursor.hover_anchors = true);
+    editor
+        .preview_tx
+        .send(Some((0, 30, XY::new(160, 120))))
+        .unwrap();
+    recording.wait_until_analysed().await;
+    editor.dispose().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hover_analysis_holds_while_hover_highlights_are_turned_off() {
+    let recording = HoverProject::new().await;
+    let (editor, _frames) = recording.open().await;
+    tokio::time::sleep(HoverProject::ANALYSIS_STARTED_BUT_STILL_IDLING).await;
+    editor
+        .project_config
+        .0
+        .send_modify(|project| project.cursor.hover_anchors = false);
+    tokio::time::sleep(HoverProject::PAST_THE_IDLE_SECOND).await;
+    assert!(!recording.analysed());
+
+    editor
+        .project_config
+        .0
+        .send_modify(|project| project.cursor.hover_anchors = true);
+    recording.wait_until_analysed().await;
+    editor.dispose().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hover_analysis_waits_while_an_export_runs() {
+    let recording = HoverProject::new().await;
+    let export = crate::MediaActivity::begin();
+    let (editor, _frames) = recording.open().await;
+    tokio::time::sleep(HoverProject::PAST_THE_IDLE_SECOND).await;
+    assert!(!recording.analysed());
+
+    drop(export);
+    recording.wait_until_analysed().await;
+    editor.dispose().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hover_analysis_waits_while_an_export_preview_renders() {
+    let recording = HoverProject::new().await;
+    let (editor, _frames) = recording.open().await;
+    editor.export_preview_active.store(true, Ordering::Release);
+    tokio::time::sleep(HoverProject::PAST_THE_IDLE_SECOND).await;
+    assert!(!recording.analysed());
+
+    editor.export_preview_active.store(false, Ordering::Release);
+    recording.wait_until_analysed().await;
+    editor.dispose().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hover_analysis_waits_while_the_editor_plays() {
+    let recording = HoverProject::new().await;
+    let (editor, _frames) = recording.open().await;
+    let playback = editor
+        .start_playback_with_handle(30, XY::new(160, 120), Some(0))
+        .await
+        .unwrap();
+    tokio::time::sleep(HoverProject::PAST_THE_IDLE_SECOND).await;
+    assert!(
+        *editor.playback_watch().borrow(),
+        "playback ended too early"
+    );
+    assert!(!recording.analysed());
+
+    playback.stop();
+    recording.wait_until_analysed().await;
+    editor.dispose().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn found_highlights_redraw_the_paused_preview_and_load_when_reopened() {
+    let recording = HoverProject::new().await;
+    let (editor, frames) = recording.open().await;
+    editor
+        .preview_tx
+        .send(Some((30, 30, XY::new(160, 120))))
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while frames.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    tokio::time::timeout(HoverProject::OTHER_TESTS_PLAYBACK, async {
+        while frames.lock().unwrap().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the paused preview was not drawn again");
+    let found = editor.segment_medias[0].hover_changes.times_ms();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(editor.preview_tx.borrow().unwrap().0, 30);
+    editor.dispose().await;
+
+    let (reopened, _frames) = recording.open().await;
+    assert_eq!(reopened.segment_medias[0].hover_changes.times_ms(), found);
+    reopened.dispose().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn highlights_found_after_playback_redraw_the_frame_it_paused_on() {
+    for requested_while_playing in [None, Some(100)] {
+        let recording = HoverProject::new().await;
+        let (editor, _frames) = recording.open().await;
+        let playback = editor
+            .start_playback_with_handle(30, XY::new(160, 120), Some(0))
+            .await
+            .unwrap();
+        if let Some(frame) = requested_while_playing {
+            editor
+                .preview_tx
+                .send(Some((frame, 30, XY::new(160, 120))))
+                .unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        playback.stop();
+        assert!(editor.state.lock().await.playhead_position > 0);
+
+        recording.wait_until_analysed().await;
+        let redrawn = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let paused_on = editor.state.lock().await.playhead_position;
+                let shown = editor.preview_tx.borrow().map(|(frame, _, _)| frame);
+                if shown == Some(paused_on) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(redrawn.is_ok(), "{requested_while_playing:?}");
+        editor.dispose().await;
+    }
 }

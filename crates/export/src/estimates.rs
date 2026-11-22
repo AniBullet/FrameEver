@@ -303,6 +303,7 @@ pub async fn estimate_export(
                 system_audio: segment.system_audio.clone(),
                 audio_timing_repair: segment.audio_timing_repair,
                 cursor: segment.cursor.clone(),
+                hover_changes: segment.hover_changes.clone(),
                 keyboard: segment.keyboard.clone(),
                 decoders: sample.decoders.clone(),
             })
@@ -314,6 +315,7 @@ pub async fn estimate_export(
         range: None,
         sample_windows: Some(windows.clone()),
         sample_timing: Some(timing.clone()),
+        _media_activity: frameever_editor::MediaActivity::begin(),
     };
     let progress_editor = editor.clone();
     let progress_cancel = cancel.clone();

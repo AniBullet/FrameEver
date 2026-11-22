@@ -53,6 +53,7 @@ pub fn save_gif(
     if !video.is_file() {
         return Err(GifFailure::VideoMissing);
     }
+    let _media_activity = frameever_editor::MediaActivity::begin();
     let mut input = ffmpeg::format::input(video).map_err(unreadable("open the video"))?;
     let stream = input
         .streams()

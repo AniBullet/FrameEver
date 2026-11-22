@@ -151,6 +151,7 @@ impl MovExportSettings {
                 .iter()
                 .map(|s| RenderSegment {
                     cursor: s.cursor.clone(),
+                    hover_changes_ms: s.hover_changes.times_ms(),
                     keyboard: s.keyboard.clone(),
                     decoders: s.decoders.clone(),
                     render_display: !self.cursor_only,

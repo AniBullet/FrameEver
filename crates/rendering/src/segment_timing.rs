@@ -70,6 +70,11 @@ pub(super) fn segment_video_timing(
     }
 }
 
+pub fn display_cursor_offset_secs(meta: &StudioRecordingMeta, segment_i: usize) -> f64 {
+    let timing = segment_video_timing(meta, segment_i);
+    timing.latest_start_time.unwrap_or(0.0) - timing.screen_offset
+}
+
 pub(super) fn segment_frame_times(
     segment_time: f32,
     segment_offset: f64,
@@ -108,6 +113,45 @@ mod tests {
         let timing = segment_video_timing(&metadata, 0);
         assert_eq!(timing.latest_start_time, None);
         assert_eq!((timing.screen_offset, timing.camera_offset), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_display_frame_maps_to_the_cursor_time_it_is_drawn_with() {
+        for (segment, expected) in [
+            (
+                serde_json::json!({
+                    "display": { "path": "display", "fps": 60, "start_time": 10.25 },
+                    "system_audio": { "path": "system.ogg", "start_time": 11.0 }
+                }),
+                10.25,
+            ),
+            (
+                serde_json::json!({ "display": { "path": "display", "fps": 60 } }),
+                0.0,
+            ),
+            (
+                serde_json::json!({
+                    "display": { "path": "display", "fps": 60, "start_time": 0.5 },
+                    "mic": { "path": "mic.aac" }
+                }),
+                0.0,
+            ),
+        ] {
+            let metadata: StudioRecordingMeta =
+                serde_json::from_value(serde_json::json!({ "segments": [segment] })).unwrap();
+            let timing = segment_video_timing(&metadata, 0);
+            let offset = display_cursor_offset_secs(&metadata, 0);
+            assert_eq!(offset, expected);
+
+            let segment_time = 3.0_f32;
+            let video_time = f64::from(segment_time) + timing.screen_offset;
+            let (_, recording_time) = segment_frame_times(
+                segment_time,
+                timing.latest_start_time.unwrap_or(0.0),
+                ClipOffsets::default(),
+            );
+            assert_eq!(f64::from(recording_time), video_time + offset);
+        }
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, path::PathBuf};
+use std::{borrow::Cow, path::PathBuf, sync::Arc};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use frameever_editor::EditorInstance;
@@ -6,8 +6,9 @@ use frameever_project::{
     CursorEvents, ProjectConfiguration, RecordingMeta, TimelineFrameMapping, XY,
 };
 use frameever_rendering::{
-    FrameRenderer, ProjectUniforms, RecordingSegmentDecoders, RenderQuality, RenderVideoConstants,
-    RenderedFrame, RendererLayers, TransitionRenderInput, ZoomTransformTimeline,
+    FrameRenderer, PrecomputedCursorTimeline, ProjectUniforms, RecordingSegmentDecoders,
+    RenderQuality, RenderVideoConstants, RenderedFrame, RendererLayers, TransitionRenderInput,
+    ZoomTransformTimeline,
 };
 use image::{
     ImageFormat, Rgba, RgbaImage,
@@ -119,6 +120,7 @@ struct PreviewSource<'a> {
 struct PreviewSegment<'a> {
     decoders: &'a RecordingSegmentDecoders,
     cursor: &'a CursorEvents,
+    hover_changes_ms: Arc<[f64]>,
 }
 
 async fn render_preview_with_base(
@@ -139,6 +141,7 @@ fn base_source(exporter_base: &ExporterBase) -> PreviewSource<'_> {
             .map(|segment| PreviewSegment {
                 decoders: &segment.decoders,
                 cursor: &segment.cursor,
+                hover_changes_ms: segment.hover_changes.times_ms(),
             })
             .collect(),
         total_duration: frameever_rendering::get_duration(
@@ -260,6 +263,7 @@ fn editor_source(
             .map(|segment| PreviewSegment {
                 decoders: &segment.decoders,
                 cursor: &segment.cursor,
+                hover_changes_ms: segment.hover_changes.times_ms(),
             })
             .collect(),
         total_duration,
@@ -405,7 +409,12 @@ async fn render_source_frame(
     );
     zoom_timeline.ensure_precomputed_until((frame_number as f32 + 1.0) / fps as f32);
 
-    let uniforms = ProjectUniforms::new(
+    let cursor_timeline = PrecomputedCursorTimeline::from_project(
+        segment_media.cursor,
+        Arc::clone(&segment_media.hover_changes_ms),
+        project_config,
+    );
+    let uniforms = ProjectUniforms::new_with_precomputed_cursor(
         render_constants,
         project_config,
         frame_number,
@@ -415,6 +424,7 @@ async fn render_source_frame(
         &segment_frames,
         total_duration,
         &zoom_timeline,
+        &cursor_timeline,
     )
     .with_quality(RenderQuality::Export);
 
@@ -459,7 +469,15 @@ async fn render_source_frame(
             outgoing.segment.recording_clip,
         );
         outgoing_zoom.ensure_precomputed_until((frame_number as f32 + 1.0) / fps as f32);
-        let outgoing_uniforms = ProjectUniforms::new(
+        let outgoing_cursor_timeline = (outgoing.segment.recording_clip != segment.recording_clip)
+            .then(|| {
+                PrecomputedCursorTimeline::from_project(
+                    outgoing_media.cursor,
+                    Arc::clone(&outgoing_media.hover_changes_ms),
+                    project_config,
+                )
+            });
+        let outgoing_uniforms = ProjectUniforms::new_with_precomputed_cursor(
             render_constants,
             project_config,
             frame_number,
@@ -469,6 +487,9 @@ async fn render_source_frame(
             &outgoing_frames,
             total_duration,
             &outgoing_zoom,
+            outgoing_cursor_timeline
+                .as_ref()
+                .unwrap_or(&cursor_timeline),
         )
         .with_quality(RenderQuality::Export);
 
@@ -643,8 +664,6 @@ fn encode_preview_jpeg(frame: &RenderedFrame, quality: u8) -> Result<Vec<u8>, Ex
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
 
     fn frame(width: u32, height: u32, stride: usize, mut state: u64) -> RenderedFrame {
@@ -951,6 +970,122 @@ mod video_only_preview_tests {
         assert_eq!(
             actual.estimated_size_mb.to_bits(),
             expected.estimated_size_mb.to_bits()
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires ffmpeg and a wgpu adapter"]
+    async fn a_still_follows_hover_highlights_like_an_export() {
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path();
+        let display = root.join("display.mp4");
+        let generated = std::process::Command::new("ffmpeg")
+            .args(["-nostdin", "-v", "error", "-f", "lavfi", "-i"])
+            .arg("color=gray:size=320x180:rate=30:duration=2")
+            .args(["-c:v", "libx264", "-preset", "ultrafast"])
+            .arg(&display)
+            .output()
+            .unwrap();
+        assert!(generated.status.success(), "{generated:?}");
+        image::RgbaImage::from_pixel(24, 24, image::Rgba([255, 0, 0, 255]))
+            .save(root.join("cursor.png"))
+            .unwrap();
+        let moves = (0..=125)
+            .map(|step| {
+                let time_ms = f64::from(step) * 16.0;
+                serde_json::json!({
+                    "active_modifiers": [],
+                    "cursor_id": "arrow",
+                    "time_ms": time_ms,
+                    "x": 0.15 + 0.6 * ((time_ms - 400.0) / 150.0).clamp(0.0, 1.0),
+                    "y": 0.5
+                })
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(
+            root.join("cursor.json"),
+            serde_json::json!({ "clicks": [], "moves": moves }).to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("display.cursor-hover.json"),
+            serde_json::json!({
+                "version": 1,
+                "displayBytes": std::fs::metadata(&display).unwrap().len(),
+                "changesMs": [480.0]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("recording-meta.json"),
+            serde_json::json!({
+                "pretty_name": "Hover still test",
+                "segments": [{
+                    "display": { "path": "display.mp4", "fps": 30 },
+                    "cursor": "cursor.json"
+                }],
+                "cursors": { "arrow": { "imagePath": "cursor.png", "hotspot": { "x": 0.5, "y": 0.5 } } }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let red_centre = |config: ProjectConfiguration| async move {
+            let still = render_still_with_config(root.to_path_buf(), config, 0.48, 30, true)
+                .await
+                .unwrap();
+            let (mut sum, mut count) = (0_usize, 0_usize);
+            for (index, pixel) in still.rgba.chunks_exact(4).enumerate() {
+                if pixel[0] > 200 && pixel[1] < 60 && pixel[2] < 60 {
+                    sum += index % still.width as usize;
+                    count += 1;
+                }
+            }
+            assert!(count > 0, "the cursor is not in the still");
+            sum as f64 / count as f64 / f64::from(still.width)
+        };
+        let mut following = ProjectConfiguration::default();
+        following.cursor.use_svg = false;
+        following.cursor.motion_blur = 0.0;
+        following.cursor.hide_when_idle = false;
+        following.cursor.rotation_amount = 0.0;
+        following.background.padding = 0.0;
+        following.background.source = frameever_project::BackgroundSource::Color {
+            value: [0, 0, 0],
+            alpha: 255,
+        };
+        following.screen_motion_blur = 0.0;
+        following.cursor.hover_anchors = true;
+        let mut ignoring = following.clone();
+        ignoring.cursor.hover_anchors = false;
+
+        let pointer = 0.15 + 0.6 * (480.0 - 400.0) / 150.0;
+        let mut styled = ignoring.clone();
+        styled.timeline = Some(
+            serde_json::from_value(serde_json::json!({
+                "segments": [{ "timescale": 1.0, "start": 0.0, "end": 2.0 }],
+                "zoomSegments": [],
+                "styleSegments": [{
+                    "start": 0.0,
+                    "end": 2.0,
+                    "overrides": { "cursor": following.cursor }
+                }]
+            }))
+            .unwrap(),
+        );
+        let followed = (red_centre(following).await - pointer).abs();
+        let ignored = (red_centre(ignoring).await - pointer).abs();
+        let styled = (red_centre(styled).await - pointer).abs();
+
+        assert!(
+            followed + 0.005 < ignored,
+            "{followed} from the pointer with highlights, {ignored} without"
+        );
+        assert!(followed < 0.01, "{followed} from the pointer");
+        assert!(
+            styled < 0.01,
+            "{styled} from the pointer in a style segment"
         );
     }
 

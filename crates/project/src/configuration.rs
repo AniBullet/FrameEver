@@ -1113,6 +1113,8 @@ pub struct CursorConfiguration {
     pub ripple: CursorRippleConfig,
     #[serde(default)]
     pub interaction_anchors: bool,
+    #[serde(default)]
+    pub hover_anchors: bool,
 }
 
 impl Default for CursorConfiguration {
@@ -1139,6 +1141,7 @@ impl Default for CursorConfiguration {
             stop_movement_in_last_seconds: None,
             ripple: CursorRippleConfig::default(),
             interaction_anchors: true,
+            hover_anchors: true,
         };
 
         if let Some(preset) = animation_style.preset() {
@@ -1169,6 +1172,15 @@ impl CursorConfiguration {
 
     pub fn click_spring_config(&self) -> ClickSpringConfig {
         self.click_spring.unwrap_or_default()
+    }
+
+    pub fn follows_hover_highlights(&self) -> bool {
+        self.interaction_anchors && self.hover_anchors
+    }
+
+    pub fn set_follows_hover_highlights(&mut self, follows: bool) {
+        self.hover_anchors = follows;
+        self.interaction_anchors |= follows;
     }
 }
 
@@ -3672,6 +3684,49 @@ mod tests {
             serde_json::from_value(serde_json::to_value(ProjectConfiguration::default()).unwrap())
                 .unwrap();
         assert!(round_trip.cursor.interaction_anchors);
+    }
+
+    #[test]
+    fn hover_highlights_are_followed_in_new_projects_and_not_in_saved_ones() {
+        assert!(
+            ProjectConfiguration::default()
+                .cursor
+                .follows_hover_highlights()
+        );
+        assert!(
+            ProjectConfiguration::for_new_project()
+                .cursor
+                .follows_hover_highlights()
+        );
+
+        for saved in [
+            r#"{"cursor":{"tension":470.0,"mass":3.0,"friction":70.0}}"#,
+            r#"{"cursor":{"interactionAnchors":true}}"#,
+            r#"{"cursor":{"interactionAnchors":true,"hoverAnchors":false}}"#,
+            r#"{"cursor":{"interactionAnchors":false,"hoverAnchors":true}}"#,
+        ] {
+            let saved: ProjectConfiguration = serde_json::from_str(saved).unwrap();
+            assert!(!saved.cursor.follows_hover_highlights());
+        }
+
+        let round_trip: ProjectConfiguration =
+            serde_json::from_value(serde_json::to_value(ProjectConfiguration::default()).unwrap())
+                .unwrap();
+        assert!(round_trip.cursor.follows_hover_highlights());
+    }
+
+    #[test]
+    fn following_hover_highlights_brings_interaction_anchors_to_a_saved_project() {
+        let mut saved: ProjectConfiguration = serde_json::from_str(r#"{"cursor":{}}"#).unwrap();
+        saved.cursor.interaction_anchors = false;
+
+        saved.cursor.set_follows_hover_highlights(true);
+        assert!(saved.cursor.follows_hover_highlights());
+        assert!(saved.cursor.interaction_anchors);
+
+        saved.cursor.set_follows_hover_highlights(false);
+        assert!(!saved.cursor.follows_hover_highlights());
+        assert!(saved.cursor.interaction_anchors);
     }
 
     #[test]

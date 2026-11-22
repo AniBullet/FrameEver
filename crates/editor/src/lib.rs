@@ -4,7 +4,10 @@ mod completed_audio;
 mod editor;
 mod editor_instance;
 mod export_audio;
+mod hover_analysis;
+mod hover_follow;
 mod join_fade;
+mod media_activity;
 mod playback;
 mod preparing_audio;
 mod preparing_editor;
@@ -44,6 +47,8 @@ pub use frameever_audio::{
     assemble_transcription_audio, waveform_peaks,
 };
 pub use frameever_rendering::FrameLayout;
+pub use hover_follow::HoverChanges;
+pub use media_activity::MediaActivity;
 pub use playback::{Playback, PlaybackEvent, PlaybackHandle, PlaybackStartError};
 pub use preparing_editor::{PreparingEditorPhase, PreparingEditorProgress, PreparingPlaybackState};
 pub use preparing_handoff::{

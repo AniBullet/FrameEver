@@ -247,6 +247,161 @@ mod tests {
         }
     }
 
+    static WATCHING_MEDIA_ACTIVITY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn watched_progress() -> (
+        std::sync::Arc<std::sync::atomic::AtomicBool>,
+        impl FnMut(u32) -> bool + Send + 'static,
+    ) {
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let report = seen.clone();
+        let progress = move |_| {
+            report.fetch_or(
+                frameever_editor::MediaActivity::any_running(),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            true
+        };
+        (seen, progress)
+    }
+
+    async fn video_base(project: &Path, output: PathBuf) -> ExporterBase {
+        Box::pin(
+            ExporterBase::builder(project.to_path_buf())
+                .with_config(ProjectConfiguration::default())
+                .with_output_path(output)
+                .build_video_only(),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore = "requires ffmpeg and a wgpu adapter"]
+    async fn preparing_an_export_keeps_background_analysis_waiting() {
+        let _alone = WATCHING_MEDIA_ACTIVITY.lock().await;
+        let directory = tempfile::tempdir().unwrap();
+        let project = directory.path().join("project.ever");
+        two_second_recording(&project);
+        let base = Box::pin(video_base(&project, directory.path().join("all.mp4"))).await;
+        assert!(frameever_editor::MediaActivity::any_running());
+        drop(base);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires ffmpeg and a wgpu adapter"]
+    async fn a_gif_export_keeps_background_analysis_waiting() {
+        let _alone = WATCHING_MEDIA_ACTIVITY.lock().await;
+        let directory = tempfile::tempdir().unwrap();
+        let project = directory.path().join("project.ever");
+        two_second_recording(&project);
+        let base = Box::pin(video_base(&project, directory.path().join("all.gif"))).await;
+        let (seen, progress) = watched_progress();
+        Box::pin(
+            GifExportSettings {
+                fps: FPS,
+                resolution_base: XY::new(64, 64),
+                quality: None,
+            }
+            .export(base, progress),
+        )
+        .await
+        .unwrap();
+        assert!(seen.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires ffmpeg and a wgpu adapter"]
+    async fn a_mov_export_keeps_background_analysis_waiting() {
+        let _alone = WATCHING_MEDIA_ACTIVITY.lock().await;
+        let directory = tempfile::tempdir().unwrap();
+        let project = directory.path().join("project.ever");
+        two_second_recording(&project);
+        let base = Box::pin(video_base(&project, directory.path().join("all.mov"))).await;
+        let (seen, progress) = watched_progress();
+        Box::pin(
+            crate::mov::MovExportSettings {
+                fps: FPS,
+                resolution_base: XY::new(64, 64),
+                cursor_only: false,
+            }
+            .export(base, progress),
+        )
+        .await
+        .unwrap();
+        assert!(seen.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires ffmpeg and a wgpu adapter"]
+    async fn an_mp4_export_keeps_background_analysis_waiting() {
+        let _alone = WATCHING_MEDIA_ACTIVITY.lock().await;
+        let directory = tempfile::tempdir().unwrap();
+        let project = directory.path().join("project.ever");
+        two_second_recording(&project);
+        let base = Box::pin(
+            ExporterBase::builder(project)
+                .with_config(ProjectConfiguration::default())
+                .with_output_path(directory.path().join("all.mp4"))
+                .build_for_mp4(Default::default()),
+        )
+        .await
+        .unwrap();
+        let (seen, progress) = watched_progress();
+        Box::pin(mp4_settings().export_prepared(base, progress))
+            .await
+            .unwrap();
+        assert!(seen.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires ffmpeg and a wgpu adapter"]
+    async fn a_tracks_export_keeps_background_analysis_waiting() {
+        let _alone = WATCHING_MEDIA_ACTIVITY.lock().await;
+        let directory = tempfile::tempdir().unwrap();
+        let project = directory.path().join("project.ever");
+        two_second_recording(&project);
+        let mut seen = false;
+        Box::pin(crate::tracks::export_tracks(
+            project,
+            Some(ProjectConfiguration::default()),
+            crate::tracks::TrackExportSettings {
+                tracks: vec![crate::tracks::TrackKind::Screen],
+                fps: FPS,
+                force_ffmpeg_decoder: true,
+            },
+            directory.path().join("tracks"),
+            Default::default(),
+            |_| seen |= frameever_editor::MediaActivity::any_running(),
+        ))
+        .await
+        .unwrap();
+        assert!(seen);
+    }
+
+    #[test]
+    #[ignore = "requires ffmpeg"]
+    fn a_gif_of_an_instant_recording_keeps_background_analysis_waiting() {
+        let _alone = WATCHING_MEDIA_ACTIVITY.blocking_lock();
+        let directory = tempfile::tempdir().unwrap();
+        let project = directory.path().join("project.ever");
+        two_second_recording(&project);
+        let mut seen = false;
+        crate::instant_gif::save_gif(
+            &project.join("display.mp4"),
+            &directory.path().join("instant.gif"),
+            CLIP,
+            crate::instant_gif::GifSize::Small,
+            crate::gif::GifQualityPreset::Low,
+            |_, _| {
+                seen |= frameever_editor::MediaActivity::any_running();
+                true
+            },
+        )
+        .unwrap();
+        assert!(seen);
+    }
+
     #[tokio::test]
     #[ignore = "requires ffmpeg and a wgpu adapter"]
     async fn a_cancelled_mp4_of_a_clip_leaves_no_file() {

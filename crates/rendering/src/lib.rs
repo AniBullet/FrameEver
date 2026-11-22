@@ -66,6 +66,7 @@ pub mod screen_enhance;
 mod screen_enhance_render_tests;
 mod screen_upscale_net;
 mod segment_timing;
+pub use segment_timing::display_cursor_offset_secs;
 #[cfg(test)]
 mod shader_loop_tests;
 mod shape;
@@ -146,7 +147,7 @@ mod font_family_tests {
 }
 
 use camera3d::{Camera3DFrame, interpolate_camera3d};
-pub use cursor_interpolation::{CursorEventOrder, PrecomputedCursorTimeline};
+pub use cursor_interpolation::{CursorAnchors, CursorEventOrder, PrecomputedCursorTimeline};
 use mask::interpolate_masks;
 use scene::*;
 pub use shape::PreparedShape;
@@ -946,6 +947,7 @@ pub enum RenderingError {
 
 pub struct RenderSegment {
     pub cursor: Arc<CursorEvents>,
+    pub hover_changes_ms: Arc<[f64]>,
     pub keyboard: Arc<frameever_project::KeyboardEvents>,
     pub decoders: RecordingSegmentDecoders,
     pub render_display: bool,
@@ -1010,23 +1012,13 @@ pub async fn render_video_to_channel(
         .unwrap_or_else(|| FrameWindows::all(total_frames))
         .clamped_to(total_frames);
 
-    let cursor_smoothing =
-        (!project.cursor.raw).then_some(spring_mass_damper::SpringMassDamperSimulationConfig {
-            tension: project.cursor.tension,
-            mass: project.cursor.mass,
-            friction: project.cursor.friction,
-        });
-
-    let click_spring = project.cursor.click_spring_config();
-
     let precomputed_cursor_timelines: Vec<Arc<PrecomputedCursorTimeline>> = render_segments
         .iter()
         .map(|segment| {
-            Arc::new(PrecomputedCursorTimeline::new_with_anchors(
+            Arc::new(PrecomputedCursorTimeline::from_project(
                 &segment.cursor,
-                cursor_smoothing,
-                Some(click_spring),
-                project.cursor.interaction_anchors,
+                Arc::clone(&segment.hover_changes_ms),
+                project,
             ))
         })
         .collect();
@@ -1580,23 +1572,13 @@ pub async fn render_video_to_channel_nv12(
         .unwrap_or_else(|| FrameWindows::all(total_frames))
         .clamped_to(total_frames);
 
-    let cursor_smoothing =
-        (!project.cursor.raw).then_some(spring_mass_damper::SpringMassDamperSimulationConfig {
-            tension: project.cursor.tension,
-            mass: project.cursor.mass,
-            friction: project.cursor.friction,
-        });
-
-    let click_spring = project.cursor.click_spring_config();
-
     let precomputed_cursor_timelines: Vec<Arc<PrecomputedCursorTimeline>> = render_segments
         .iter()
         .map(|segment| {
-            Arc::new(PrecomputedCursorTimeline::new_with_anchors(
+            Arc::new(PrecomputedCursorTimeline::from_project(
                 &segment.cursor,
-                cursor_smoothing,
-                Some(click_spring),
-                project.cursor.interaction_anchors,
+                Arc::clone(&segment.hover_changes_ms),
+                project,
             ))
         })
         .collect();
@@ -4404,7 +4386,7 @@ impl ProjectUniforms {
                 || current_click.tension != base_click.tension
                 || current_click.mass != base_click.mass
                 || current_click.friction != base_click.friction
-                || cursor.interaction_anchors != project.cursor.interaction_anchors)
+                || CursorAnchors::of(cursor) != CursorAnchors::of(&project.cursor))
         {
             Some(precomputed_cursor.cached_variant(
                 cursor_events,
@@ -4414,7 +4396,7 @@ impl ProjectUniforms {
                     friction: cursor.friction,
                 },
                 current_click,
-                cursor.interaction_anchors,
+                CursorAnchors::of(cursor),
             ))
         } else {
             None
@@ -7294,6 +7276,7 @@ mod export_order_tests {
                 clicks: vec![],
                 moves: vec![],
             }),
+            hover_changes_ms: Arc::default(),
             keyboard: Arc::new(Default::default()),
             decoders: RecordingSegmentDecoders {
                 screen,

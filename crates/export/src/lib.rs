@@ -161,6 +161,7 @@ impl ExporterBuilder {
         include_audio: bool,
     ) -> Result<ExporterBase, ExporterBuildError> {
         type Error = ExporterBuildError;
+        let media_activity = frameever_editor::MediaActivity::begin();
 
         if frameever_rendering::input_presets::presets_dir().is_none() {
             frameever_rendering::input_presets::use_presets_dir(
@@ -310,6 +311,7 @@ impl ExporterBuilder {
             range: self.range,
             sample_windows: None,
             sample_timing: None,
+            _media_activity: media_activity,
         })
     }
 }
@@ -516,6 +518,7 @@ pub struct ExporterBase {
     range: Option<ExportRange>,
     sample_windows: Option<frameever_rendering::FrameWindows>,
     sample_timing: Option<Arc<estimates::SampleTiming>>,
+    _media_activity: frameever_editor::MediaActivity,
 }
 
 impl ExporterBase {

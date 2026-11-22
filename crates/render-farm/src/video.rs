@@ -251,6 +251,7 @@ pub async fn render(request: VideoRequest) -> Result<VideoResult> {
         .iter()
         .map(|segment| RenderSegment {
             cursor: segment.cursor.clone(),
+            hover_changes_ms: segment.hover_changes.times_ms(),
             keyboard: segment.keyboard.clone(),
             decoders: segment.decoders.clone(),
             render_display: true,

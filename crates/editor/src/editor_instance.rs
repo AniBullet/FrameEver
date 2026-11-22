@@ -7,10 +7,9 @@ use frameever_project::{
     TimelineFrameMapping, TimelineSegment, XY,
 };
 use frameever_rendering::{
-    CursorEventOrder, PrecomputedCursorTimeline, ProjectRecordingsMeta, ProjectUniforms,
-    RecordingSegmentDecoders, RenderQuality, RenderVideoConstants, SegmentVideoPaths,
-    SharedWgpuDevice, Video, ZoomTransformTimeline, get_duration,
-    spring_mass_damper::SpringMassDamperSimulationConfig,
+    CursorAnchors, CursorEventOrder, PrecomputedCursorTimeline, ProjectRecordingsMeta,
+    ProjectUniforms, RecordingSegmentDecoders, RenderQuality, RenderVideoConstants,
+    SegmentVideoPaths, SharedWgpuDevice, Video, ZoomTransformTimeline, get_duration,
 };
 use std::{
     collections::HashMap,
@@ -92,7 +91,7 @@ pub(super) fn cursor_timeline_settings(
         click_spring.tension.to_bits(),
         click_spring.mass.to_bits(),
         click_spring.friction.to_bits(),
-        u32::from(cursor.interaction_anchors),
+        CursorAnchors::of(cursor) as u32,
     ]
 }
 
@@ -110,6 +109,7 @@ struct PreviewCursorOrderEntry {
 struct PreviewCursorCacheEntry {
     recording_clip: u32,
     cursor: Arc<CursorEvents>,
+    hover_changes_ms: Arc<[f64]>,
     settings: [u32; 8],
     timeline: Arc<PrecomputedCursorTimeline>,
 }
@@ -142,6 +142,7 @@ impl PreviewCursorCache {
         &mut self,
         recording_clip: u32,
         cursor: &Arc<CursorEvents>,
+        hover_changes_ms: &Arc<[f64]>,
         project: &ProjectConfiguration,
     ) -> Option<Arc<PrecomputedCursorTimeline>> {
         if project.cursor.raw
@@ -165,17 +166,12 @@ impl PreviewCursorCache {
             return None;
         }
 
-        let smoothing = SpringMassDamperSimulationConfig {
-            tension: project.cursor.tension,
-            mass: project.cursor.mass,
-            friction: project.cursor.friction,
-        };
-        let click_spring = project.cursor.click_spring_config();
         let settings = cursor_timeline_settings(&project.cursor);
 
         if let Some(index) = self.entries.iter().position(|entry| {
             entry.recording_clip == recording_clip
                 && Arc::ptr_eq(&entry.cursor, cursor)
+                && entry.hover_changes_ms == *hover_changes_ms
                 && entry.settings == settings
         }) {
             let entry = self.entries.remove(index);
@@ -190,15 +186,15 @@ impl PreviewCursorCache {
             self.entries.remove(0);
         }
 
-        let timeline = Arc::new(PrecomputedCursorTimeline::new_with_anchors(
+        let timeline = Arc::new(PrecomputedCursorTimeline::from_project(
             cursor,
-            (!project.cursor.raw).then_some(smoothing),
-            Some(click_spring),
-            project.cursor.interaction_anchors,
+            Arc::clone(hover_changes_ms),
+            project,
         ));
         self.entries.push(PreviewCursorCacheEntry {
             recording_clip,
             cursor: Arc::clone(cursor),
+            hover_changes_ms: Arc::clone(hover_changes_ms),
             settings,
             timeline: Arc::clone(&timeline),
         });
@@ -305,7 +301,8 @@ pub struct EditorInstance {
     pub segment_medias: Arc<Vec<SegmentMedia>>,
     music_cache: Arc<std::sync::Mutex<crate::MusicTracks>>,
     meta: RecordingMeta,
-    pub export_preview_active: AtomicBool,
+    pub export_preview_active: Arc<AtomicBool>,
+    hover_follow: crate::hover_follow::HoverFollow,
     pub export_active: AtomicBool,
     runtime_handle: tokio::runtime::Handle,
     audio_output: Arc<crate::AudioOutput>,
@@ -711,6 +708,7 @@ impl EditorInstance {
 
         let (preview_tx, preview_rx) = watch::channel(None);
         let (playback_active_tx, playback_active_rx) = watch::channel(false);
+        let export_preview_active = Arc::new(AtomicBool::new(false));
 
         let this = Arc::new(Self {
             preparing_adoption: std::sync::Mutex::new(None),
@@ -732,7 +730,8 @@ impl EditorInstance {
             meta: recording_meta,
             playback_active: playback_active_tx,
             playback_active_rx,
-            export_preview_active: AtomicBool::new(false),
+            hover_follow: crate::hover_follow::HoverFollow::new(export_preview_active.clone()),
+            export_preview_active,
             export_active: AtomicBool::new(false),
             playback_epoch: AtomicU64::new(0),
             runtime_handle: tokio::runtime::Handle::current(),
@@ -838,6 +837,7 @@ impl EditorInstance {
         )?);
         let (preview_tx, preview_rx) = watch::channel(None);
         let (playback_active, playback_active_rx) = watch::channel(false);
+        let export_preview_active = Arc::new(AtomicBool::new(false));
         let next = Arc::new(Self {
             preparing_adoption: std::sync::Mutex::new(Some(adoption)),
             completed_track_identity: self.completed_track_identity.clone(),
@@ -859,7 +859,8 @@ impl EditorInstance {
             segment_medias: self.segment_medias.clone(),
             music_cache: self.music_cache.clone(),
             meta: self.meta.clone(),
-            export_preview_active: AtomicBool::new(false),
+            hover_follow: crate::hover_follow::HoverFollow::new(export_preview_active.clone()),
+            export_preview_active,
             export_active: AtomicBool::new(false),
             runtime_handle: self.runtime_handle.clone(),
             audio_output: self.audio_output.clone(),
@@ -883,6 +884,7 @@ impl EditorInstance {
     }
 
     async fn dispose_inner(&self, refresh_thumbnail: bool) -> bool {
+        self.hover_follow.stop();
         self.playback_epoch.fetch_add(1, Ordering::SeqCst);
         let mut state = self.state.lock().await;
 
@@ -1012,6 +1014,10 @@ impl EditorInstance {
                 state.playhead_position = frame_number;
             }
             let start_frame_number = start_frame_number.unwrap_or(state.playhead_position);
+            self.preview_tx.send_if_modified(|latest| {
+                latest.get_or_insert((start_frame_number, fps, resolution_base));
+                false
+            });
 
             let playback = playback::Playback {
                 segment_medias: self.segment_medias.clone(),
@@ -1140,12 +1146,52 @@ impl EditorInstance {
             let mut playback_rx = self.playback_active_rx.clone();
             let mut still_due: Option<(tokio::time::Instant, PreviewFrameInstruction)> = None;
             let mut render_still = false;
+            let mut requested_in_epoch = self.playback_epoch.load(Ordering::SeqCst);
+            let mut settings_rx = self.project_config.1.clone();
+            self.hover_follow.project_changed(
+                &settings_rx.borrow_and_update(),
+                &self.meta,
+                &self.segment_medias,
+            );
 
             loop {
                 let still_deadline = still_due.map(|(at, _)| at);
                 tokio::select! {
                     changed = preview_rx.changed() => {
                         changed.unwrap();
+                    }
+                    Ok(()) = settings_rx.changed() => {
+                        self.hover_follow.project_changed(
+                            &settings_rx.borrow_and_update(),
+                            &self.meta,
+                            &self.segment_medias,
+                        );
+                        continue;
+                    }
+                    () = self.hover_follow.found() => {
+                        if preview_rx.has_changed().unwrap_or(false) {
+                            continue;
+                        }
+                        let request = *preview_rx.borrow();
+                        if let Some((requested, fps, resolution_base)) = request
+                            && !*self.playback_active_rx.borrow()
+                        {
+                            let played_since =
+                                self.playback_epoch.load(Ordering::SeqCst) != requested_in_epoch;
+                            let frame = if played_since {
+                                self.state.lock().await.playhead_position
+                            } else {
+                                requested
+                            };
+                            self.preview_tx.send_if_modified(|latest| {
+                                let unchanged = *latest == request;
+                                if unchanged {
+                                    *latest = Some((frame, fps, resolution_base));
+                                }
+                                unchanged
+                            });
+                        }
+                        continue;
                     }
                     _ = tokio::time::sleep_until(still_deadline.unwrap_or_else(tokio::time::Instant::now)),
                         if still_deadline.is_some() =>
@@ -1187,6 +1233,7 @@ impl EditorInstance {
                     else {
                         break;
                     };
+                    self.hover_follow.preview_requested();
 
                     if let Some(token) = prefetch_cancel_token.take() {
                         token.cancel();
@@ -1195,6 +1242,7 @@ impl EditorInstance {
                     if *self.playback_active_rx.borrow() {
                         break;
                     }
+                    requested_in_epoch = self.playback_epoch.load(Ordering::SeqCst);
 
                     if self.export_active.load(Ordering::Acquire) {
                         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -1423,6 +1471,7 @@ impl EditorInstance {
                                     let outgoing_cursor_timeline = cursor_cache.get(
                                         outgoing.segment.recording_clip,
                                         &outgoing_media.cursor,
+                                        &outgoing_media.hover_changes.times_ms(),
                                         &project,
                                     );
                                     if preview_superseded(&preview_rx, last_presented) {
@@ -1479,6 +1528,7 @@ impl EditorInstance {
                             let cursor_timeline = cursor_cache.get(
                                 segment.recording_clip,
                                 &segment_medias.cursor,
+                                &segment_medias.hover_changes.times_ms(),
                                 &project,
                             );
                             if preview_superseded(&preview_rx, last_presented) {
@@ -1731,6 +1781,7 @@ pub struct SegmentMedia {
     pub system_audio: AudioLoader,
     pub audio_timing_repair: SegmentAudioTimingRepair,
     pub cursor: Arc<CursorEvents>,
+    pub hover_changes: crate::HoverChanges,
     pub keyboard: Arc<frameever_project::KeyboardEvents>,
     pub decoders: RecordingSegmentDecoders,
 }
@@ -2035,6 +2086,7 @@ async fn create_segments_with_audio(
                 system_audio: AudioLoader::none(),
                 audio_timing_repair: segment_audio_timing_repair(meta, 0, legacy_log),
                 cursor,
+                hover_changes: crate::HoverChanges::saved(&recording_meta.path(&s.display.path)),
                 keyboard: Arc::new(Default::default()),
                 decoders,
             }])
@@ -2096,6 +2148,9 @@ async fn create_segments_with_audio(
                     system_audio,
                     audio_timing_repair: segment_audio_timing_repair(meta, i, legacy_log),
                     cursor,
+                    hover_changes: crate::HoverChanges::saved(
+                        &recording_meta.path(&s.display.path),
+                    ),
                     keyboard,
                     decoders,
                 })
@@ -2326,7 +2381,7 @@ mod tests {
         let cursor = preview_cursor_events();
         let mut project = ProjectConfiguration::default();
         let mut cache = PreviewCursorCache::default();
-        let first = cache.get(0, &cursor, &project).unwrap();
+        let first = cache.get(0, &cursor, &Arc::default(), &project).unwrap();
 
         project.cursor.hide = !project.cursor.hide;
         project.cursor.size += 1;
@@ -2336,9 +2391,29 @@ mod tests {
         project.background.padding += 1.0;
         project.audio.mic_volume_db += 1.0;
         project.cursor.motion_blur += 0.1;
-        let repeated = cache.get(0, &Arc::clone(&cursor), &project).unwrap();
+        let repeated = cache
+            .get(0, &Arc::clone(&cursor), &Arc::default(), &project)
+            .unwrap();
 
         assert!(Arc::ptr_eq(&first, &repeated));
+        assert_eq!(cache.entries.len(), 1);
+    }
+
+    #[test]
+    fn preview_cursor_cache_rebuilds_when_hover_changes_arrive() {
+        let cursor = preview_cursor_events();
+        let project = ProjectConfiguration::default();
+        let mut cache = PreviewCursorCache::default();
+        let before = cache.get(0, &cursor, &Arc::default(), &project).unwrap();
+        let found: Arc<[f64]> = [500.0].as_slice().into();
+
+        let after = cache.get(0, &cursor, &found, &project).unwrap();
+
+        assert!(!Arc::ptr_eq(&before, &after));
+        assert!(Arc::ptr_eq(
+            &after,
+            &cache.get(0, &cursor, &found, &project).unwrap()
+        ));
         assert_eq!(cache.entries.len(), 1);
     }
 
@@ -2346,7 +2421,8 @@ mod tests {
     fn preview_cursor_cache_invalidates_each_spring_parameter() {
         let cursor = preview_cursor_events();
         let project = ProjectConfiguration::default();
-        let changes: [fn(&mut CursorConfiguration); 6] = [
+        let changes: [fn(&mut CursorConfiguration); 7] = [
+            |cursor| cursor.hover_anchors = !cursor.hover_anchors,
             |cursor| cursor.tension += 1.0,
             |cursor| cursor.mass += 1.0,
             |cursor| cursor.friction += 1.0,
@@ -2372,15 +2448,15 @@ mod tests {
 
         for change in changes {
             let mut cache = PreviewCursorCache::default();
-            let first = cache.get(0, &cursor, &project).unwrap();
+            let first = cache.get(0, &cursor, &Arc::default(), &project).unwrap();
             let mut changed = project.clone();
             change(&mut changed.cursor);
-            let updated = cache.get(0, &cursor, &changed).unwrap();
+            let updated = cache.get(0, &cursor, &Arc::default(), &changed).unwrap();
 
             assert!(!Arc::ptr_eq(&first, &updated));
             assert!(Arc::ptr_eq(
                 &updated,
-                &cache.get(0, &cursor, &changed).unwrap()
+                &cache.get(0, &cursor, &Arc::default(), &changed).unwrap()
             ));
             assert_eq!(cache.entries.len(), 1);
         }
@@ -2391,13 +2467,13 @@ mod tests {
         let cursor = preview_cursor_events();
         let mut project = ProjectConfiguration::default();
         let mut cache = PreviewCursorCache::default();
-        let smoothed = cache.get(0, &cursor, &project).unwrap();
+        let smoothed = cache.get(0, &cursor, &Arc::default(), &project).unwrap();
         let smoothed_weak = Arc::downgrade(&smoothed);
         drop(smoothed);
-        drop(cache.get(1, &cursor, &project).unwrap());
+        drop(cache.get(1, &cursor, &Arc::default(), &project).unwrap());
         project.cursor.raw = true;
 
-        assert!(cache.get(0, &cursor, &project).is_none());
+        assert!(cache.get(0, &cursor, &Arc::default(), &project).is_none());
         assert!(cache.entries.is_empty());
         assert!(smoothed_weak.upgrade().is_none());
         assert_eq!(Arc::strong_count(&cursor), 1);
@@ -2422,12 +2498,12 @@ mod tests {
             mass: 2.0,
             friction: 60.0,
         });
-        assert!(cache.get(0, &cursor, &project).is_none());
+        assert!(cache.get(0, &cursor, &Arc::default(), &project).is_none());
         assert!(cache.entries.is_empty());
         assert_eq!(Arc::strong_count(&cursor), 1);
 
         project.cursor.raw = false;
-        assert!(cache.get(0, &cursor, &project).is_some());
+        assert!(cache.get(0, &cursor, &Arc::default(), &project).is_some());
         assert_eq!(cache.entries.len(), 1);
     }
 
@@ -2447,8 +2523,8 @@ mod tests {
             .unwrap(),
         );
         let mut cache = PreviewCursorCache::default();
-        let first = cache.get(0, &cursor, &project).unwrap();
-        let second = cache.get(0, &cursor, &project).unwrap();
+        let first = cache.get(0, &cursor, &Arc::default(), &project).unwrap();
+        let second = cache.get(0, &cursor, &Arc::default(), &project).unwrap();
         assert!(Arc::ptr_eq(&first, &second));
         let raw = PrecomputedCursorTimeline::new(&cursor, None, None);
         for time in [0.0, 0.5, 1.0, 1.5, 2.5] {
@@ -2467,11 +2543,11 @@ mod tests {
             assert_eq!(actual.cursor_id, expected.cursor_id);
         }
         project.cursor.raw = false;
-        let smoothed = cache.get(0, &cursor, &project).unwrap();
+        let smoothed = cache.get(0, &cursor, &Arc::default(), &project).unwrap();
         assert!(!Arc::ptr_eq(&first, &smoothed));
         project.cursor.raw = true;
         project.timeline.as_mut().unwrap().style_segments[0].enabled = false;
-        assert!(cache.get(0, &cursor, &project).is_none());
+        assert!(cache.get(0, &cursor, &Arc::default(), &project).is_none());
         assert!(cache.entries.is_empty());
     }
 
@@ -2499,7 +2575,7 @@ mod tests {
             style.enabled = enabled;
             style.overrides.cursor.as_mut().unwrap().raw = raw;
             let mut cache = PreviewCursorCache::default();
-            assert!(cache.get(0, &cursor, &project).is_none());
+            assert!(cache.get(0, &cursor, &Arc::default(), &project).is_none());
             assert!(cache.entries.is_empty());
         }
     }
@@ -2513,15 +2589,15 @@ mod tests {
         });
         let project = ProjectConfiguration::default();
         let mut cache = PreviewCursorCache::default();
-        drop(cache.get(0, &cursor, &project).unwrap());
-        let other_segment = cache.get(1, &cursor, &project).unwrap();
+        drop(cache.get(0, &cursor, &Arc::default(), &project).unwrap());
+        let other_segment = cache.get(1, &cursor, &Arc::default(), &project).unwrap();
 
-        assert!(cache.get(0, &empty, &project).is_none());
+        assert!(cache.get(0, &empty, &Arc::default(), &project).is_none());
         assert_eq!(cache.entries.len(), 1);
         assert_eq!(Arc::strong_count(&empty), 1);
         assert!(Arc::ptr_eq(
             &other_segment,
-            &cache.get(1, &cursor, &project).unwrap()
+            &cache.get(1, &cursor, &Arc::default(), &project).unwrap()
         ));
     }
 
@@ -2530,17 +2606,23 @@ mod tests {
         let cursor = preview_cursor_events();
         let project = ProjectConfiguration::default();
         let mut cache = PreviewCursorCache::default();
-        let first = cache.get(0, &cursor, &project).unwrap();
+        let first = cache.get(0, &cursor, &Arc::default(), &project).unwrap();
         let replacement = Arc::new((*cursor).clone());
-        let replaced = cache.get(0, &replacement, &project).unwrap();
+        let replaced = cache
+            .get(0, &replacement, &Arc::default(), &project)
+            .unwrap();
         assert!(!Arc::ptr_eq(&first, &replaced));
         assert_eq!(cache.entries.len(), 1);
 
-        let second_segment = cache.get(1, &replacement, &project).unwrap();
+        let second_segment = cache
+            .get(1, &replacement, &Arc::default(), &project)
+            .unwrap();
         assert!(!Arc::ptr_eq(&replaced, &second_segment));
         assert!(Arc::ptr_eq(
             &replaced,
-            &cache.get(0, &replacement, &project).unwrap()
+            &cache
+                .get(0, &replacement, &Arc::default(), &project)
+                .unwrap()
         ));
         assert_eq!(cache.entries.len(), 2);
     }
@@ -2550,22 +2632,22 @@ mod tests {
         let cursor = preview_cursor_events();
         let project = ProjectConfiguration::default();
         let mut cache = PreviewCursorCache::default();
-        let first = cache.get(0, &cursor, &project).unwrap();
-        let second = cache.get(1, &cursor, &project).unwrap();
+        let first = cache.get(0, &cursor, &Arc::default(), &project).unwrap();
+        let second = cache.get(1, &cursor, &Arc::default(), &project).unwrap();
         let second_weak = Arc::downgrade(&second);
         drop(second);
 
         assert!(Arc::ptr_eq(
             &first,
-            &cache.get(0, &cursor, &project).unwrap()
+            &cache.get(0, &cursor, &Arc::default(), &project).unwrap()
         ));
-        drop(cache.get(2, &cursor, &project).unwrap());
+        drop(cache.get(2, &cursor, &Arc::default(), &project).unwrap());
 
         assert!(second_weak.upgrade().is_none());
         assert_eq!(cache.entries.len(), PREVIEW_CURSOR_CACHE_CAPACITY);
         assert!(Arc::ptr_eq(
             &first,
-            &cache.get(0, &cursor, &project).unwrap()
+            &cache.get(0, &cursor, &Arc::default(), &project).unwrap()
         ));
     }
 
@@ -2588,22 +2670,14 @@ mod tests {
             ] {
                 project.cursor.raw = raw;
                 project.cursor.click_spring = click_spring;
-                let cached = cache.get(0, &cursor, &project);
+                let cached = cache.get(0, &cursor, &Arc::default(), &project);
                 if raw || cursor.moves.is_empty() {
                     assert!(cached.is_none());
                     continue;
                 }
                 let cached = cached.unwrap();
-                let fresh = PrecomputedCursorTimeline::new_with_anchors(
-                    &cursor,
-                    (!raw).then_some(SpringMassDamperSimulationConfig {
-                        tension: project.cursor.tension,
-                        mass: project.cursor.mass,
-                        friction: project.cursor.friction,
-                    }),
-                    Some(project.cursor.click_spring_config()),
-                    project.cursor.interaction_anchors,
-                );
+                let fresh =
+                    PrecomputedCursorTimeline::from_project(&cursor, Arc::default(), &project);
 
                 for time in [1.5, 0.0, 0.08, 0.1, 0.23, 0.24, 0.3, 1.0, 1.6, 2.5, -1.0] {
                     match (cached.interpolate(time), fresh.interpolate(time)) {

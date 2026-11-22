@@ -4,7 +4,6 @@ use frameever_project::{
 use frameever_rendering::{
     DecodedFrame, DecodedSegmentFrames, PrecomputedCursorTimeline, ProjectUniforms,
     RecordingSegmentDecoders, RenderVideoConstants, ZoomTransformTimeline,
-    spring_mass_damper::SpringMassDamperSimulationConfig,
 };
 use frameever_utils::operation_diagnostics::{Field, Operation};
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -667,6 +666,7 @@ impl Playback {
         self.renderer
             .prepare_output_size(output_size.0, output_size.1);
 
+        let media_activity = crate::MediaActivity::begin();
         let in_flight_frames: Arc<RwLock<HashSet<u32>>> = Arc::new(RwLock::new(HashSet::new()));
         let prefetch_in_flight = in_flight_frames.clone();
         let producer_prefetch_frame_limit = Arc::clone(&prefetch_frame_limit);
@@ -952,6 +952,7 @@ impl Playback {
         ));
         diagnostic.stage("preparing_playback");
         let playback_body = move || {
+            let _media_activity = media_activity;
             let mut adopted_guard = AdoptedPlaybackGuard(adopted);
             let adopted = &mut adopted_guard.0;
             let duration = self
@@ -1117,27 +1118,27 @@ impl Playback {
                 self.preview_speed.get()
             };
 
-            let build_cursor_timelines =
-                |project: &ProjectConfiguration| -> Vec<Arc<PrecomputedCursorTimeline>> {
-                    let cursor_smoothing =
-                        (!project.cursor.raw).then_some(SpringMassDamperSimulationConfig {
-                            tension: project.cursor.tension,
-                            mass: project.cursor.mass,
-                            friction: project.cursor.friction,
-                        });
-                    let click_spring = project.cursor.click_spring_config();
-                    self.segment_medias
-                        .iter()
-                        .map(|seg| {
-                            Arc::new(PrecomputedCursorTimeline::new_with_anchors(
-                                &seg.cursor,
-                                cursor_smoothing,
-                                Some(click_spring),
-                                project.cursor.interaction_anchors,
-                            ))
-                        })
-                        .collect()
-                };
+            let current_hover_changes = || -> Vec<Arc<[f64]>> {
+                self.segment_medias
+                    .iter()
+                    .map(|seg| seg.hover_changes.times_ms())
+                    .collect()
+            };
+            let build_cursor_timelines = |project: &ProjectConfiguration,
+                                          hover_changes: &[Arc<[f64]>]|
+             -> Vec<Arc<PrecomputedCursorTimeline>> {
+                self.segment_medias
+                    .iter()
+                    .zip(hover_changes)
+                    .map(|(seg, hover_changes_ms)| {
+                        Arc::new(PrecomputedCursorTimeline::from_project(
+                            &seg.cursor,
+                            Arc::clone(hover_changes_ms),
+                            project,
+                        ))
+                    })
+                    .collect()
+            };
 
             let build_zoom_timelines =
                 |project: &ProjectConfiguration| -> Vec<ZoomTransformTimeline> {
@@ -1179,7 +1180,8 @@ impl Playback {
                         .collect()
                 };
 
-            let mut cursor_timelines = build_cursor_timelines(&cached_project);
+            let mut hover_changes = current_hover_changes();
+            let mut cursor_timelines = build_cursor_timelines(&cached_project, &hover_changes);
             let mut zoom_timelines = build_zoom_timelines(&cached_project);
             let mut outgoing_zoom_timelines = build_outgoing_zoom_timelines(&cached_project);
 
@@ -1513,12 +1515,18 @@ impl Playback {
                         );
                     }
                     if cursor_changed {
-                        cursor_timelines = build_cursor_timelines(&cached_project);
+                        cursor_timelines = build_cursor_timelines(&cached_project, &hover_changes);
                     }
                     if zoom_changed {
                         zoom_timelines = build_zoom_timelines(&cached_project);
                         outgoing_zoom_timelines = build_outgoing_zoom_timelines(&cached_project);
                     }
+                }
+
+                let latest_hover_changes = current_hover_changes();
+                if latest_hover_changes != hover_changes {
+                    hover_changes = latest_hover_changes;
+                    cursor_timelines = build_cursor_timelines(&cached_project, &hover_changes);
                 }
 
                 let requested_speed = if adopted.is_some() {

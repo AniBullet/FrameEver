@@ -233,6 +233,7 @@ impl PreparingPlaybackSession {
             updates,
             cancelled: cancelled.clone(),
             callback,
+            media_activity: None,
         };
         let fallback = runner.clock.snapshot.clone();
         let task = runtime.spawn(runner.run(input, audio));
@@ -361,6 +362,7 @@ struct PreparingPlaybackRunner {
     updates: watch::Sender<PreparingPlaybackSnapshot>,
     cancelled: CancellationToken,
     callback: crate::PreparingPreviewCallback,
+    media_activity: Option<crate::MediaActivity>,
 }
 
 impl PreparingPlaybackRunner {
@@ -456,6 +458,11 @@ impl PreparingPlaybackRunner {
 
     fn publish(&mut self) -> Result<(), String> {
         let snapshot = self.clock.publish()?;
+        self.media_activity = snapshot.playback.playing.then(|| {
+            self.media_activity
+                .take()
+                .unwrap_or_else(crate::MediaActivity::begin)
+        });
         self.handoff
             .publish(snapshot.clone(), self.clock.position_at(Instant::now()));
         self.handoff.set_audio(

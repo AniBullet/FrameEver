@@ -9,7 +9,7 @@ use frameever_project::{ProjectConfiguration, RecordingMeta, XY};
 use frameever_rendering::{
     FrameRenderer, PrecomputedCursorTimeline, ProjectRecordingsMeta, ProjectUniforms,
     RenderSegment, RenderVideoConstants, RenderedFrame, RendererLayers, ZoomTransformTimeline,
-    render_video_to_channel, spring_mass_damper::SpringMassDamperSimulationConfig,
+    render_video_to_channel,
 };
 
 fn real_recording_path() -> Option<PathBuf> {
@@ -77,6 +77,7 @@ async fn render_sampled_sequence_frames(
         .iter()
         .map(|segment| RenderSegment {
             cursor: segment.cursor.clone(),
+            hover_changes_ms: segment.hover_changes.times_ms(),
             keyboard: segment.keyboard.clone(),
             decoders: segment.decoders.clone(),
             render_display: true,
@@ -148,13 +149,6 @@ async fn export_sequence_render_matches_editor_reference_for_real_recording()
         .as_ref()
         .map(|timeline| timeline.duration())
         .unwrap_or_else(|| recordings.duration());
-    let cursor_smoothing =
-        (!project_config.cursor.raw).then_some(SpringMassDamperSimulationConfig {
-            tension: project_config.cursor.tension,
-            mass: project_config.cursor.mass,
-            friction: project_config.cursor.friction,
-        });
-    let click_spring = project_config.cursor.click_spring_config();
     let sample_frames = sampled_frame_numbers();
     let max_sample_frame = *sample_frames
         .iter()
@@ -181,6 +175,7 @@ async fn export_sequence_render_matches_editor_reference_for_real_recording()
             .iter()
             .map(|segment| RenderSegment {
                 cursor: segment.cursor.clone(),
+                hover_changes_ms: segment.hover_changes.times_ms(),
                 keyboard: segment.keyboard.clone(),
                 decoders: segment.decoders.clone(),
                 render_display: true,
@@ -191,11 +186,10 @@ async fn export_sequence_render_matches_editor_reference_for_real_recording()
             reference_render_segments
                 .iter()
                 .map(|segment| {
-                    Arc::new(PrecomputedCursorTimeline::new_with_anchors(
+                    Arc::new(PrecomputedCursorTimeline::from_project(
                         &segment.cursor,
-                        cursor_smoothing,
-                        Some(click_spring),
-                        project_config.cursor.interaction_anchors,
+                        Arc::clone(&segment.hover_changes_ms),
+                        &project_config,
                     ))
                 })
                 .collect();
