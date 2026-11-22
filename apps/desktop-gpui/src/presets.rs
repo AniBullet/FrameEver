@@ -137,7 +137,6 @@ pub fn default_project_config(current: &ProjectConfiguration) -> ProjectConfigur
         config.background.rounding =
             crate::editor_sidebar::default_background_rounding(config.background.padding_mode);
     }
-    config.screen_movement_spring = frameever_project::ScreenMovementSpring::default();
     current.with_preset(config)
 }
 

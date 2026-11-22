@@ -140,6 +140,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Custom move", "自定义运镜"),
     ("Zoom {number}", "缩放 {number}"),
     ("Zoom Mode", "缩放模式"),
+    ("All zooms", "全部缩放"),
+    ("Start zooms early", "提前开始缩放"),
     ("Zoom Amount", "缩放倍数"),
     ("Mixed", "混合"),
     ("Auto", "自动"),

@@ -1032,6 +1032,8 @@ pub struct ScreenMovementSpring {
     pub stiffness: f32,
     pub damping: f32,
     pub mass: f32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub start_zooms_early: bool,
 }
 
 impl Default for ScreenMovementSpring {
@@ -1040,8 +1042,20 @@ impl Default for ScreenMovementSpring {
             stiffness: 200.0,
             damping: 40.0,
             mass: 2.25,
+            start_zooms_early: false,
         }
     }
+}
+
+impl ScreenMovementSpring {
+    pub const EARLY_START_SECS: f64 = 0.35;
+
+    pub const NEW_PROJECT: Self = Self {
+        stiffness: 205.0,
+        damping: 33.3,
+        mass: 1.5,
+        start_zooms_early: false,
+    };
 }
 
 impl CursorAnimationStyle {
@@ -3165,6 +3179,7 @@ impl ProjectConfiguration {
             opacity: 62.4,
             blur: 46.7,
         });
+        config.screen_movement_spring = ScreenMovementSpring::NEW_PROJECT;
         config
     }
 
@@ -3705,7 +3720,37 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("paddingMode");
+        framing_reset["screenMovementSpring"] = default["screenMovementSpring"].clone();
         assert_eq!(framing_reset, default);
+    }
+
+    #[test]
+    fn zoom_spring_keeps_saved_values_and_only_writes_early_start_when_on() {
+        let saved: ProjectConfiguration = serde_json::from_str(
+            r#"{"screenMovementSpring":{"stiffness":200.0,"damping":40.0,"mass":2.25}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            saved.screen_movement_spring,
+            ScreenMovementSpring::default()
+        );
+        let written = serde_json::to_value(saved.screen_movement_spring).unwrap();
+        assert!(written.get("startZoomsEarly").is_none());
+
+        let early = ScreenMovementSpring {
+            start_zooms_early: true,
+            ..ScreenMovementSpring::NEW_PROJECT
+        };
+        let written = serde_json::to_value(early).unwrap();
+        assert_eq!(written["startZoomsEarly"], true);
+        assert_eq!(
+            serde_json::from_value::<ScreenMovementSpring>(written).unwrap(),
+            early
+        );
+        assert_eq!(
+            ProjectConfiguration::for_new_project().screen_movement_spring,
+            ScreenMovementSpring::NEW_PROJECT
+        );
     }
 
     #[test]
