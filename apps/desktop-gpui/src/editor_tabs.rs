@@ -24,8 +24,8 @@ use frameever_project::CaptionsData;
 use frameever_project::{
     BackgroundBlurConfig, BackgroundBlurMode, CameraShape, CameraXPosition, CameraYPosition,
     CaptionSegment, CaptionSettings, CornerStyle, CursorAnimationStyle, CursorRippleConfig,
-    KeyboardData, KeyboardSettings, ProjectConfiguration, RecordingMeta, ShadowConfiguration,
-    StereoMode,
+    KeyboardData, KeyboardSettings, PaddingMode, ProjectConfiguration, RecordingMeta,
+    ShadowConfiguration, StereoMode,
 };
 use gpui::{
     AnyElement, Bounds, Context, EntityId, FontWeight, Hsla, InteractiveElement, IntoElement,
@@ -64,6 +64,11 @@ pub const CAMERA_BLUR_MODES: &[(BackgroundBlurMode, &str)] = &[
 pub const CORNER_STYLES: [(CornerStyle, &str); 2] = [
     (CornerStyle::Squircle, n!("Squircle")),
     (CornerStyle::Rounded, n!("Rounded")),
+];
+
+pub const PADDING_MODES: [(PaddingMode, &str); 2] = [
+    (PaddingMode::Proportional, n!("Proportional")),
+    (PaddingMode::Even, n!("Even")),
 ];
 
 /// `STEREO_MODES` (`:375-379`).
@@ -667,6 +672,7 @@ fn with_keyboard_settings(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarMenu {
     BackgroundCornerStyle,
+    BackgroundPaddingMode,
     CameraBlur,
     CameraShape,
     CameraCornerStyle,
@@ -709,6 +715,12 @@ impl EditorWindow {
                 .iter()
                 .map(|(style, label)| {
                     ui::MenuItem::new(tr(label), *style == project.background.rounding_type)
+                })
+                .collect(),
+            SidebarMenu::BackgroundPaddingMode => PADDING_MODES
+                .iter()
+                .map(|(mode, label)| {
+                    ui::MenuItem::new(tr(label), *mode == project.background.padding_mode)
                 })
                 .collect(),
             SidebarMenu::CameraBlur => CAMERA_BLUR_MODES
@@ -894,6 +906,19 @@ impl EditorWindow {
                         return false;
                     }
                     project.background.rounding_type = style;
+                    true
+                });
+            }
+            SidebarMenu::BackgroundPaddingMode => {
+                let Some((mode, _)) = PADDING_MODES.get(index) else {
+                    return;
+                };
+                let mode = *mode;
+                self.edit_project("padding-mode", window, cx, move |project| {
+                    if project.background.padding_mode == mode {
+                        return false;
+                    }
+                    project.background.padding_mode = mode;
                     true
                 });
             }

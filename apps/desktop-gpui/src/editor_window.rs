@@ -1383,6 +1383,8 @@ enum Scrub {
     Press { time: f64 },
 }
 
+const FADE_RESET_MIN_PX: f64 = 8.;
+
 /// `PROJECT_SAVE_DEBOUNCE_MS` (`ED/context.ts:185`).
 const PROJECT_SAVE_DEBOUNCE: Duration = Duration::from_millis(250);
 
@@ -2654,6 +2656,90 @@ impl EditorWindow {
         }
         self.project_changed(window, cx);
         true
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn double_click_segment(
+        &mut self,
+        kind: TrackKind,
+        lane: u32,
+        hit: edits::Hit,
+        pointer_time: f64,
+        secs_per_pixel: f64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let selection = self.selection.clone();
+        let changed = match (kind, hit) {
+            (TrackKind::Zoom | TrackKind::Scene, edits::Hit::Handle { index, start }) => {
+                let segments = self.timeline.segments(kind);
+                if index >= segments.len() {
+                    return false;
+                }
+                let edge =
+                    edits::fill_gap_edge(segments, lane, index, start, self.total_duration());
+                let changed = self.edit(
+                    |timeline| {
+                        if start {
+                            edits::set_segment_start(timeline, kind, index, edge)
+                        } else {
+                            edits::set_segment_end(timeline, kind, index, edge)
+                        }
+                    },
+                    window,
+                    cx,
+                );
+                if changed {
+                    self.set_preview_time(edge);
+                    self.note_edit("fill-gap", Some(kind));
+                }
+                changed
+            }
+            (TrackKind::Audio, edits::Hit::Body { index } | edits::Hit::Handle { index, .. }) => {
+                let Some(fade_in) = self
+                    .project
+                    .timeline
+                    .as_ref()
+                    .and_then(|timeline| timeline.audio_segments.get(index))
+                    .and_then(|segment| {
+                        edits::fade_reset_at(
+                            segment.start,
+                            segment.end,
+                            segment.fade_in,
+                            segment.fade_out,
+                            pointer_time,
+                            FADE_RESET_MIN_PX * secs_per_pixel,
+                        )
+                    })
+                else {
+                    return false;
+                };
+                let changed = self.edit(
+                    |timeline| {
+                        let Some(segment) = timeline.audio_segments.get_mut(index) else {
+                            return false;
+                        };
+                        if fade_in {
+                            segment.fade_in = 0.;
+                        } else {
+                            segment.fade_out = 0.;
+                        }
+                        true
+                    },
+                    window,
+                    cx,
+                );
+                if changed {
+                    self.note_edit("fade-reset", Some(kind));
+                }
+                changed
+            }
+            _ => return false,
+        };
+        if changed {
+            self.set_selection(selection, cx);
+        }
+        changed
     }
 
     fn edit(
@@ -4924,6 +5010,20 @@ impl EditorWindow {
                 window,
                 cx,
             );
+            return;
+        }
+
+        if event.click_count == 2
+            && self.double_click_segment(
+                kind,
+                lane,
+                hit,
+                position + x * secs_per_pixel,
+                secs_per_pixel,
+                window,
+                cx,
+            )
+        {
             return;
         }
 
@@ -12514,6 +12614,7 @@ fn dismiss_indexed_sidebar_menu(menu: &mut Option<crate::editor_tabs::OpenMenu>)
         | SidebarMenu::TextWeight(_)
         | SidebarMenu::Camera3DEasing(_) => true,
         SidebarMenu::BackgroundCornerStyle
+        | SidebarMenu::BackgroundPaddingMode
         | SidebarMenu::CameraBlur
         | SidebarMenu::CameraShape
         | SidebarMenu::CameraCornerStyle
@@ -14279,6 +14380,7 @@ mod tests {
 
         for kind in [
             SidebarMenu::BackgroundCornerStyle,
+            SidebarMenu::BackgroundPaddingMode,
             SidebarMenu::CameraBlur,
             SidebarMenu::CameraShape,
             SidebarMenu::CameraCornerStyle,

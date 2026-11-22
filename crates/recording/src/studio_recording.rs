@@ -2478,7 +2478,7 @@ async fn stop_recording(
         None
     };
 
-    let mut project_config = frameever_project::ProjectConfiguration::default();
+    let mut project_config = frameever_project::ProjectConfiguration::for_new_project();
     if !timeline_segments.is_empty() {
         project_config.timeline = Some(TimelineConfiguration {
             segments: timeline_segments,

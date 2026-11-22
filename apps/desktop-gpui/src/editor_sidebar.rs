@@ -43,7 +43,7 @@ use std::{
 
 use frameever_project::{
     AnimatedGradientParameter, BackgroundSource, BorderConfiguration, Color, CornerStyle,
-    DisplayNotch, NotchConfiguration, ProjectConfiguration, ShadowConfiguration,
+    DisplayNotch, NotchConfiguration, PaddingMode, ProjectConfiguration, ShadowConfiguration,
 };
 use gpui::{
     AnyElement, Bounds, Context, FontWeight, Hsla, InteractiveElement, IntoElement, MouseDownEvent,
@@ -189,6 +189,13 @@ pub const DEFAULT_GRADIENT_TO: Color = [255, 71, 102];
 /// `projectConfig.ts:18-19`.
 pub const DEFAULT_BACKGROUND_PADDING: f64 = 10.;
 pub const DEFAULT_BACKGROUND_ROUNDING: f64 = 7.5;
+
+pub fn default_background_rounding(mode: PaddingMode) -> f64 {
+    match mode {
+        PaddingMode::Even => frameever_project::NEW_PROJECT_ROUNDING,
+        PaddingMode::Proportional => DEFAULT_BACKGROUND_ROUNDING,
+    }
+}
 /// `GradientEditor.tsx:39-40`.
 pub const DEFAULT_NOISE_SCALE: f32 = 3.;
 /// `BACKGROUND_IMAGE_EXTENSIONS` (`:250-257`).
@@ -2356,7 +2363,7 @@ impl EditorWindow {
                 changed = true;
             }
             if from_none && background.rounding == 0. {
-                background.rounding = DEFAULT_BACKGROUND_ROUNDING;
+                background.rounding = default_background_rounding(background.padding_mode);
                 changed = true;
             }
             changed
@@ -2786,6 +2793,7 @@ impl EditorWindow {
                             "%",
                             cx,
                         ))
+                        .child(self.render_padding_mode(cx))
                         // The custom screen position row, shown only once the
                         // display has been dragged on the canvas (`:2656-2667`).
                         .children(background.display_position.map(|_| {
@@ -3625,6 +3633,23 @@ impl EditorWindow {
             self.menu_select(
                 crate::editor_tabs::SidebarMenu::BackgroundCornerStyle,
                 "corner-style",
+                label,
+                cx,
+            ),
+        ))
+    }
+
+    fn render_padding_mode(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let label = match self.style_control_project().background.padding_mode {
+            PaddingMode::Even => t!("Even"),
+            PaddingMode::Proportional => t!("Proportional"),
+        };
+
+        ui::Field::editor_row(&theme, t!("Padding style")).child(div().w(px(150.)).child(
+            self.menu_select(
+                crate::editor_tabs::SidebarMenu::BackgroundPaddingMode,
+                "padding-mode",
                 label,
                 cx,
             ),

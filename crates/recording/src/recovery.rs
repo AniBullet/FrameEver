@@ -2908,7 +2908,7 @@ impl RecoveryManager {
         let mut config = match ProjectConfiguration::load(&recording.project_path) {
             Ok(config) => config,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                ProjectConfiguration::default()
+                ProjectConfiguration::for_new_project()
             }
             Err(error) => return Err(error.into()),
         };
