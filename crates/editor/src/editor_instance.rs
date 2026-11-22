@@ -81,7 +81,7 @@ async fn still_interrupted(
 
 pub(super) fn cursor_timeline_settings(
     cursor: &frameever_project::CursorConfiguration,
-) -> [u32; 7] {
+) -> [u32; 8] {
     let click_spring = cursor.click_spring_config();
     [
         u32::from(cursor.raw),
@@ -91,6 +91,7 @@ pub(super) fn cursor_timeline_settings(
         click_spring.tension.to_bits(),
         click_spring.mass.to_bits(),
         click_spring.friction.to_bits(),
+        u32::from(cursor.interaction_anchors),
     ]
 }
 
@@ -108,7 +109,7 @@ struct PreviewCursorOrderEntry {
 struct PreviewCursorCacheEntry {
     recording_clip: u32,
     cursor: Arc<CursorEvents>,
-    settings: [u32; 7],
+    settings: [u32; 8],
     timeline: Arc<PrecomputedCursorTimeline>,
 }
 
@@ -188,10 +189,11 @@ impl PreviewCursorCache {
             self.entries.remove(0);
         }
 
-        let timeline = Arc::new(PrecomputedCursorTimeline::new(
+        let timeline = Arc::new(PrecomputedCursorTimeline::new_with_anchors(
             cursor,
             (!project.cursor.raw).then_some(smoothing),
             Some(click_spring),
+            project.cursor.interaction_anchors,
         ));
         self.entries.push(PreviewCursorCacheEntry {
             recording_clip,
@@ -2589,7 +2591,7 @@ mod tests {
                     continue;
                 }
                 let cached = cached.unwrap();
-                let fresh = PrecomputedCursorTimeline::new(
+                let fresh = PrecomputedCursorTimeline::new_with_anchors(
                     &cursor,
                     (!raw).then_some(SpringMassDamperSimulationConfig {
                         tension: project.cursor.tension,
@@ -2597,6 +2599,7 @@ mod tests {
                         friction: project.cursor.friction,
                     }),
                     Some(project.cursor.click_spring_config()),
+                    project.cursor.interaction_anchors,
                 );
 
                 for time in [1.5, 0.0, 0.08, 0.1, 0.23, 0.24, 0.3, 1.0, 1.6, 2.5, -1.0] {
