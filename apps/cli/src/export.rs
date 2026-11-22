@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
 };
 
@@ -105,6 +105,12 @@ pub struct Export {
     /// Emit a final JSON completion event to stdout ({"type":"Completed","path":"..."}). Implied by --json
     #[arg(long)]
     completion_json: bool,
+    #[arg(
+        long,
+        value_name = "TRACKS",
+        help = "Export the recorded tracks as separate files instead of one video: a comma-separated list of screen, camera, microphone, system-audio, or all. They follow the edited timeline and are written to the --output folder (default '<project>/output/tracks') as Screen.mp4, Camera.mp4, Microphone.wav and System audio.wav. Takes --fps (default 60)"
+    )]
+    tracks: Option<String>,
 }
 
 #[derive(Default)]
@@ -416,6 +422,11 @@ impl Export {
     ) -> Result<(), String> {
         let output = self.resolve_output()?;
         frameever_export::validate_output_path(&self.project_path)?;
+        if let Some(tracks) = self.tracks.clone() {
+            return self
+                .run_tracks(&tracks, output, progress_json, completion_json, stdout)
+                .await;
+        }
         let settings = self.resolve_settings()?;
 
         ensure_remuxed(self.project_path.clone()).await?;
@@ -508,6 +519,150 @@ impl Export {
 
         Ok(())
     }
+}
+
+impl Export {
+    fn tracks_conflicts(&self) -> Option<&'static str> {
+        if self.settings_json.is_some() {
+            Some("--settings-json")
+        } else if self.format.is_some() {
+            Some("--format")
+        } else if self.resolution.is_some() {
+            Some("--resolution")
+        } else if self.quality.is_some() {
+            Some("--quality")
+        } else if self.codec.is_some() {
+            Some("--codec")
+        } else if self.optimize_filesize {
+            Some("--optimize-filesize")
+        } else {
+            None
+        }
+    }
+
+    async fn run_tracks(
+        self,
+        tracks: &str,
+        output: Option<PathBuf>,
+        progress_json: bool,
+        completion_json: bool,
+        stdout: &Arc<Mutex<std::io::Stdout>>,
+    ) -> Result<(), String> {
+        if let Some(flag) = self.tracks_conflicts() {
+            return Err(format!(
+                "--tracks cannot be combined with {flag}; tracks keep their recorded size and only take --fps"
+            ));
+        }
+        let fps = self.fps.unwrap_or_else(|| default_fps(ExportFormat::Mp4));
+        if fps == 0 {
+            return Err("--fps must be greater than zero".to_string());
+        }
+        let project_path = self.project_path;
+
+        ensure_remuxed(project_path.clone()).await?;
+        let meta = RecordingMeta::load_for_project(&project_path)
+            .map_err(|e| format!("Failed to load recording meta: {e}"))?;
+        let Some(studio) = meta.studio_meta() else {
+            return Err(frameever_export::tracks::TrackExportError::NotStudio.to_string());
+        };
+        let selection = parse_tracks(tracks, || {
+            let recordings =
+                frameever_rendering::ProjectRecordingsMeta::new(&meta.project_path, studio)?;
+            Ok(frameever_export::tracks::available_tracks(
+                &recordings,
+                &meta.project_config(),
+            ))
+        })?;
+        let output = output.unwrap_or_else(|| project_path.join("output").join("tracks"));
+
+        let total = Arc::new(AtomicU64::new(0));
+        let done = Arc::new(AtomicU64::new(0));
+        let progress_stdout = Arc::clone(stdout);
+        let progress_done = Arc::clone(&done);
+        let progress_total = Arc::clone(&total);
+        let files = frameever_export::tracks::export_tracks(
+            project_path,
+            None,
+            frameever_export::tracks::TrackExportSettings {
+                tracks: selection,
+                fps,
+                force_ffmpeg_decoder: self.force_ffmpeg_decoder,
+            },
+            output.clone(),
+            Arc::new(AtomicBool::new(false)),
+            move |progress| {
+                progress_done.store(progress.done, Ordering::Relaxed);
+                progress_total.store(progress.total, Ordering::Relaxed);
+                if progress_json {
+                    let _ = emit_export_message(
+                        &progress_stdout,
+                        &ExportProgressMessage::Progress {
+                            rendered_count: progress.done.min(u64::from(u32::MAX)) as u32,
+                            total_frames: progress.total.min(u64::from(u32::MAX)) as u32,
+                        },
+                    );
+                }
+            },
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+
+        if progress_json || completion_json {
+            emit_export_message(stdout, &ExportProgressMessage::Completed { path: &output })?;
+        } else {
+            println!("Exported {} tracks to {}", files.len(), output.display());
+            for file in &files {
+                if let Some(name) = file.file_name() {
+                    println!("  {}", name.to_string_lossy());
+                }
+            }
+        }
+        info!(
+            "Exported {} tracks to '{}' ({}/{} steps)",
+            files.len(),
+            output.display(),
+            done.load(Ordering::Relaxed),
+            total.load(Ordering::Relaxed)
+        );
+        Ok(())
+    }
+}
+
+fn parse_tracks(
+    value: &str,
+    available: impl FnOnce() -> Result<Vec<frameever_export::tracks::TrackKind>, String>,
+) -> Result<Vec<frameever_export::tracks::TrackKind>, String> {
+    use frameever_export::tracks::TrackKind;
+    let names = value
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .collect::<Vec<_>>();
+    if names.is_empty() {
+        return Err(
+            "--tracks needs at least one of screen, camera, microphone, system-audio, or all"
+                .to_string(),
+        );
+    }
+    if names.iter().any(|name| name.eq_ignore_ascii_case("all")) {
+        if names.len() > 1 {
+            return Err("--tracks all cannot be combined with other track names".to_string());
+        }
+        return available();
+    }
+    let mut tracks = names
+        .iter()
+        .map(|name| {
+            TrackKind::from_slug(name).ok_or_else(|| {
+                format!(
+                    "Unknown track '{name}'; use screen, camera, microphone, system-audio, or all"
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    tracks.sort();
+    tracks.dedup();
+    Ok(tracks)
 }
 
 /// Remux a recording left as fragments (status `NeedsRemux`) into a progressive `display.mp4` before
@@ -872,6 +1027,31 @@ fn emit_export_message(
 mod tests {
     use super::*;
 
+    #[test]
+    fn track_lists_parse_in_a_stable_order() {
+        use frameever_export::tracks::TrackKind;
+        let none = || -> Result<Vec<TrackKind>, String> { panic!("only `all` lists the project") };
+        assert_eq!(
+            parse_tracks("system-audio, mic,screen,mic", none).unwrap(),
+            [
+                TrackKind::Screen,
+                TrackKind::Microphone,
+                TrackKind::SystemAudio
+            ]
+        );
+        assert_eq!(
+            parse_tracks("ALL", || Ok(vec![TrackKind::Screen, TrackKind::Camera])).unwrap(),
+            [TrackKind::Screen, TrackKind::Camera]
+        );
+        assert!(parse_tracks("all,screen", none).is_err());
+        assert!(parse_tracks(" , ", none).is_err());
+        assert!(
+            parse_tracks("screen,cursor", none)
+                .unwrap_err()
+                .contains("Unknown track 'cursor'")
+        );
+    }
+
     fn playable_instant_project() -> tempfile::TempDir {
         ffmpeg::init().unwrap();
         let project = tempfile::tempdir().unwrap();
@@ -1034,6 +1214,51 @@ mod tests {
         .write(project.path())
         .unwrap();
         project
+    }
+
+    #[test]
+    #[ignore = "requires ffmpeg"]
+    fn tracks_follow_the_edit_into_separate_files() {
+        let project = playable_studio_project();
+        let output = project.path().join("tracks");
+        let export = Export {
+            project_path: project.path().to_path_buf(),
+            output_path: None,
+            output: Some(output.clone()),
+            format: None,
+            fps: Some(30),
+            resolution: None,
+            quality: None,
+            codec: None,
+            optimize_filesize: false,
+            settings_json: None,
+            force_ffmpeg_decoder: true,
+            progress_json: false,
+            completion_json: false,
+            tracks: Some("all".into()),
+        };
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(export.run(false))
+            .unwrap();
+
+        let mut names = std::fs::read_dir(&output)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(names, ["Microphone.wav", "Screen.mp4"]);
+        let one_second_of_48k_stereo_24_bit = 44 + 48_000 * 2 * 3;
+        assert_eq!(
+            std::fs::metadata(output.join("Microphone.wav"))
+                .unwrap()
+                .len(),
+            one_second_of_48k_stereo_24_bit
+        );
+        let mut screen = ffmpeg::format::input(&output.join("Screen.mp4")).unwrap();
+        assert_eq!(screen.packets().count(), 30);
     }
 
     #[test]
