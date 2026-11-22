@@ -591,6 +591,9 @@ impl ExportUi {
     fn offer_clip(&mut self, clip: Option<ExportClip>, clip_only: bool) {
         self.clip_only = clip_only && clip.is_some();
         self.clip = clip;
+        if self.clip_only && self.is_tracks() {
+            self.format = ExportFormatKind::Mp4;
+        }
     }
 
     fn range(&self) -> Option<ExportRange> {
@@ -1372,6 +1375,9 @@ impl EditorWindow {
                 resources
                     .supervise(
                         async move {
+                            frameever_export::validate_output_path(&export_folder).map_err(
+                                |_| t!("Export output must be a local file path").to_string(),
+                            )?;
                             tracks::export_tracks(
                                 project_path,
                                 Some(project),
@@ -3481,6 +3487,26 @@ mod tests {
         ui.phase = ExportPhase::Failed;
         ui.output_path = Some(PathBuf::from("tracks"));
         assert_eq!(ui.clipboard_retry_path(), None);
+    }
+
+    #[test]
+    fn exporting_one_clip_leaves_a_remembered_tracks_format() {
+        let mut ui = ExportUi::from_preferences(ExportPrefs {
+            format: "Tracks".into(),
+            ..prefs()
+        });
+        ui.offer_clip(Some(intro()), true);
+        ui.set_track_options(options(&ExportTrack::ALL));
+        assert_eq!(ui.format, ExportFormatKind::Mp4);
+        assert!(ui.range().is_some());
+
+        let mut whole = ExportUi::from_preferences(ExportPrefs {
+            format: "Tracks".into(),
+            ..prefs()
+        });
+        whole.offer_clip(Some(intro()), false);
+        whole.set_track_options(options(&ExportTrack::ALL));
+        assert_eq!(whole.format, ExportFormatKind::Tracks);
     }
 
     #[test]
