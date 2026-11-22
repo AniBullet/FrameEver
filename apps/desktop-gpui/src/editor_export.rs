@@ -13,6 +13,7 @@ use frameever_export::preview::{
     ExportPreviewSettings, render_preview_with_config, render_preview_with_editor,
 };
 use frameever_export::settings::ExportSettings;
+use frameever_export::tracks::{self, TrackKind as ExportTrack, TrackProgress};
 use frameever_export::{ExportRange, ExporterBase, make_cursor_only_project};
 use frameever_project::{BackgroundSource, XY};
 use frameever_utils::export_resources::{
@@ -27,7 +28,7 @@ use gpui::{
 use crate::editor_edits::Selection;
 use crate::editor_timeline::{Segment, SegmentDetail, TrackKind};
 use crate::editor_window::EditorWindow;
-use crate::i18n::{n, t, tr};
+use crate::i18n::{n, t, tc, tr};
 use crate::store::{self, ExportPrefs};
 use crate::ui;
 use crate::{library, platform};
@@ -90,13 +91,17 @@ impl ExportDestination {
 pub enum ExportFormatKind {
     Mp4,
     Gif,
+    Tracks,
 }
 
 impl ExportFormatKind {
+    const ALL: [Self; 3] = [Self::Mp4, Self::Gif, Self::Tracks];
+
     fn label(self) -> &'static str {
         match self {
             Self::Mp4 => "MP4",
             Self::Gif => "GIF",
+            Self::Tracks => tc!("export format", "Tracks"),
         }
     }
 
@@ -104,15 +109,123 @@ impl ExportFormatKind {
         match self {
             Self::Mp4 => "Mp4",
             Self::Gif => "Gif",
+            Self::Tracks => "Tracks",
         }
     }
 
     fn from_slug(slug: &str) -> Self {
         match slug {
             "Gif" => Self::Gif,
+            "Tracks" => Self::Tracks,
             _ => Self::Mp4,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrackOption {
+    pub kind: ExportTrack,
+    pub size: Option<(u32, u32)>,
+}
+
+fn track_options(
+    recordings: &frameever_rendering::ProjectRecordingsMeta,
+    project: &frameever_project::ProjectConfiguration,
+) -> Vec<TrackOption> {
+    let used = |index: usize| {
+        project.timeline.as_ref().is_none_or(|timeline| {
+            timeline
+                .segments
+                .iter()
+                .any(|segment| segment.recording_clip as usize == index)
+        })
+    };
+    tracks::available_tracks(recordings, project)
+        .into_iter()
+        .map(|kind| {
+            let size = recordings
+                .segments
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| used(*index))
+                .find_map(|(_, segment)| match kind {
+                    ExportTrack::Screen => Some((segment.display.width, segment.display.height)),
+                    ExportTrack::Camera => segment
+                        .camera
+                        .as_ref()
+                        .map(|camera| (camera.width, camera.height)),
+                    ExportTrack::Microphone | ExportTrack::SystemAudio => None,
+                });
+            TrackOption { kind, size }
+        })
+        .collect()
+}
+
+fn track_label(kind: ExportTrack) -> &'static str {
+    match kind {
+        ExportTrack::Screen => t!("Screen"),
+        ExportTrack::Camera => t!("Camera"),
+        ExportTrack::Microphone => t!("Microphone"),
+        ExportTrack::SystemAudio => t!("System audio"),
+    }
+}
+
+fn track_icon(kind: ExportTrack) -> &'static str {
+    match kind {
+        ExportTrack::Screen => "icons/monitor.svg",
+        ExportTrack::Camera => "icons/webcam.svg",
+        ExportTrack::Microphone => "icons/mic.svg",
+        ExportTrack::SystemAudio => "icons/volume-2.svg",
+    }
+}
+
+fn track_toggle_id(kind: ExportTrack) -> &'static str {
+    match kind {
+        ExportTrack::Screen => "export-track-screen",
+        ExportTrack::Camera => "export-track-camera",
+        ExportTrack::Microphone => "export-track-microphone",
+        ExportTrack::SystemAudio => "export-track-system-audio",
+    }
+}
+
+fn track_detail(option: &TrackOption) -> String {
+    match option.size {
+        Some((width, height)) => format!("MP4 · {width}×{height}"),
+        None => "WAV · 48 kHz".into(),
+    }
+}
+
+fn selected_tracks(options: &[TrackOption], excluded: &[ExportTrack]) -> Vec<ExportTrack> {
+    let selected = options
+        .iter()
+        .map(|option| option.kind)
+        .filter(|kind| !excluded.contains(kind))
+        .collect::<Vec<_>>();
+    if selected.is_empty() {
+        options.iter().map(|option| option.kind).collect()
+    } else {
+        selected
+    }
+}
+
+fn estimated_tracks_bytes(
+    options: &[TrackOption],
+    selected: &[ExportTrack],
+    fps: u32,
+    duration: f64,
+) -> u64 {
+    let bpp = ExportCompression::Maximum.bits_per_pixel() as f64;
+    options
+        .iter()
+        .filter(|option| selected.contains(&option.kind))
+        .map(|option| match option.size {
+            Some((width, height)) => {
+                width as f64 * height as f64 * fps as f64 * bpp / 8.0 * duration
+            }
+            None => 48_000.0 * 2.0 * 3.0 * duration,
+        })
+        .sum::<f64>()
+        .max(0.0) as u64
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -272,6 +385,9 @@ pub struct ExportUi {
     resolution_from_source: bool,
     fps_from_source: bool,
     source: ExportSource,
+    pub track_options: Vec<TrackOption>,
+    pub tracks: Vec<ExportTrack>,
+    excluded_tracks: Vec<ExportTrack>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -308,6 +424,7 @@ impl ExportUi {
             gif_quality: None,
             resolution_from_source: true,
             fps_from_source: true,
+            excluded_tracks: None,
         });
         Self::from_preferences(prefs)
     }
@@ -360,7 +477,66 @@ impl ExportUi {
             resolution_from_source: prefs.resolution_from_source,
             fps_from_source: prefs.fps_from_source,
             source: ExportSource::default(),
+            track_options: Vec::new(),
+            tracks: Vec::new(),
+            excluded_tracks: prefs
+                .excluded_tracks
+                .iter()
+                .flatten()
+                .filter_map(|slug| ExportTrack::from_slug(slug))
+                .collect(),
         }
+    }
+
+    fn set_track_options(&mut self, options: Vec<TrackOption>) {
+        self.tracks = selected_tracks(&options, &self.excluded_tracks);
+        self.track_options = options;
+        if self.format == ExportFormatKind::Tracks && self.track_options.is_empty() {
+            self.format = ExportFormatKind::Mp4;
+        }
+    }
+
+    pub(crate) fn use_tracks(&mut self, slugs: Option<&str>) {
+        if self.track_options.is_empty() {
+            return;
+        }
+        self.format = ExportFormatKind::Tracks;
+        self.cursor_only = false;
+        if let Some(slugs) = slugs {
+            let mut tracks = slugs
+                .split(',')
+                .filter_map(|slug| ExportTrack::from_slug(slug.trim()))
+                .filter(|kind| self.track_options.iter().any(|option| option.kind == *kind))
+                .collect::<Vec<_>>();
+            tracks.sort();
+            tracks.dedup();
+            self.tracks = tracks;
+        }
+    }
+
+    fn toggle_track(&mut self, kind: ExportTrack) {
+        if let Some(index) = self.tracks.iter().position(|track| *track == kind) {
+            self.tracks.remove(index);
+            if !self.excluded_tracks.contains(&kind) {
+                self.excluded_tracks.push(kind);
+            }
+        } else if self.track_options.iter().any(|option| option.kind == kind) {
+            self.tracks.push(kind);
+            self.tracks.sort();
+            self.excluded_tracks.retain(|excluded| *excluded != kind);
+        }
+    }
+
+    fn is_tracks(&self) -> bool {
+        self.format == ExportFormatKind::Tracks
+    }
+
+    fn saves_to_file(&self) -> bool {
+        self.is_tracks() || self.destination == ExportDestination::File
+    }
+
+    fn can_start(&self) -> bool {
+        !self.phase.is_busy() && !(self.is_tracks() && self.tracks.is_empty())
     }
 
     fn choose_resolution(&mut self, resolution: ExportResolution) {
@@ -403,6 +579,12 @@ impl ExportUi {
             gif_quality: Some(self.gif_quality.slug().to_string()),
             resolution_from_source: self.resolution_from_source,
             fps_from_source: self.fps_from_source,
+            excluded_tracks: (!self.excluded_tracks.is_empty()).then(|| {
+                self.excluded_tracks
+                    .iter()
+                    .map(|kind| kind.slug().to_string())
+                    .collect()
+            }),
         }
     }
 
@@ -414,13 +596,14 @@ impl ExportUi {
     fn range(&self) -> Option<ExportRange> {
         self.clip
             .as_ref()
-            .filter(|_| self.clip_only)
+            .filter(|_| self.clip_only && !self.is_tracks())
             .map(|clip| clip.range)
     }
 
     fn range_labels(&self) -> Option<[String; 2]> {
         self.clip
             .as_ref()
+            .filter(|_| !self.is_tracks())
             .map(|clip| [t!("Whole video").to_string(), clip.label()])
     }
 
@@ -474,7 +657,7 @@ impl ExportUi {
     }
 
     fn clipboard_retry_path(&self) -> Option<&Path> {
-        if self.phase == ExportPhase::Failed && self.destination == ExportDestination::Clipboard {
+        if self.phase == ExportPhase::Failed && !self.saves_to_file() {
             self.output_path.as_deref()
         } else {
             None
@@ -597,7 +780,12 @@ impl EditorWindow {
         let mut ui = ExportUi::load();
         ui.offer_clip(clip, clip_only);
         ui.source = self.export_source();
-        if has_transparent_background(&self.project) {
+        ui.set_track_options(
+            self.summary()
+                .map(|summary| track_options(&summary.recordings, &self.project))
+                .unwrap_or_default(),
+        );
+        if has_transparent_background(&self.project) && !ui.is_tracks() {
             ui.format = ExportFormatKind::Gif;
         }
         self.normalize_export_options(&mut ui);
@@ -701,7 +889,8 @@ impl EditorWindow {
         ui.estimate_cancel.store(true, Ordering::Release);
         ui.estimate_cancel = Arc::new(AtomicBool::new(false));
         ui.estimate = None;
-        ui.estimate_loading = true;
+        let estimate_wanted = !ui.is_tracks();
+        ui.estimate_loading = estimate_wanted;
         ui.preview_stats = None;
         let estimate_cancel = ui.estimate_cancel.clone();
         let estimate_settings = ui.estimate_settings();
@@ -778,7 +967,7 @@ impl EditorWindow {
                 cx.notify();
                 window.refresh();
             });
-            let result = if let Some(instance) = estimate_instance {
+            let result = if let Some(instance) = estimate_instance.filter(|_| estimate_wanted) {
                 let (estimate_tx, estimate_rx) = flume::unbounded();
                 let estimate_task = gpui_tokio::Tokio::spawn(cx, async move {
                     estimate_export(
@@ -833,6 +1022,10 @@ impl EditorWindow {
         };
         ui.estimate_cancel.store(true, Ordering::Release);
         if ui.phase.is_busy() || ui.close_requested {
+            return;
+        }
+        if ui.is_tracks() {
+            self.start_tracks_export(pretty_name, window, cx);
             return;
         }
         let estimate = ui
@@ -1068,6 +1261,201 @@ impl EditorWindow {
         }));
     }
 
+    fn start_tracks_export(
+        &mut self,
+        pretty_name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let duration = self.total_duration();
+        let project_path = self.project_path.clone();
+        let project = self.project.clone();
+        let Some(ui) = self.export.as_mut() else {
+            return;
+        };
+        if ui.tracks.is_empty() {
+            return;
+        }
+        let selection = ui.tracks.clone();
+        let fps = ui.fps;
+        let force_ffmpeg_decoder = ui.force_ffmpeg;
+        let estimate = estimated_tracks_bytes(&ui.track_options, &selection, fps, duration);
+        ui.cancel = Arc::new(AtomicBool::new(false));
+        let cancel = ui.cancel.clone();
+        ui.phase = ExportPhase::ChoosingFile;
+        ui.error = None;
+        ui.rendered = 0;
+        ui.total_frames = 0;
+        ui.output_path = None;
+        cx.notify();
+
+        ui.export_task = Some(cx.spawn_in(window, async move |this, cx| {
+            let folder_name = t!("{name} tracks", name = pretty_name);
+            let chosen: Result<Option<PathBuf>, String> =
+                match std::env::var_os("FRAMEEVER_GPUI_AUTO_EXPORT") {
+                    Some(path) => Ok(Some(PathBuf::from(path))),
+                    None => {
+                        let parent = library::export_dialog_folder();
+                        #[cfg(target_os = "macos")]
+                        {
+                            platform::try_save_file_panel(Some(&parent), &folder_name, &[])
+                        }
+                        #[cfg(not(target_os = "macos"))]
+                        {
+                            Ok(platform::save_file_panel_in(&parent, &folder_name, &[]))
+                        }
+                    }
+                };
+            let folder = match chosen {
+                Ok(Some(path)) => path,
+                Ok(None) => {
+                    let _ = this.update_in(cx, |this, window, cx| {
+                        if let Some(ui) = this.export.as_mut()
+                            && Arc::ptr_eq(&ui.cancel, &cancel)
+                        {
+                            ui.phase = ExportPhase::Idle;
+                        }
+                        cx.notify();
+                        this.finish_requested_export_close(window, cx);
+                    });
+                    return;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        error,
+                        "Save dialog unavailable; keeping the tracks in the project output folder"
+                    );
+                    project_path.join("output").join("tracks")
+                }
+            };
+
+            let resources = ExportResources::new(vec![DiskBudget {
+                path: folder.clone(),
+                description: "your export drive",
+                estimated_bytes: estimate,
+            }]);
+            if !confirm_export_resources(&this, cx, &resources, &cancel).await {
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.finish_requested_export_close(window, cx)
+                });
+                return;
+            }
+            let started = this.update(cx, |this, cx| {
+                let Some(ui) = this.export.as_mut() else {
+                    return false;
+                };
+                if !Arc::ptr_eq(&ui.cancel, &cancel) {
+                    return false;
+                }
+                if cancel.load(Ordering::Relaxed) {
+                    ui.phase = ExportPhase::Idle;
+                    cx.notify();
+                    return false;
+                }
+                ui.phase = ExportPhase::Starting;
+                cx.notify();
+                true
+            });
+            if !started.unwrap_or(false) {
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.finish_requested_export_close(window, cx)
+                });
+                return;
+            }
+
+            let (progress_tx, progress_rx) = flume::unbounded::<TrackProgress>();
+            let export_cancel = cancel.clone();
+            let export_folder = folder.clone();
+            let started_at = std::time::Instant::now();
+            let export = gpui_tokio::Tokio::spawn(cx, async move {
+                let stopped = export_cancel.clone();
+                resources
+                    .supervise(
+                        async move {
+                            tracks::export_tracks(
+                                project_path,
+                                Some(project),
+                                tracks::TrackExportSettings {
+                                    tracks: selection,
+                                    fps,
+                                    force_ffmpeg_decoder,
+                                },
+                                export_folder,
+                                export_cancel,
+                                move |progress| {
+                                    let _ = progress_tx.send(progress);
+                                },
+                            )
+                            .await
+                            .map_err(|error| error.to_string())
+                        },
+                        || stopped.store(true, Ordering::Release),
+                    )
+                    .await
+            });
+
+            loop {
+                if let Some(progress) = progress_rx.try_iter().last() {
+                    let _ = this.update(cx, |this, cx| {
+                        if let Some(ui) = this.export.as_mut() {
+                            ui.rendered = progress.done.min(u64::from(u32::MAX)) as u32;
+                            ui.total_frames = progress.total.min(u64::from(u32::MAX)) as u32;
+                            ui.phase = ExportPhase::Rendering;
+                        }
+                        cx.notify();
+                    });
+                }
+                if progress_rx.is_disconnected() {
+                    break;
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(50))
+                    .await;
+            }
+
+            let result = export.await;
+            let _ = this.update(cx, |this, cx| {
+                let Some(ui) = this.export.as_mut() else {
+                    return;
+                };
+                match result {
+                    Ok(Ok(files)) => {
+                        tracing::info!(
+                            folder = %folder.display(),
+                            files = files.len(),
+                            elapsed_ms = started_at.elapsed().as_millis() as u64,
+                            "editor tracks export completed"
+                        );
+                        crate::app_sounds::play_notification();
+                        ui.phase = ExportPhase::Done;
+                        ui.finished_at = Some(std::time::Instant::now());
+                        ui.output_path = Some(folder);
+                    }
+                    Ok(Err(error)) => {
+                        let cancelled = !is_resource_stop(&error)
+                            && (error == "Export cancelled" || cancel.load(Ordering::Relaxed));
+                        if cancelled {
+                            ui.phase = ExportPhase::Idle;
+                        } else {
+                            tracing::error!(error, "editor tracks export failed");
+                            ui.phase = ExportPhase::Failed;
+                            ui.error = Some(error);
+                        }
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, "editor tracks export task ended without a result");
+                        ui.phase = ExportPhase::Failed;
+                        ui.error = Some(t!("Export task failed").into());
+                    }
+                }
+                cx.notify();
+            });
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.finish_requested_export_close(window, cx)
+            });
+        }));
+    }
+
     fn retry_clipboard_copy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ui) = self.export.as_mut() else {
             return;
@@ -1238,6 +1626,11 @@ impl EditorWindow {
         let theme = self.theme;
         let editor = theme.editor;
         let stats = ui.preview_stats.as_ref();
+        let tracks_mode = ui.is_tracks();
+        let tracks_size =
+            estimated_tracks_bytes(&ui.track_options, &ui.tracks, ui.fps, self.total_duration())
+                as f64
+                / (1024.0 * 1024.0);
         let duration = stats
             .map(|stats| {
                 if ui.fps == 0 {
@@ -1350,14 +1743,23 @@ impl EditorWindow {
                             stats.map(|_| format_duration(duration)),
                             false,
                         ))
-                        .child(export_stat(
-                            &theme,
-                            t!("Output"),
-                            stats.map(|stats| {
-                                format!("{}×{} · {} fps", stats.width, stats.height, ui.fps)
-                            }),
-                            true,
-                        ))
+                        .child(if tracks_mode {
+                            export_stat(
+                                &theme,
+                                t!("Files"),
+                                Some(ui.tracks.len().to_string()),
+                                true,
+                            )
+                        } else {
+                            export_stat(
+                                &theme,
+                                t!("Output"),
+                                stats.map(|stats| {
+                                    format!("{}×{} · {} fps", stats.width, stats.height, ui.fps)
+                                }),
+                                true,
+                            )
+                        })
                         .child(export_stat(
                             &theme,
                             if ui.estimate_loading && ui.estimate.is_some() {
@@ -1365,7 +1767,13 @@ impl EditorWindow {
                             } else {
                                 t!("Estimated size")
                             },
-                            Some(
+                            Some(if tracks_mode {
+                                if ui.tracks.is_empty() {
+                                    t!("Unavailable").into()
+                                } else {
+                                    format_estimate_range([tracks_size, tracks_size], false)
+                                }
+                            } else {
                                 ui.estimate
                                     .as_ref()
                                     .map(|estimate| {
@@ -1377,33 +1785,35 @@ impl EditorWindow {
                                         } else {
                                             t!("Unavailable").into()
                                         }
-                                    }),
-                            ),
+                                    })
+                            }),
                             true,
                         ))
-                        .child(export_stat(
-                            &theme,
-                            if ui.estimate_loading && ui.estimate.is_some() {
-                                t!("Refining time…")
-                            } else {
-                                t!("Export time")
-                            },
-                            Some(
-                                ui.estimate
-                                    .as_ref()
-                                    .map(|estimate| {
-                                        format_estimate_range(estimate.time_range_seconds, true)
-                                    })
-                                    .unwrap_or_else(|| {
-                                        if ui.estimate_loading {
-                                            t!("Calculating…").into()
-                                        } else {
-                                            t!("Unavailable").into()
-                                        }
-                                    }),
-                            ),
-                            true,
-                        )),
+                        .when(!tracks_mode, |card| {
+                            card.child(export_stat(
+                                &theme,
+                                if ui.estimate_loading && ui.estimate.is_some() {
+                                    t!("Refining time…")
+                                } else {
+                                    t!("Export time")
+                                },
+                                Some(
+                                    ui.estimate
+                                        .as_ref()
+                                        .map(|estimate| {
+                                            format_estimate_range(estimate.time_range_seconds, true)
+                                        })
+                                        .unwrap_or_else(|| {
+                                            if ui.estimate_loading {
+                                                t!("Calculating…").into()
+                                            } else {
+                                                t!("Unavailable").into()
+                                            }
+                                        }),
+                                ),
+                                true,
+                            ))
+                        }),
                 ),
             )
     }
@@ -1412,7 +1822,7 @@ impl EditorWindow {
         let theme = self.theme;
         let editor = theme.editor;
         let transparent = has_transparent_background(&self.project);
-        let format_locked = transparent || ui.cursor_only;
+        let tracks_mode = ui.is_tracks();
         let resolutions = self.export_resolutions(ui);
         let fps_options = self.export_fps_options(ui);
 
@@ -1439,13 +1849,18 @@ impl EditorWindow {
                         ui.range_labels()
                             .map(|labels| self.export_range_field(ui, labels, cx)),
                     )
-                    .child(self.export_destination_field(ui, cx))
-                    .child(self.export_format_field(ui, format_locked, cx))
+                    .when(!tracks_mode, |el| {
+                        el.child(self.export_destination_field(ui, cx))
+                    })
+                    .child(self.export_format_field(ui, transparent, cx))
+                    .when(tracks_mode, |el| el.child(self.export_tracks_field(ui, cx)))
                     .when(
                         ui.format == ExportFormatKind::Mp4 && !ui.cursor_only,
                         |el| el.child(self.export_codec_field(ui, cx)),
                     )
-                    .child(self.export_resolution_field(ui, &resolutions, cx))
+                    .when(!tracks_mode, |el| {
+                        el.child(self.export_resolution_field(ui, &resolutions, cx))
+                    })
                     .child(self.export_fps_field(ui, fps_options, cx))
                     .when(
                         ui.format == ExportFormatKind::Mp4 && !ui.cursor_only,
@@ -1455,16 +1870,30 @@ impl EditorWindow {
                         ui.format == ExportFormatKind::Gif && !ui.cursor_only,
                         |this| this.child(self.export_gif_quality_field(ui, cx)),
                     )
-                    .child(div().h(px(1.)).flex_none().bg(Hsla::from(editor.line)))
-                    .child(self.export_advanced(ui, cx)),
+                    .when(!tracks_mode, |el| {
+                        el.child(div().h(px(1.)).flex_none().bg(Hsla::from(editor.line)))
+                            .child(self.export_advanced(ui, cx))
+                    }),
             )
             .child(
                 div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
                     .px(px(16.))
                     .pt(px(12.))
                     .pb(px(16.))
                     .border_t_1()
                     .border_color(Hsla::from(editor.line))
+                    .when(tracks_mode && ui.tracks.is_empty(), |el| {
+                        el.child(
+                            div()
+                                .text_size(px(11.))
+                                .line_height(px(14.))
+                                .text_color(Hsla::from(editor.text_3))
+                                .child(t!("Choose at least one track.")),
+                        )
+                    })
                     .child(self.export_cta(ui, cx)),
             )
     }
@@ -1473,12 +1902,13 @@ impl EditorWindow {
         let theme = self.theme;
         let editor = theme.editor;
         let (label, icon, primary) = match ui.destination {
+            _ if ui.is_tracks() => (t!("Export tracks"), Some("icons/folder.svg"), true),
             ExportDestination::File => (t!("Export to File"), Some("icons/folder.svg"), true),
             ExportDestination::Clipboard => {
                 (t!("Export to Clipboard"), Some("icons/copy.svg"), true)
             }
         };
-        let busy = ui.phase.is_busy();
+        let busy = !ui.can_start();
         let (bg, hover_bg, text) = if primary {
             (
                 Hsla::from(editor.accent),
@@ -1594,44 +2024,123 @@ impl EditorWindow {
     fn export_format_field(
         &self,
         ui: &ExportUi,
-        locked: bool,
+        transparent: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = self.theme;
-        let options = [ExportFormatKind::Mp4, ExportFormatKind::Gif];
-        self.export_section(t!("Format"), "icons/video.svg")
-            .disabled(locked)
+        let options = ExportFormatKind::ALL;
+        let cursor_only = ui.cursor_only;
+        let no_tracks = ui.track_options.is_empty();
+        let disabled = move |format: ExportFormatKind| {
+            format_disabled(format, transparent, cursor_only, no_tracks)
+        };
+        self.export_section(t!("Format"), "icons/video.svg").child(
+            ui::SegmentedControl::editor(
+                &theme,
+                "export-format",
+                options
+                    .iter()
+                    .map(|format| {
+                        ui::SegmentOption::new(format.label(), ui.format == *format)
+                            .disabled(disabled(*format))
+                    })
+                    .collect(),
+            )
+            .stretch()
+            .item_height(px(SEGMENT_HEIGHT))
+            .on_select(cx.listener(move |this, index: &usize, window, cx| {
+                let Some(format) = options.get(*index).copied() else {
+                    return;
+                };
+                if disabled(format) {
+                    return;
+                }
+                if let Some(ui) = this.export.as_mut() {
+                    ui.format = format;
+                    if format == ExportFormatKind::Tracks {
+                        ui.cursor_only = false;
+                    }
+                }
+                this.normalize_loaded_export_options();
+                if let Some(ui) = this.export.as_mut() {
+                    ui.persist();
+                }
+                this.refresh_export_preview(window, cx);
+                cx.notify();
+            })),
+        )
+    }
+
+    fn export_tracks_field(&self, ui: &ExportUi, cx: &mut Context<Self>) -> impl IntoElement {
+        let editor = self.theme.editor;
+        let mut field = self.export_section(t!("Tracks"), "icons/layers.svg");
+        for option in &ui.track_options {
+            field =
+                field.child(self.export_track_row(option, ui.tracks.contains(&option.kind), cx));
+        }
+        field.child(
+            div()
+                .text_size(px(11.))
+                .line_height(px(14.))
+                .text_color(Hsla::from(editor.text_3))
+                .child(t!(
+                    "Each track follows your cuts and speed, without background or effects."
+                )),
+        )
+    }
+
+    fn export_track_row(
+        &self,
+        option: &TrackOption,
+        checked: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let editor = self.theme.editor;
+        let kind = option.kind;
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(8.))
+            .min_h(px(34.))
             .child(
-                ui::SegmentedControl::editor(
-                    &theme,
-                    "export-format",
-                    options
-                        .iter()
-                        .map(|format| {
-                            ui::SegmentOption::new(format.label(), ui.format == *format)
-                                .disabled(locked)
-                        })
-                        .collect(),
-                )
-                .stretch()
-                .item_height(px(SEGMENT_HEIGHT))
-                .on_select(cx.listener(move |this, index: &usize, window, cx| {
-                    if locked {
-                        return;
-                    }
-                    let Some(format) = options.get(*index).copied() else {
-                        return;
-                    };
-                    if let Some(ui) = this.export.as_mut() {
-                        ui.format = format;
-                    }
-                    this.normalize_loaded_export_options();
-                    if let Some(ui) = this.export.as_mut() {
-                        ui.persist();
-                    }
-                    this.refresh_export_preview(window, cx);
-                    cx.notify();
-                })),
+                svg()
+                    .path(track_icon(kind))
+                    .size(px(14.))
+                    .flex_none()
+                    .text_color(Hsla::from(if checked {
+                        editor.text_1
+                    } else {
+                        editor.text_3
+                    })),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(px(12.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(Hsla::from(editor.text_1))
+                    .truncate()
+                    .child(track_label(kind)),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(11.))
+                    .text_color(Hsla::from(editor.text_3))
+                    .child(track_detail(option)),
+            )
+            .child(
+                ui::Toggle::plain(&self.theme, track_toggle_id(kind), checked).on_click(
+                    cx.listener(move |this, _, _, cx| {
+                        if let Some(ui) = this.export.as_mut() {
+                            ui.toggle_track(kind);
+                            ui.persist();
+                        }
+                        cx.notify();
+                    }),
+                ),
             )
     }
 
@@ -2171,6 +2680,7 @@ impl EditorWindow {
         };
         let heading = match ui.phase {
             ExportPhase::Starting => t!("Preparing export"),
+            ExportPhase::Rendering if ui.is_tracks() => t!("Exporting tracks"),
             ExportPhase::Rendering if ui.cursor_only => t!("Rendering cursor track"),
             ExportPhase::Rendering if ui.format == ExportFormatKind::Gif => t!("Rendering GIF"),
             ExportPhase::Rendering => t!("Rendering video"),
@@ -2178,9 +2688,7 @@ impl EditorWindow {
                 t!("Copying to clipboard")
             }
             ExportPhase::Copying => t!("Saving to file"),
-            ExportPhase::Done if ui.destination == ExportDestination::Clipboard => {
-                t!("Copied to clipboard")
-            }
+            ExportPhase::Done if !ui.saves_to_file() => t!("Copied to clipboard"),
             ExportPhase::Done => t!("Export complete"),
             ExportPhase::Failed if ui.clipboard_retry_path().is_some() => {
                 t!("Export complete; clipboard copy failed")
@@ -2239,7 +2747,7 @@ impl EditorWindow {
                             .child(heading),
                     ),
             )
-            .when(ui.phase == ExportPhase::Rendering && ui.total_frames > 0, |this| {
+            .when(ui.phase == ExportPhase::Rendering && ui.total_frames > 0 && !ui.is_tracks(), |this| {
                 this.child(
                     div()
                         .text_size(px(12.))
@@ -2255,6 +2763,9 @@ impl EditorWindow {
                 this.children(ui.output_path.as_ref().map(|path| {
                     let name = path.file_name().unwrap_or_default().to_string_lossy();
                     let text = match std::fs::metadata(path) {
+                        _ if ui.is_tracks() => {
+                            t!("{name} · {count} files", name = name, count = ui.tracks.len())
+                        }
                         Ok(meta) => format!("{name} · {:.1} MB", meta.len() as f64 / 1_000_000.),
                         Err(_) => name.into_owned(),
                     };
@@ -2358,7 +2869,7 @@ impl EditorWindow {
                     )
                 })
                 .when(
-                    (ui.phase == ExportPhase::Done && ui.destination == ExportDestination::File)
+                    (ui.phase == ExportPhase::Done && ui.saves_to_file())
                         || ui.clipboard_retry_path().is_some(),
                     |this| {
                         let path = ui.output_path.clone();
@@ -2369,7 +2880,11 @@ impl EditorWindow {
                                 ui::ButtonVariant::Gray,
                                 ui::ButtonSize::Md,
                             )
-                            .label(t!("Open file"))
+                            .label(if ui.is_tracks() {
+                                t!("Open folder")
+                            } else {
+                                t!("Open file")
+                            })
                             .on_click(move |_, _, cx| {
                                 if let Some(path) = &path {
                                     library::open_with_system(path, cx);
@@ -2522,6 +3037,19 @@ fn export_stat(
                 .bg(Hsla::from(editor.ctl_active))
                 .into_any_element(),
         })
+}
+
+fn format_disabled(
+    format: ExportFormatKind,
+    transparent: bool,
+    cursor_only: bool,
+    no_tracks: bool,
+) -> bool {
+    match format {
+        ExportFormatKind::Mp4 => transparent || cursor_only,
+        ExportFormatKind::Gif => cursor_only,
+        ExportFormatKind::Tracks => no_tracks,
+    }
 }
 
 fn export_fps_options(format: ExportFormatKind, cursor_only: bool) -> &'static [u32] {
@@ -2756,9 +3284,10 @@ async fn run_export(
 mod tests {
     use super::{
         ExportClip, ExportDestination, ExportFormatKind, ExportPhase, ExportResolution,
-        ExportSource, ExportUi, cancel_matching_export, capture_fps, export_fps_options,
-        export_resolutions, highest_recorded_fps, normalize_export_options, preview_time_in_range,
-        selected_clip,
+        ExportSource, ExportTrack, ExportUi, TrackOption, cancel_matching_export, capture_fps,
+        estimated_tracks_bytes, export_fps_options, export_resolutions, format_disabled,
+        highest_recorded_fps, normalize_export_options, preview_time_in_range, selected_clip,
+        selected_tracks,
     };
     use crate::editor_edits::Selection;
     use crate::editor_timeline::TrackKind;
@@ -2820,7 +3349,11 @@ mod tests {
     }
 
     fn clipboard_export() -> ExportUi {
-        ExportUi::from_preferences(ExportPrefs {
+        ExportUi::from_preferences(prefs())
+    }
+
+    fn prefs() -> ExportPrefs {
+        ExportPrefs {
             format: "Mp4".into(),
             fps: 30,
             export_to: "clipboard".into(),
@@ -2836,7 +3369,151 @@ mod tests {
             gif_quality: None,
             resolution_from_source: false,
             fps_from_source: false,
-        })
+            excluded_tracks: None,
+        }
+    }
+
+    fn options(kinds: &[ExportTrack]) -> Vec<TrackOption> {
+        kinds
+            .iter()
+            .map(|kind| TrackOption {
+                kind: *kind,
+                size: kind.is_video().then_some((1920, 1080)),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_available_track_starts_on_unless_turned_off_before() {
+        let all = options(&ExportTrack::ALL);
+        assert_eq!(selected_tracks(&all, &[]), ExportTrack::ALL);
+        assert_eq!(
+            selected_tracks(&all, &[ExportTrack::Camera, ExportTrack::SystemAudio]),
+            [ExportTrack::Screen, ExportTrack::Microphone]
+        );
+        let screen_only = options(&[ExportTrack::Screen]);
+        assert_eq!(
+            selected_tracks(&screen_only, &[ExportTrack::Screen]),
+            [ExportTrack::Screen]
+        );
+        assert!(selected_tracks(&[], &[]).is_empty());
+    }
+
+    #[test]
+    fn turning_tracks_off_is_remembered_and_turning_them_on_forgets_it() {
+        let mut ui = clipboard_export();
+        ui.set_track_options(options(&[ExportTrack::Screen, ExportTrack::Microphone]));
+        ui.toggle_track(ExportTrack::Microphone);
+        assert_eq!(ui.tracks, [ExportTrack::Screen]);
+        ui.toggle_track(ExportTrack::Camera);
+        assert_eq!(ui.tracks, [ExportTrack::Screen]);
+        assert_eq!(
+            ui.preferences().excluded_tracks,
+            Some(vec!["microphone".to_string()])
+        );
+
+        let mut reopened = ExportUi::from_preferences(ExportPrefs {
+            excluded_tracks: Some(vec!["microphone".into(), "unknown".into()]),
+            ..prefs()
+        });
+        reopened.set_track_options(options(&ExportTrack::ALL));
+        assert_eq!(
+            reopened.tracks,
+            [
+                ExportTrack::Screen,
+                ExportTrack::Camera,
+                ExportTrack::SystemAudio
+            ]
+        );
+        reopened.toggle_track(ExportTrack::Microphone);
+        assert_eq!(reopened.tracks, ExportTrack::ALL);
+        assert_eq!(reopened.preferences().excluded_tracks, None);
+    }
+
+    #[test]
+    fn a_tracks_export_needs_recorded_tracks_and_at_least_one_chosen() {
+        let mut ui = ExportUi::from_preferences(ExportPrefs {
+            format: "Tracks".into(),
+            ..prefs()
+        });
+        ui.set_track_options(Vec::new());
+        assert_eq!(ui.format, ExportFormatKind::Mp4);
+        ui.use_tracks(None);
+        assert_eq!(ui.format, ExportFormatKind::Mp4);
+        assert!(format_disabled(
+            ExportFormatKind::Tracks,
+            false,
+            false,
+            true
+        ));
+
+        ui.set_track_options(options(&ExportTrack::ALL));
+        ui.cursor_only = true;
+        ui.use_tracks(Some("mic, screen,cursor"));
+        assert_eq!(ui.format, ExportFormatKind::Tracks);
+        assert!(!ui.cursor_only);
+        assert_eq!(ui.tracks, [ExportTrack::Screen, ExportTrack::Microphone]);
+        assert!(ui.can_start());
+
+        ui.toggle_track(ExportTrack::Screen);
+        ui.toggle_track(ExportTrack::Microphone);
+        assert!(!ui.can_start());
+        assert_eq!(
+            ExportFormatKind::from_slug(ExportFormatKind::Tracks.slug()),
+            ExportFormatKind::Tracks
+        );
+    }
+
+    #[test]
+    fn tracks_go_to_a_folder_whatever_destination_was_remembered() {
+        let mut ui = clipboard_export();
+        ui.offer_clip(Some(intro()), true);
+        assert!(!ui.saves_to_file());
+        assert!(ui.range().is_some());
+
+        ui.set_track_options(options(&ExportTrack::ALL));
+        ui.use_tracks(None);
+        assert!(ui.saves_to_file());
+        assert!(ui.range().is_none());
+        assert!(ui.range_labels().is_none());
+        assert_eq!(ui.destination, ExportDestination::Clipboard);
+
+        ui.phase = ExportPhase::Failed;
+        ui.output_path = Some(PathBuf::from("tracks"));
+        assert_eq!(ui.clipboard_retry_path(), None);
+    }
+
+    #[test]
+    fn track_size_estimates_count_only_selected_tracks() {
+        let all = options(&ExportTrack::ALL);
+        assert_eq!(estimated_tracks_bytes(&all, &[], 30, 60.0), 0);
+        let audio = estimated_tracks_bytes(&all, &[ExportTrack::Microphone], 30, 60.0);
+        assert_eq!(audio, 48_000 * 2 * 3 * 60);
+        let screen = estimated_tracks_bytes(&all, &[ExportTrack::Screen], 30, 60.0);
+        assert!(screen > audio);
+        assert_eq!(
+            estimated_tracks_bytes(
+                &all,
+                &[ExportTrack::Screen, ExportTrack::Microphone],
+                30,
+                60.0
+            ),
+            screen + audio
+        );
+    }
+
+    #[test]
+    fn a_transparent_or_cursor_only_export_still_locks_the_video_formats() {
+        assert!(format_disabled(ExportFormatKind::Mp4, true, false, false));
+        assert!(!format_disabled(ExportFormatKind::Gif, true, false, false));
+        assert!(format_disabled(ExportFormatKind::Mp4, false, true, false));
+        assert!(format_disabled(ExportFormatKind::Gif, false, true, false));
+        assert!(!format_disabled(
+            ExportFormatKind::Tracks,
+            false,
+            true,
+            false
+        ));
     }
 
     #[test]
