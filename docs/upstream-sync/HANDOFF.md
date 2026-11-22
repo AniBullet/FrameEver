@@ -17,7 +17,7 @@ Suggested order, from the blocking links and from which tickets touch the same f
 
 1. Fixes: #207 to #210 are done. #195 and #196 are done; the three largest ports of #195 became #216 (clip media clean-up), #217 (frozen-instance recovery) and #218 (area ratio snapping), which can follow in any order.
 2. #205 and #206 are done. The app already switches microphone and camera during a Studio recording (`RecordingSession::change_input`), so read #202 against the code before porting.
-3. #197 (design) is done; #198 to #203 build against its pages (the closing comment of #197 lists which page holds what). #198 to #201 are done; #201 shipped Tracks export and split Enhance quality into #222. #222 next, then #221 (the cursor follows hover highlights, split from #200: it builds on the interaction anchors and wants its analysis cost measured); #202 and #203 are the largest and go last. Drawing on screen while recording is already in the app (`screen_ink.rs`), so read #203 against the code as well.
+3. #197 (design) is done; #198 to #203 build against its pages (the closing comment of #197 lists which page holds what). #198 to #201 and #222 are done. #221 next (the cursor follows hover highlights, split from #200: it builds on the interaction anchors and wants its analysis cost measured); #202 and #203 are the largest and go last. Drawing on screen while recording is already in the app (`screen_ink.rs`), so read #203 against the code as well.
 4. #204 waits for the owner: whether the app gets the in-app automations runner. So does #220: whether chapter marks of a late-audio project move with the migration from #210.
 
 ## Waiting for the owner in the running app
