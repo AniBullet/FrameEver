@@ -1564,6 +1564,8 @@ pub struct EditorWindow {
     paused_requests: Option<PreviewRequests>,
     enhanced_redraw_due: bool,
     preview_comparing: bool,
+    #[cfg(test)]
+    ready_without_engine: bool,
     header: Entity<EditorSectionView>,
     toolbar: Entity<EditorSectionView>,
     transport_controls: Entity<EditorSectionView>,
@@ -2286,6 +2288,8 @@ impl EditorWindow {
             paused_requests: None,
             enhanced_redraw_due: false,
             preview_comparing: false,
+            #[cfg(test)]
+            ready_without_engine: false,
             header,
             toolbar,
             transport_controls,
@@ -2955,18 +2959,11 @@ impl EditorWindow {
     }
 
     pub(crate) fn toggle_enhance_quality(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.project_ready() {
-            return;
-        }
         self.preview_comparing = false;
-        self.end_color_history();
-        self.flip_enhance_quality();
-        self.project_changed(window, cx);
-        self.note_project_edit("enhance-quality");
-    }
-
-    fn flip_enhance_quality(&mut self) {
-        self.project.enhance_quality = !self.project.enhance_quality;
+        self.edit_project("enhance-quality", window, cx, |project| {
+            project.enhance_quality = !project.enhance_quality;
+            true
+        });
     }
 
     pub(crate) fn set_preview_comparing(&mut self, comparing: bool, cx: &mut Context<Self>) {
@@ -3156,6 +3153,10 @@ impl EditorWindow {
     }
 
     pub(crate) fn project_ready(&self) -> bool {
+        #[cfg(test)]
+        if self.ready_without_engine {
+            return true;
+        }
         self.instance.is_some() && matches!(&self.state, LoadState::Ready(_))
     }
 
@@ -8617,7 +8618,8 @@ impl EditorWindow {
             *project = next.clone();
             true
         });
-        self.sidebar.source_tab = crate::editor_sidebar::initial_source_tab(&self.project);
+        self.sidebar.source_tab =
+            crate::editor_sidebar::initial_source_tab(&self.style_control_project());
         self.close_color_picker(cx);
         self.remember_animated_gradient_selection(previous_animated_gradient, window, cx);
     }
@@ -15595,6 +15597,317 @@ mod tests {
         });
     }
 
+    mod edit_scope {
+        use super::*;
+        use crate::editor_sidebar::{ColorTarget, StyleGroup};
+
+        const GROUPS: [StyleGroup; 3] = [
+            StyleGroup::Background,
+            StyleGroup::Camera,
+            StyleGroup::Cursor,
+        ];
+
+        fn editing_a_segment(
+            cx: &mut gpui::TestAppContext,
+            group: StyleGroup,
+        ) -> (
+            Entity<EditorWindow>,
+            &mut gpui::VisualTestContext,
+            tempfile::TempDir,
+            tempfile::TempDir,
+        ) {
+            let settings = tempfile::tempdir().unwrap();
+            crate::store::set_test_tauri_store_path(Some(settings.path().join("store")));
+            let (editor, cx, directory) = super::timeline_history::fixture(cx);
+            editor.update(cx, |editor, _| {
+                let mut project: ProjectConfiguration = serde_json::from_value(serde_json::json!({
+                    "timeline": {
+                        "zoomSegments": [],
+                        "segments": [
+                            { "start": 0, "end": 4, "timescale": 1 },
+                            { "start": 4, "end": 8, "timescale": 1 }
+                        ],
+                        "styleSegments": [{ "start": 1, "end": 5 }]
+                    }
+                }))
+                .unwrap();
+                let mut background = project.background.clone();
+                background.padding = 7.;
+                let mut camera = project.camera.clone();
+                camera.size = 7.;
+                let mut cursor = project.cursor.clone();
+                cursor.size = 7;
+                let overrides = &mut project.timeline.as_mut().unwrap().style_segments[0].overrides;
+                overrides.background = Some(background);
+                overrides.camera = Some(camera);
+                overrides.cursor = Some(cursor);
+                editor.history = ProjectHistory::new(project.clone());
+                editor.project = project;
+                editor.ready_without_engine = true;
+                editor.sidebar.style_target = Some((0, group));
+            });
+            (editor, cx, directory, settings)
+        }
+
+        fn segment(editor: &EditorWindow) -> serde_json::Value {
+            serde_json::to_value(&editor.project.timeline.as_ref().unwrap().style_segments[0])
+                .unwrap()
+        }
+
+        #[gpui::test]
+        fn aspect_ratio_changes_the_project(cx: &mut gpui::TestAppContext) {
+            for group in GROUPS {
+                let (editor, cx, _directory, _store) = editing_a_segment(cx, group);
+                editor.update_in(cx, |editor, window, cx| {
+                    let before = segment(editor);
+                    editor.choose_toolbar_menu(ToolbarMenu::AspectRatio, 2, window, cx);
+                    assert!(matches!(
+                        editor.project.aspect_ratio,
+                        Some(frameever_project::AspectRatio::Vertical)
+                    ));
+                    assert_eq!(segment(editor), before);
+                });
+            }
+        }
+
+        #[gpui::test]
+        fn a_preset_changes_the_project_and_leaves_the_segment(cx: &mut gpui::TestAppContext) {
+            for group in GROUPS {
+                let (editor, cx, _directory, _store) = editing_a_segment(cx, group);
+                editor.update_in(cx, |editor, window, cx| {
+                    let before = segment(editor);
+                    let mut next = editor.project.clone();
+                    next.background.padding = 21.;
+                    next.camera.size = 21.;
+                    next.cursor.size = 21;
+                    editor.apply_project_preset(next, window, cx);
+                    assert_eq!(editor.project.background.padding, 21.);
+                    assert_eq!(editor.project.camera.size, 21.);
+                    assert_eq!(editor.project.cursor.size, 21);
+                    assert_eq!(segment(editor), before);
+                });
+            }
+        }
+
+        #[gpui::test]
+        fn a_preset_keeps_the_source_tab_of_the_segment_being_edited(
+            cx: &mut gpui::TestAppContext,
+        ) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Background);
+            editor.update_in(cx, |editor, window, cx| {
+                let timeline = editor.project.timeline.as_mut().unwrap();
+                timeline.style_segments[0]
+                    .overrides
+                    .background
+                    .as_mut()
+                    .unwrap()
+                    .source = frameever_project::BackgroundSource::Color {
+                    value: [1, 2, 3],
+                    alpha: 255,
+                };
+                let shown =
+                    crate::editor_sidebar::initial_source_tab(&editor.style_control_project());
+                let mut next = editor.project.clone();
+                next.background.padding = 21.;
+                next.background.source = frameever_project::BackgroundSource::Gradient {
+                    from: [0, 0, 0],
+                    to: [9, 9, 9],
+                    angle: 90,
+                    noise_intensity: None,
+                    noise_scale: None,
+                    animation_speed: None,
+                    animated: Default::default(),
+                };
+                editor.apply_project_preset(next, window, cx);
+                assert!(editor.sidebar.source_tab == shown);
+            });
+        }
+
+        #[gpui::test]
+        fn the_captions_track_switch_matches_the_saved_setting(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Cursor);
+            editor.update_in(cx, |editor, window, cx| {
+                for shown in [true, false] {
+                    editor.toggle_track(TrackKind::Caption, shown, window, cx);
+                    let saved = editor
+                        .project
+                        .captions
+                        .as_ref()
+                        .map(|captions| captions.settings.enabled);
+                    assert_eq!(saved, Some(shown));
+                    assert_eq!(editor.tracks.caption, shown);
+                }
+            });
+        }
+
+        #[gpui::test]
+        fn the_keyboard_track_switch_matches_the_saved_setting(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Camera);
+            editor.update_in(cx, |editor, window, cx| {
+                for shown in [true, false] {
+                    editor.toggle_track(TrackKind::Keyboard, shown, window, cx);
+                    let saved = editor
+                        .project
+                        .keyboard
+                        .as_ref()
+                        .map(|keyboard| keyboard.settings.enabled);
+                    assert_eq!(saved, Some(shown));
+                    assert_eq!(editor.tracks.keyboard, shown);
+                }
+            });
+        }
+
+        #[gpui::test]
+        fn captions_that_finish_generating_are_kept(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Background);
+            editor.update_in(cx, |editor, window, cx| {
+                let heard = serde_json::from_value(serde_json::json!([{
+                    "id": "heard",
+                    "start": 0.5,
+                    "end": 1.5,
+                    "text": "Kept",
+                    "words": [{ "text": "Kept", "start": 0.5, "end": 1.5 }]
+                }]))
+                .unwrap();
+                editor.apply_generated_captions(heard, &[8.], 8., window, cx);
+                let captions = editor
+                    .project
+                    .captions
+                    .as_ref()
+                    .expect("captions are saved");
+                assert_eq!(captions.segments.len(), 1);
+            });
+        }
+
+        #[gpui::test]
+        fn an_input_display_edit_is_kept(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Cursor);
+            editor.update_in(cx, |editor, window, cx| {
+                editor.edit_input_display("test", window, cx, |project| {
+                    project.input_display = Some(Default::default());
+                    true
+                });
+                assert!(editor.project.input_display.is_some());
+            });
+        }
+
+        #[gpui::test]
+        fn deleting_a_clip_deletes_it(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Background);
+            editor.update_in(cx, |editor, window, cx| {
+                editor.selection = Some(Selection::single(TrackKind::Style, 0));
+                editor.delete_clip(1, window, cx);
+                assert_eq!(editor.project.timeline.as_ref().unwrap().segments.len(), 1);
+                assert!(editor.sidebar.style_target.is_none());
+            });
+        }
+
+        #[gpui::test]
+        fn opening_export_leaves_the_segment_so_a_later_delete_cannot_retarget_it(
+            cx: &mut gpui::TestAppContext,
+        ) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Background);
+            editor.update_in(cx, |editor, window, cx| {
+                let timeline = editor.project.timeline.as_mut().unwrap();
+                let edited = timeline.style_segments[0].clone();
+                let mut before = edited.clone();
+                before.start = 0.2;
+                before.end = 0.8;
+                let mut after = edited;
+                after.start = 6.;
+                after.end = 7.;
+                timeline.style_segments.insert(0, before);
+                timeline.style_segments.push(after);
+                editor.selection = Some(Selection::single(TrackKind::Style, 1));
+                editor.sidebar.style_target = Some((1, StyleGroup::Background));
+
+                editor.open_export(window, cx);
+                editor.export = None;
+                editor.delete_clip(0, window, cx);
+
+                assert!(editor.sidebar.style_target.is_none());
+            });
+        }
+
+        #[gpui::test]
+        fn a_clip_transition_is_kept(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Camera);
+            editor.update_in(cx, |editor, window, cx| {
+                editor.set_clip_transition(
+                    1,
+                    Some((frameever_project::ClipTransitionType::CrossFade, 0.5)),
+                    window,
+                    cx,
+                );
+                assert_eq!(
+                    editor.project.timeline.as_ref().unwrap().transitions.len(),
+                    1
+                );
+            });
+        }
+
+        #[gpui::test]
+        fn enhance_quality_changes_the_project(cx: &mut gpui::TestAppContext) {
+            for group in GROUPS {
+                let (editor, cx, _directory, _store) = editing_a_segment(cx, group);
+                editor.update_in(cx, |editor, window, cx| {
+                    editor.toggle_enhance_quality(window, cx);
+                    assert!(editor.project.enhance_quality);
+                });
+            }
+        }
+
+        #[gpui::test]
+        fn a_background_control_still_edits_the_segment(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Background);
+            editor.update_in(cx, |editor, window, cx| {
+                let base = serde_json::to_value(&editor.project.background).unwrap();
+                editor.set_color(ColorTarget::BackgroundColor, [4, 5, 6], window, cx);
+                assert_eq!(
+                    serde_json::to_value(&editor.project.background).unwrap(),
+                    base
+                );
+                assert_eq!(
+                    segment(editor)["overrides"]["background"]["source"]["value"],
+                    serde_json::json!([4, 5, 6])
+                );
+            });
+        }
+
+        #[gpui::test]
+        fn a_camera_control_still_edits_the_segment(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Camera);
+            editor.update_in(cx, |editor, window, cx| {
+                let base = editor.project.camera.size;
+                editor.apply_camera_slider(crate::editor_tabs::CameraSlider::Size, 44., window, cx);
+                assert_eq!(editor.project.camera.size, base);
+                assert_eq!(segment(editor)["overrides"]["camera"]["size"], 44.0);
+            });
+        }
+
+        #[gpui::test]
+        fn a_cursor_control_still_edits_the_segment(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Cursor);
+            editor.update_in(cx, |editor, window, cx| {
+                let base = editor.project.cursor.size;
+                editor.apply_cursor_slider(crate::editor_tabs::CursorSlider::Size, 44., window, cx);
+                assert_eq!(editor.project.cursor.size, base);
+                assert_eq!(segment(editor)["overrides"]["cursor"]["size"], 44);
+            });
+        }
+
+        #[gpui::test]
+        fn a_control_of_another_group_changes_the_project(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _directory, _store) = editing_a_segment(cx, StyleGroup::Background);
+            editor.update_in(cx, |editor, window, cx| {
+                let before = segment(editor);
+                editor.apply_camera_slider(crate::editor_tabs::CameraSlider::Size, 44., window, cx);
+                assert_eq!(editor.project.camera.size, 44.);
+                assert_eq!(segment(editor), before);
+            });
+        }
+    }
+
     mod enhance_quality {
         use super::*;
 
@@ -15684,18 +15997,6 @@ mod tests {
                 editor.preparing_retry_pending = true;
                 editor.set_preview_comparing(true, cx);
                 assert!(editor.previewed_project().enhance_quality);
-            });
-        }
-
-        #[gpui::test]
-        fn the_switch_reaches_the_project_while_a_style_segment_is_edited(
-            cx: &mut gpui::TestAppContext,
-        ) {
-            let (editor, cx, _project) = super::timeline_history::fixture(cx);
-            editor.update(cx, |editor, _| {
-                editor.sidebar.style_target = Some((0, crate::editor_sidebar::StyleGroup::Cursor));
-                editor.flip_enhance_quality();
-                assert!(editor.project.enhance_quality);
             });
         }
 

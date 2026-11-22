@@ -286,13 +286,19 @@ impl EditorWindow {
             })
             .on_click(cx.listener(move |this, _, window, cx| {
                 let cursor_type = cursor_type.clone();
-                this.edit_project("cursor-type", window, cx, move |project| {
-                    if *project.cursor.cursor_type() == cursor_type {
-                        return false;
-                    }
-                    project.cursor.set_cursor_type(cursor_type);
-                    true
-                });
+                this.edit_style(
+                    StyleGroup::Cursor,
+                    "cursor-type",
+                    window,
+                    cx,
+                    move |project| {
+                        if *project.cursor.cursor_type() == cursor_type {
+                            return false;
+                        }
+                        project.cursor.set_cursor_type(cursor_type);
+                        true
+                    },
+                );
             }))
             .into_any_element()
     }
@@ -360,10 +366,16 @@ impl EditorWindow {
                             let next = !this.style_control_project().cursor.ripple.enabled;
                             this.sidebar.cursor_ripple_open.set_open(next);
                             this.animate_collapsibles(window, cx);
-                            this.edit_project("cursor-ripple", window, cx, move |project| {
-                                project.cursor.ripple.enabled = next;
-                                true
-                            });
+                            this.edit_style(
+                                StyleGroup::Cursor,
+                                "cursor-ripple",
+                                window,
+                                cx,
+                                move |project| {
+                                    project.cursor.ripple.enabled = next;
+                                    true
+                                },
+                            );
                         }))
                         .into_any_element(),
                 ),

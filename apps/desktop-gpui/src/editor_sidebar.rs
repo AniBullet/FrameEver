@@ -1111,7 +1111,7 @@ impl EditorWindow {
             self.end_color_history();
         }
         let previous_animated_gradient = self.animated_gradient_config().cloned();
-        if !self.apply_control_change(change) {
+        if !self.change_in_scope(StyleGroup::Background, change) {
             return;
         }
         self.project_changed(window, cx);
@@ -1134,7 +1134,26 @@ impl EditorWindow {
             return;
         }
         self.end_color_history();
-        if !self.apply_control_change(change) {
+        if !change(&mut self.project) {
+            return;
+        }
+        self.project_changed(window, cx);
+        self.note_project_edit(reason);
+    }
+
+    pub(crate) fn edit_style(
+        &mut self,
+        group: StyleGroup,
+        reason: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        change: impl FnOnce(&mut ProjectConfiguration) -> bool,
+    ) {
+        if !self.project_ready() {
+            return;
+        }
+        self.end_color_history();
+        if !self.change_in_scope(group, change) {
             return;
         }
         self.project_changed(window, cx);
@@ -1755,7 +1774,7 @@ impl EditorWindow {
     /// Close the colour picker's undo bracket, if it is holding one. Every
     /// dismissal goes through here, and so does a second popover opening on
     /// top of the first.
-    pub(crate) fn end_color_history(&mut self) {
+    fn end_color_history(&mut self) {
         if !std::mem::take(&mut self.sidebar.color_paused) {
             return;
         }
@@ -1860,13 +1879,19 @@ impl EditorWindow {
         // The one `[u8; 3]` target that does not live under `background`, so
         // it takes the general fan-out rather than `edit_background`.
         if target == ColorTarget::CursorRipple {
-            return self.edit_project("cursor-ripple-color", window, cx, move |project| {
-                if project.cursor.ripple.color == color {
-                    return false;
-                }
-                project.cursor.ripple.color = color;
-                true
-            });
+            return self.edit_style(
+                StyleGroup::Cursor,
+                "cursor-ripple-color",
+                window,
+                cx,
+                move |project| {
+                    if project.cursor.ripple.color == color {
+                        return false;
+                    }
+                    project.cursor.ripple.color = color;
+                    true
+                },
+            );
         }
         self.edit_background(
             "color",
@@ -2355,7 +2380,7 @@ impl EditorWindow {
     /// default padding *and* rounding; a real-to-real switch only ensures
     /// padding, so an intentionally-square background keeps rounding at 0.
     fn ensure_background_presentation(&mut self, from_none: bool) -> bool {
-        self.apply_control_change(|project| {
+        self.change_in_scope(StyleGroup::Background, |project| {
             let mut changed = false;
             let background = &mut project.background;
             if background.padding == 0. {
@@ -4758,15 +4783,16 @@ impl EditorWindow {
         result
     }
 
-    fn apply_control_change(
+    fn change_in_scope(
         &mut self,
+        group: StyleGroup,
         change: impl FnOnce(&mut ProjectConfiguration) -> bool,
     ) -> bool {
         match self.sidebar.style_target {
-            Some((index, group)) => {
+            Some((index, edited)) if edited == group => {
                 apply_style_control_change(&mut self.project, index, group, change)
             }
-            None => change(&mut self.project),
+            _ => change(&mut self.project),
         }
     }
 

@@ -780,7 +780,7 @@ impl EditorWindow {
             self.toggle_play_from_crop(cx);
         }
         self.set_preview_comparing(false, cx);
-        self.selection = None;
+        self.set_selection(None, cx);
         let mut ui = ExportUi::load();
         ui.offer_clip(clip, clip_only);
         ui.source = self.export_source();

@@ -36,7 +36,7 @@ use serde_json::Value;
 
 use crate::{
     editor_color::GradeTarget,
-    editor_sidebar::{SliderKey, collapsible, dashed_divider},
+    editor_sidebar::{SliderKey, StyleGroup, collapsible, dashed_divider},
     editor_window::EditorWindow,
     i18n::{n, t, tc, tr},
     store, transcription, ui,
@@ -901,63 +901,93 @@ impl EditorWindow {
                     return;
                 };
                 let style = *style;
-                self.edit_project("rounding-type", window, cx, move |project| {
-                    if project.background.rounding_type == style {
-                        return false;
-                    }
-                    project.background.rounding_type = style;
-                    true
-                });
+                self.edit_style(
+                    StyleGroup::Background,
+                    "rounding-type",
+                    window,
+                    cx,
+                    move |project| {
+                        if project.background.rounding_type == style {
+                            return false;
+                        }
+                        project.background.rounding_type = style;
+                        true
+                    },
+                );
             }
             SidebarMenu::BackgroundPaddingMode => {
                 let Some((mode, _)) = PADDING_MODES.get(index) else {
                     return;
                 };
                 let mode = *mode;
-                self.edit_project("padding-mode", window, cx, move |project| {
-                    if project.background.padding_mode == mode {
-                        return false;
-                    }
-                    project.background.padding_mode = mode;
-                    true
-                });
+                self.edit_style(
+                    StyleGroup::Background,
+                    "padding-mode",
+                    window,
+                    cx,
+                    move |project| {
+                        if project.background.padding_mode == mode {
+                            return false;
+                        }
+                        project.background.padding_mode = mode;
+                        true
+                    },
+                );
             }
             SidebarMenu::CameraBlur => {
                 let Some((mode, _)) = CAMERA_BLUR_MODES.get(index) else {
                     return;
                 };
                 let mode = *mode;
-                self.edit_project("camera-blur", window, cx, move |project| {
-                    if project.camera.background_blur.mode == mode {
-                        return false;
-                    }
-                    project.camera.background_blur = BackgroundBlurConfig { mode };
-                    true
-                });
+                self.edit_style(
+                    StyleGroup::Camera,
+                    "camera-blur",
+                    window,
+                    cx,
+                    move |project| {
+                        if project.camera.background_blur.mode == mode {
+                            return false;
+                        }
+                        project.camera.background_blur = BackgroundBlurConfig { mode };
+                        true
+                    },
+                );
             }
             SidebarMenu::CameraShape => {
                 let Some((shape, _)) = CAMERA_SHAPES.get(index) else {
                     return;
                 };
                 let shape = *shape;
-                self.edit_project("camera-shape", window, cx, move |project| {
-                    project.camera.shape = shape;
-                    project.camera.aspect_ratio = None;
-                    true
-                });
+                self.edit_style(
+                    StyleGroup::Camera,
+                    "camera-shape",
+                    window,
+                    cx,
+                    move |project| {
+                        project.camera.shape = shape;
+                        project.camera.aspect_ratio = None;
+                        true
+                    },
+                );
             }
             SidebarMenu::CameraCornerStyle => {
                 let Some((style, _)) = CORNER_STYLES.get(index) else {
                     return;
                 };
                 let style = *style;
-                self.edit_project("camera-corner-style", window, cx, move |project| {
-                    if project.camera.rounding_type == style {
-                        return false;
-                    }
-                    project.camera.rounding_type = style;
-                    true
-                });
+                self.edit_style(
+                    StyleGroup::Camera,
+                    "camera-corner-style",
+                    window,
+                    cx,
+                    move |project| {
+                        if project.camera.rounding_type == style {
+                            return false;
+                        }
+                        project.camera.rounding_type = style;
+                        true
+                    },
+                );
             }
             SidebarMenu::AudioStereo => {
                 let Some((mode, _)) = STEREO_MODES.get(index) else {
@@ -1153,29 +1183,36 @@ impl EditorWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.edit_project("camera-slider", window, cx, move |project| {
-            let camera = &mut project.camera;
-            match slider {
-                CameraSlider::Size => camera.size = value,
-                CameraSlider::ZoomSize => camera.zoom_size = Some(value),
-                CameraSlider::Rounding => camera.rounding = value,
-                CameraSlider::Shadow => camera.shadow = value,
-                // `...(project.camera.advancedShadow ?? {50, 18, 50})`
-                // (`:3253-3259`) -- the same UI fallback the background tab has.
-                CameraSlider::ShadowSize
-                | CameraSlider::ShadowOpacity
-                | CameraSlider::ShadowBlur => {
-                    let mut shadow = camera.advanced_shadow.clone().unwrap_or(UI_SHADOW_FALLBACK);
-                    match slider {
-                        CameraSlider::ShadowSize => shadow.size = value,
-                        CameraSlider::ShadowOpacity => shadow.opacity = value,
-                        _ => shadow.blur = value,
+        self.edit_style(
+            StyleGroup::Camera,
+            "camera-slider",
+            window,
+            cx,
+            move |project| {
+                let camera = &mut project.camera;
+                match slider {
+                    CameraSlider::Size => camera.size = value,
+                    CameraSlider::ZoomSize => camera.zoom_size = Some(value),
+                    CameraSlider::Rounding => camera.rounding = value,
+                    CameraSlider::Shadow => camera.shadow = value,
+                    // `...(project.camera.advancedShadow ?? {50, 18, 50})`
+                    // (`:3253-3259`) -- the same UI fallback the background tab has.
+                    CameraSlider::ShadowSize
+                    | CameraSlider::ShadowOpacity
+                    | CameraSlider::ShadowBlur => {
+                        let mut shadow =
+                            camera.advanced_shadow.clone().unwrap_or(UI_SHADOW_FALLBACK);
+                        match slider {
+                            CameraSlider::ShadowSize => shadow.size = value,
+                            CameraSlider::ShadowOpacity => shadow.opacity = value,
+                            _ => shadow.blur = value,
+                        }
+                        camera.advanced_shadow = Some(shadow);
                     }
-                    camera.advanced_shadow = Some(shadow);
                 }
-            }
-            true
-        });
+                true
+            },
+        );
     }
 
     pub(crate) fn apply_audio_slider(
@@ -1201,34 +1238,40 @@ impl EditorWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.edit_project("cursor-slider", window, cx, move |project| {
-            let cursor = &mut project.cursor;
-            match slider {
-                CursorSlider::Size => cursor.size = value.round() as u32,
-                CursorSlider::Tilt => cursor.rotation_amount = value,
-                // `clampIdleDelay`: `round(min(5, max(0.5, v)) * 10) / 10`
-                // (`:525-526`).
-                CursorSlider::IdleDelay => {
-                    cursor.hide_when_idle_delay = (value.clamp(0.5, 5.) * 10.).round() / 10.
-                }
-                // `setCursorPhysics` (`:531-546`): write the field, then
-                // re-match the four presets and fall to `custom`.
-                CursorSlider::Tension | CursorSlider::Friction | CursorSlider::Mass => {
-                    match slider {
-                        CursorSlider::Tension => cursor.tension = value,
-                        CursorSlider::Friction => cursor.friction = value,
-                        _ => cursor.mass = value,
+        self.edit_style(
+            StyleGroup::Cursor,
+            "cursor-slider",
+            window,
+            cx,
+            move |project| {
+                let cursor = &mut project.cursor;
+                match slider {
+                    CursorSlider::Size => cursor.size = value.round() as u32,
+                    CursorSlider::Tilt => cursor.rotation_amount = value,
+                    // `clampIdleDelay`: `round(min(5, max(0.5, v)) * 10) / 10`
+                    // (`:525-526`).
+                    CursorSlider::IdleDelay => {
+                        cursor.hide_when_idle_delay = (value.clamp(0.5, 5.) * 10.).round() / 10.
                     }
-                    cursor.animation_style =
-                        match_cursor_preset(cursor.tension, cursor.mass, cursor.friction)
-                            .unwrap_or(CursorAnimationStyle::Custom);
+                    // `setCursorPhysics` (`:531-546`): write the field, then
+                    // re-match the four presets and fall to `custom`.
+                    CursorSlider::Tension | CursorSlider::Friction | CursorSlider::Mass => {
+                        match slider {
+                            CursorSlider::Tension => cursor.tension = value,
+                            CursorSlider::Friction => cursor.friction = value,
+                            _ => cursor.mass = value,
+                        }
+                        cursor.animation_style =
+                            match_cursor_preset(cursor.tension, cursor.mass, cursor.friction)
+                                .unwrap_or(CursorAnimationStyle::Custom);
+                    }
+                    CursorSlider::RippleStrength => cursor.ripple.strength = value / 100.,
+                    CursorSlider::RippleSize => cursor.ripple.size = value / 100.,
+                    CursorSlider::RippleDuration => cursor.ripple.duration = value,
                 }
-                CursorSlider::RippleStrength => cursor.ripple.strength = value / 100.,
-                CursorSlider::RippleSize => cursor.ripple.size = value / 100.,
-                CursorSlider::RippleDuration => cursor.ripple.duration = value,
-            }
-            true
-        });
+                true
+            },
+        );
     }
 
     pub(crate) fn apply_caption_slider(
@@ -1403,10 +1446,16 @@ impl EditorWindow {
                             ui::Toggle::plain(&theme, "camera-hide", camera.hide).on_click(
                                 cx.listener(|this, _, window, cx| {
                                     let next = !this.style_control_project().camera.hide;
-                                    this.edit_project("camera-hide", window, cx, move |p| {
-                                        p.camera.hide = next;
-                                        true
-                                    });
+                                    this.edit_style(
+                                        StyleGroup::Camera,
+                                        "camera-hide",
+                                        window,
+                                        cx,
+                                        move |p| {
+                                            p.camera.hide = next;
+                                            true
+                                        },
+                                    );
                                 }),
                             ),
                         ))
@@ -1414,10 +1463,16 @@ impl EditorWindow {
                             ui::Toggle::plain(&theme, "camera-mirror", camera.mirror).on_click(
                                 cx.listener(|this, _, window, cx| {
                                     let next = !this.style_control_project().camera.mirror;
-                                    this.edit_project("camera-mirror", window, cx, move |p| {
-                                        p.camera.mirror = next;
-                                        true
-                                    });
+                                    this.edit_style(
+                                        StyleGroup::Camera,
+                                        "camera-mirror",
+                                        window,
+                                        cx,
+                                        move |p| {
+                                            p.camera.mirror = next;
+                                            true
+                                        },
+                                    );
                                 }),
                             ),
                         ))
@@ -1459,10 +1514,16 @@ impl EditorWindow {
                             } else {
                                 1.
                             };
-                            this.edit_project("camera-scale-zoom", window, cx, move |p| {
-                                p.camera.scale_during_zoom = next;
-                                true
-                            });
+                            this.edit_style(
+                                StyleGroup::Camera,
+                                "camera-scale-zoom",
+                                window,
+                                cx,
+                                move |p| {
+                                    p.camera.scale_during_zoom = next;
+                                    true
+                                },
+                            );
                         })),
                 ),
             )
@@ -1520,10 +1581,16 @@ impl EditorWindow {
                         ui::EditorButton::plain(&theme, "camera-position-reset")
                             .label(t!("Reset"))
                             .on_click(cx.listener(|this, _, window, cx| {
-                                this.edit_project("camera-manual-position", window, cx, |p| {
-                                    p.camera.manual_position = None;
-                                    true
-                                });
+                                this.edit_style(
+                                    StyleGroup::Camera,
+                                    "camera-manual-position",
+                                    window,
+                                    cx,
+                                    |p| {
+                                        p.camera.manual_position = None;
+                                        true
+                                    },
+                                );
                             })),
                     )
                     .into_any_element()
@@ -1614,23 +1681,29 @@ impl EditorWindow {
             };
 
             grid = grid.child(dot.on_click(cx.listener(move |this, _, window, cx| {
-                this.edit_project("camera-position", window, cx, move |project| {
-                    project.camera.position = frameever_project::CameraPosition {
-                        x: match item_x {
-                            0 => CameraXPosition::Left,
-                            2 => CameraXPosition::Right,
-                            _ => CameraXPosition::Center,
-                        },
-                        y: if item_y == 0 {
-                            CameraYPosition::Top
-                        } else {
-                            CameraYPosition::Bottom
-                        },
-                    };
-                    // The batch clears the manual override too (`:3011-3016`).
-                    project.camera.manual_position = None;
-                    true
-                });
+                this.edit_style(
+                    StyleGroup::Camera,
+                    "camera-position",
+                    window,
+                    cx,
+                    move |project| {
+                        project.camera.position = frameever_project::CameraPosition {
+                            x: match item_x {
+                                0 => CameraXPosition::Left,
+                                2 => CameraXPosition::Right,
+                                _ => CameraXPosition::Center,
+                            },
+                            y: if item_y == 0 {
+                                CameraYPosition::Top
+                            } else {
+                                CameraYPosition::Bottom
+                            },
+                        };
+                        // The batch clears the manual override too (`:3011-3016`).
+                        project.camera.manual_position = None;
+                        true
+                    },
+                );
             })));
         }
 
@@ -1990,7 +2063,7 @@ impl EditorWindow {
             ui::Field::editor_row(&theme, t!("Show cursor")).value(
                 ui::Toggle::plain(&theme, "cursor-show", !hidden)
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.edit_project("cursor-hide", window, cx, move |p| {
+                        this.edit_style(StyleGroup::Cursor, "cursor-hide", window, cx, move |p| {
                             p.cursor.hide = !hidden;
                             true
                         });
@@ -2031,10 +2104,16 @@ impl EditorWindow {
                 ui::Field::editor_row(&theme, t!("Hide When Idle")).value(
                     ui::Toggle::plain(&theme, "cursor-idle", idle)
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            this.edit_project("cursor-idle", window, cx, move |p| {
-                                p.cursor.hide_when_idle = !idle;
-                                true
-                            });
+                            this.edit_style(
+                                StyleGroup::Cursor,
+                                "cursor-idle",
+                                window,
+                                cx,
+                                move |p| {
+                                    p.cursor.hide_when_idle = !idle;
+                                    true
+                                },
+                            );
                         }))
                         .into_any_element(),
                 ),
@@ -2095,15 +2174,21 @@ impl EditorWindow {
                             let style = *style;
                             // `applyCursorStylePreset` (`:551-561`): the style and
                             // its three physics values, in one batch.
-                            this.edit_project("cursor-style", window, cx, move |project| {
-                                project.cursor.animation_style = style;
-                                if let Some(preset) = style.preset() {
-                                    project.cursor.tension = preset.tension;
-                                    project.cursor.mass = preset.mass;
-                                    project.cursor.friction = preset.friction;
-                                }
-                                true
-                            });
+                            this.edit_style(
+                                StyleGroup::Cursor,
+                                "cursor-style",
+                                window,
+                                cx,
+                                move |project| {
+                                    project.cursor.animation_style = style;
+                                    if let Some(preset) = style.preset() {
+                                        project.cursor.tension = preset.tension;
+                                        project.cursor.mass = preset.mass;
+                                        project.cursor.friction = preset.friction;
+                                    }
+                                    true
+                                },
+                            );
                         },
                     )),
                 ),
@@ -2118,10 +2203,16 @@ impl EditorWindow {
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.sidebar.cursor_physics_open.set_open(!smooth);
                                     this.animate_collapsibles(window, cx);
-                                    this.edit_project("cursor-raw", window, cx, move |p| {
-                                        p.cursor.raw = smooth;
-                                        true
-                                    });
+                                    this.edit_style(
+                                        StyleGroup::Cursor,
+                                        "cursor-raw",
+                                        window,
+                                        cx,
+                                        move |p| {
+                                            p.cursor.raw = smooth;
+                                            true
+                                        },
+                                    );
                                 }))
                                 .into_any_element(),
                         ),
@@ -2172,10 +2263,16 @@ impl EditorWindow {
                     ui::Toggle::plain(&theme, "cursor-svg", cursor.use_svg)
                         .on_click(cx.listener(|this, _, window, cx| {
                             let next = !this.style_control_project().cursor.use_svg;
-                            this.edit_project("cursor-svg", window, cx, move |p| {
-                                p.cursor.use_svg = next;
-                                true
-                            });
+                            this.edit_style(
+                                StyleGroup::Cursor,
+                                "cursor-svg",
+                                window,
+                                cx,
+                                move |p| {
+                                    p.cursor.use_svg = next;
+                                    true
+                                },
+                            );
                         }))
                         .into_any_element(),
                 ),
@@ -3565,7 +3662,7 @@ impl EditorWindow {
     /// The success half of `generateCaptions` (`CaptionsTab.tsx:730-744`):
     /// `applyCaptionResultToProject` inside the project-write fan-out, then
     /// the caption track lane switched on.
-    fn apply_generated_captions(
+    pub(crate) fn apply_generated_captions(
         &mut self,
         segments: Vec<CaptionSegment>,
         recording_durations: &[f64],
