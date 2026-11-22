@@ -3087,6 +3087,8 @@ pub struct ProjectConfiguration {
     pub screen_motion_blur: f32,
     #[serde(default)]
     pub screen_movement_spring: ScreenMovementSpring,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub enhance_quality: bool,
     /// Per-layer cinematic color grades. Field-level default keeps old
     /// project files (and old saved presets) deserializing to the identity
     /// grade.
@@ -3167,6 +3169,7 @@ impl Default for ProjectConfiguration {
             hidden_text_segments: Default::default(),
             screen_motion_blur: Self::default_screen_motion_blur(),
             screen_movement_spring: Default::default(),
+            enhance_quality: false,
             color_correction: Default::default(),
             clip_alignment_version: CLIP_ALIGNMENT_VERSION,
             text_size_version: TEXT_SIZE_VERSION,
@@ -3223,6 +3226,7 @@ impl ProjectConfiguration {
         preset.auto_zoom_pending = self.auto_zoom_pending;
         preset.overlay_order = self.overlay_order.clone();
         preset.input_display = self.input_display.clone();
+        preset.enhance_quality = self.enhance_quality;
         preset.clips = self.clips.clone();
         preset
     }
@@ -3754,6 +3758,34 @@ mod tests {
         assert_eq!(written["paddingMode"], "even");
         let restored: BackgroundConfiguration = serde_json::from_value(written).unwrap();
         assert_eq!(restored.padding_mode, PaddingMode::Even);
+    }
+
+    #[test]
+    fn enhance_quality_is_off_until_a_project_saves_the_choice() {
+        assert!(!ProjectConfiguration::for_new_project().enhance_quality);
+        let mut saved = serde_json::to_value(ProjectConfiguration::default()).unwrap();
+        assert!(saved.get("enhanceQuality").is_none());
+        let unsaved: ProjectConfiguration = serde_json::from_value(saved.clone()).unwrap();
+        assert!(!unsaved.enhance_quality);
+
+        saved["enhanceQuality"] = serde_json::json!(true);
+        let chosen: ProjectConfiguration = serde_json::from_value(saved).unwrap();
+        assert!(chosen.enhance_quality);
+        assert_eq!(
+            serde_json::to_value(&chosen).unwrap()["enhanceQuality"],
+            serde_json::json!(true)
+        );
+    }
+
+    #[test]
+    fn a_preset_keeps_the_projects_enhance_quality_choice() {
+        let off = ProjectConfiguration::default();
+        let on = ProjectConfiguration {
+            enhance_quality: true,
+            ..ProjectConfiguration::default()
+        };
+        assert!(on.with_preset(off.clone()).enhance_quality);
+        assert!(!off.with_preset(on).enhance_quality);
     }
 
     #[test]

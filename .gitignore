@@ -107,6 +107,8 @@ codesign.keychain
 # AI models (large files)
 *.bin
 models/
+!crates/rendering/src/models/
+!crates/rendering/src/models/*.bin
 whisper-models/
 
 # User data directories

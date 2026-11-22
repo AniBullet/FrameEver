@@ -1115,6 +1115,23 @@ mod subtitle_export_tests {
     }
 
     #[test]
+    fn an_export_follows_the_saved_enhance_quality_choice() {
+        for chosen in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let saved = ProjectConfiguration {
+                enhance_quality: chosen,
+                ..Default::default()
+            };
+            saved.write(temp.path()).unwrap();
+            let mut builder = ExporterBase::builder(temp.path().to_path_buf());
+            assert_eq!(
+                builder.load_project_config().unwrap().enhance_quality,
+                chosen
+            );
+        }
+    }
+
+    #[test]
     fn subtitle_export_keeps_missing_captions_missing() {
         let mut builder = ExporterBase::builder(PathBuf::from("unused-project"))
             .with_config(ProjectConfiguration::default());

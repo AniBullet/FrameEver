@@ -6,8 +6,8 @@ use frameever_project::{
     CursorEvents, ProjectConfiguration, RecordingMeta, TimelineFrameMapping, XY,
 };
 use frameever_rendering::{
-    FrameRenderer, ProjectUniforms, RecordingSegmentDecoders, RenderVideoConstants, RenderedFrame,
-    RendererLayers, TransitionRenderInput, ZoomTransformTimeline,
+    FrameRenderer, ProjectUniforms, RecordingSegmentDecoders, RenderQuality, RenderVideoConstants,
+    RenderedFrame, RendererLayers, TransitionRenderInput, ZoomTransformTimeline,
 };
 use image::{
     ImageFormat, Rgba, RgbaImage,
@@ -415,7 +415,8 @@ async fn render_source_frame(
         &segment_frames,
         total_duration,
         &zoom_timeline,
-    );
+    )
+    .with_quality(RenderQuality::Export);
 
     let mut frame_renderer = FrameRenderer::new(render_constants);
     let mut layers = RendererLayers::new_with_options(
@@ -468,7 +469,8 @@ async fn render_source_frame(
             &outgoing_frames,
             total_duration,
             &outgoing_zoom,
-        );
+        )
+        .with_quality(RenderQuality::Export);
 
         frame_renderer
             .render_transition_immediate(

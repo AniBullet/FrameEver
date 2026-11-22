@@ -8,8 +8,9 @@ use frameever_project::{
 };
 use frameever_rendering::{
     CursorEventOrder, PrecomputedCursorTimeline, ProjectRecordingsMeta, ProjectUniforms,
-    RecordingSegmentDecoders, RenderVideoConstants, SegmentVideoPaths, SharedWgpuDevice, Video,
-    ZoomTransformTimeline, get_duration, spring_mass_damper::SpringMassDamperSimulationConfig,
+    RecordingSegmentDecoders, RenderQuality, RenderVideoConstants, SegmentVideoPaths,
+    SharedWgpuDevice, Video, ZoomTransformTimeline, get_duration,
+    spring_mass_damper::SpringMassDamperSimulationConfig,
 };
 use std::{
     collections::HashMap,
@@ -1455,7 +1456,8 @@ impl EditorInstance {
                                             outgoing_zoom,
                                             cursor_cache.event_order(&outgoing_media.cursor),
                                         )
-                                    };
+                                    }
+                                    .with_quality(RenderQuality::PausedPreview);
                                     Some((
                                         outgoing_frames,
                                         outgoing_uniforms,
@@ -1517,7 +1519,8 @@ impl EditorInstance {
                                         zoom_timeline,
                                         cursor_cache.event_order(&segment_medias.cursor),
                                     )
-                                };
+                                }
+                                .with_quality(RenderQuality::PausedPreview);
 
                                 if still_now {
                                     self.renderer.forget_last_frame().await;

@@ -121,6 +121,20 @@ const WARMUP_FRAMES: usize = 8;
 const X264_WARMUP_FRAMES: usize = 30;
 const MIN_STEADY_INTERVALS: usize = 6;
 
+fn estimate_key(
+    project_path: &std::path::Path,
+    project: &ProjectConfiguration,
+    settings: ExportSettings,
+    range: Option<ExportRange>,
+) -> Result<u64, String> {
+    let mut hasher = DefaultHasher::new();
+    project_path.hash(&mut hasher);
+    serde_json::to_vec(&(project, settings, range))
+        .map_err(|error| error.to_string())?
+        .hash(&mut hasher);
+    Ok(hasher.finish())
+}
+
 pub async fn estimate_export(
     editor: Arc<EditorInstance>,
     project: ProjectConfiguration,
@@ -186,12 +200,7 @@ pub async fn estimate_export(
     } else {
         duration
     };
-    let mut hasher = DefaultHasher::new();
-    editor.project_path.hash(&mut hasher);
-    serde_json::to_vec(&(&project, settings, range))
-        .map_err(|error| error.to_string())?
-        .hash(&mut hasher);
-    let key = hasher.finish();
+    let key = estimate_key(&editor.project_path, &project, settings, range)?;
     if let Ok(cache) = CACHE.lock()
         && let Some(cached) = cache
             .iter()
@@ -803,6 +812,18 @@ fn summarize_pass(measurement: &PassMeasurement) -> Result<ExportEstimates, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enhance_quality_gets_its_own_cached_estimate() {
+        let path = std::path::Path::new("project.ever");
+        let settings = ExportSettings::Gif(crate::gif::GifExportSettings::default());
+        let mut project = ProjectConfiguration::default();
+        let off = estimate_key(path, &project, settings, None).unwrap();
+        project.enhance_quality = true;
+        assert_ne!(estimate_key(path, &project, settings, None).unwrap(), off);
+        project.enhance_quality = false;
+        assert_eq!(estimate_key(path, &project, settings, None).unwrap(), off);
+    }
 
     fn packet(bytes: u64, key: bool) -> EncodedPacket {
         EncodedPacket { bytes, key }
