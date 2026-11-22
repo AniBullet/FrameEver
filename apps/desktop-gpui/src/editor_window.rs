@@ -3863,6 +3863,9 @@ impl EditorWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.transcript_word_edit_tab(event, window, cx) {
+            return;
+        }
         if traverse_editor_focus(event, window, cx) {
             return;
         }

@@ -1900,6 +1900,30 @@ mod word_edit_ui {
     }
 
     #[gpui::test]
+    fn the_tab_key_steps_only_while_the_word_field_is_focused(cx: &mut gpui::TestAppContext) {
+        let (editor, cx) = fixture(cx);
+        editor.update_in(cx, |editor, window, cx| {
+            let key = |text: &'static str| gpui::KeyDownEvent {
+                keystroke: gpui::Keystroke::parse(text).unwrap(),
+                is_held: false,
+                prefer_character_input: false,
+            };
+            assert!(!editor.transcript_word_edit_tab(&key("tab"), window, cx));
+
+            editor.transcript_begin_word_edit(2, window, cx);
+            type_text(editor, "Tree", cx);
+            assert!(!editor.transcript_word_edit_tab(&key("ctrl-tab"), window, cx));
+            assert!(!editor.transcript_word_edit_tab(&key("enter"), window, cx));
+            assert!(editor.transcript_word_edit_tab(&key("tab"), window, cx));
+            assert_eq!(texts(editor), ["One", "two.", "Tree", "four", "five"]);
+            assert_eq!(editor.transcript.editing.as_ref().map(|e| e.word), Some(3));
+
+            assert!(editor.transcript_word_edit_tab(&key("shift-tab"), window, cx));
+            assert_eq!(editor.transcript.editing.as_ref().map(|e| e.word), Some(2));
+        });
+    }
+
+    #[gpui::test]
     fn tab_skips_cut_words_and_stops_after_the_last(cx: &mut gpui::TestAppContext) {
         let (editor, cx) = fixture(cx);
         editor.update_in(cx, |editor, window, cx| {

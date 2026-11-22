@@ -316,7 +316,10 @@ impl ParagraphPainter {
         let measure_span = editing.as_ref().map(|(span, _)| span.clone());
         let edit_anchor = self.edit_anchor.clone();
         let overlay = editing.and_then(|(_, input)| {
-            let anchor = self.edit_anchor.get()?;
+            let anchor = self.edit_anchor.get().unwrap_or(WordAnchor {
+                origin: Point::default(),
+                width: px(EDIT_MIN_WIDTH),
+            });
             Some(self.word_field(anchor, input))
         });
         div()
@@ -362,7 +365,7 @@ impl ParagraphPainter {
                                     let anchor = word_anchor(&paint_layout, span);
                                     if anchor != edit_anchor.get() {
                                         edit_anchor.set(anchor);
-                                        window.refresh();
+                                        window.request_animation_frame();
                                     }
                                 }
                                 layouts.borrow_mut().insert(index, paint_layout);
@@ -405,7 +408,6 @@ impl ParagraphPainter {
         let theme = &self.theme;
         let palette = self.palette;
         let editor = self.editor.clone();
-        let key_input = input.clone();
         div()
             .id("transcript-word-edit")
             .absolute()
@@ -438,26 +440,6 @@ impl ParagraphPainter {
                 }
             })
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_key_down(move |event: &KeyDownEvent, window, cx| {
-                let modifiers = event.keystroke.modifiers;
-                if event.keystroke.key != "tab"
-                    || modifiers.control
-                    || modifiers.alt
-                    || modifiers.platform
-                    || modifiers.function
-                    || key_input.read(cx).is_composing()
-                {
-                    return;
-                }
-                cx.stop_propagation();
-                window.prevent_default();
-                let forward = !modifiers.shift;
-                editor
-                    .update(cx, |this, cx| {
-                        this.transcript_step_word_edit(forward, window, cx);
-                    })
-                    .ok();
-            })
             .child(
                 ui::TextInput::bare(theme, "transcript-word-input", &input)
                     .fit_content()
@@ -1409,6 +1391,35 @@ impl EditorWindow {
         });
         self.transcript.drag = Some(WordDrag { unit, origin });
         self.invalidate_sidebar(cx);
+        true
+    }
+
+    pub(crate) fn transcript_word_edit_tab(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let modifiers = event.keystroke.modifiers;
+        if self.transcript.editing.is_none()
+            || event.keystroke.key != "tab"
+            || modifiers.control
+            || modifiers.alt
+            || modifiers.platform
+            || modifiers.function
+        {
+            return false;
+        }
+        let Some(input) = self.transcript.edit_input.clone() else {
+            return false;
+        };
+        let input = input.read(cx);
+        if input.is_composing() || !input.focus_handle().is_focused(window) {
+            return false;
+        }
+        window.prevent_default();
+        cx.stop_propagation();
+        self.transcript_step_word_edit(!modifiers.shift, window, cx);
         true
     }
 
