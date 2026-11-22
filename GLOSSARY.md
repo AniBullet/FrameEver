@@ -36,6 +36,10 @@ _Avoid_: noise reduction, audio enhancement
 The on-disk folder holding one recording's media tracks, metadata and edit configuration.
 _Avoid_: Recording folder, session
 
+**Audio only recording**:
+A Studio or Instant recording of the microphone and system audio with no screen and no camera. Audio is its recording target, beside display, window, area and camera; it is not a recording mode. 仅音频录制 in Chinese.
+_Avoid_: Audio mode, voice memo, podcast mode
+
 **Chapter mark**:
 A named point in time the user drops while recording or adds in the editor, to find a moment again and split clips at it. 章节标记 in Chinese.
 _Avoid_: Marker, bookmark, recording marker
@@ -73,6 +77,14 @@ _Avoid_: Skin, theme, layout file
 **Export**:
 The video or GIF file rendered from a project, whole or from a chosen stretch; the file the user keeps and shares by hand. GIF is only ever an export format.
 _Avoid_: Render, output file, GIF recording
+
+**Tracks export**:
+An export of a Studio recording as separate files, one per chosen track (screen, camera, microphone, system audio), each following the cuts and speed of the edit and without background or effects. 分轨导出 in Chinese.
+_Avoid_: Stems, raw export, multitrack
+
+**Result card**:
+The small card that appears in a corner of the display after a recording or a screenshot, with a thumbnail and the next actions, when After a recording is set to Show card. 结果卡片 in Chinese.
+_Avoid_: Recordings overlay, toast, popup
 
 **Compressed copy**:
 A smaller re-encoded version of an Instant recording kept beside the original, so the user can switch between or delete either one.

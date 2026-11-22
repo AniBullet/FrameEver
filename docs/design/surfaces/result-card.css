@@ -1,0 +1,248 @@
+.tools {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 16px;
+	margin-bottom: 12px;
+}
+
+.tool {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+}
+
+.stage {
+	position: relative;
+	height: 520px;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: #3a3a3a;
+}
+
+.stage .taskbar {
+	position: absolute;
+	inset: auto 0 0;
+	height: 40px;
+	background: #1f1f1f;
+}
+
+.stack {
+	position: absolute;
+	right: 16px;
+	bottom: 56px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.rc {
+	width: 300px;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--popover);
+	color: var(--popover-foreground);
+	font-size: var(--text-small);
+}
+
+.rc.small {
+	opacity: 0.92;
+}
+
+.rc-thumb {
+	position: relative;
+	display: grid;
+	place-items: center;
+	aspect-ratio: 16 / 9;
+	background: var(--muted);
+	color: var(--muted-foreground);
+	cursor: grab;
+}
+
+.rc.small .rc-thumb {
+	display: none;
+}
+
+.rc-thumb .scene {
+	position: absolute;
+	inset: 14% 18%;
+	border-radius: 4px;
+	background: var(--card);
+	border: 1px solid var(--border);
+}
+
+.rc-thumb .scene::before,
+.rc-thumb .scene::after {
+	content: "";
+	position: absolute;
+	left: 10%;
+	height: 8%;
+	border-radius: 2px;
+	background: var(--border);
+}
+
+.rc-thumb .scene::before {
+	top: 16%;
+	width: 46%;
+}
+
+.rc-thumb .scene::after {
+	top: 34%;
+	width: 70%;
+}
+
+.rc-thumb .wave {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	height: 40%;
+}
+
+.rc-thumb .wave i {
+	width: 4px;
+	border-radius: 2px;
+	background: var(--muted-foreground);
+}
+
+.rc-chip {
+	position: absolute;
+	left: 8px;
+	bottom: 8px;
+	padding: 1px 6px;
+	border-radius: var(--radius-sm);
+	background: rgb(0 0 0 / 0.6);
+	color: #fff;
+	font-variant-numeric: tabular-nums;
+}
+
+.rc-close {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: rgb(0 0 0 / 0.6);
+	color: #fff;
+	cursor: pointer;
+}
+
+.rc-body {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 10px;
+}
+
+.rc-name {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+}
+
+.rc-name b {
+	overflow: hidden;
+	color: var(--foreground);
+	font-size: var(--text-body);
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.rc-name span {
+	flex: none;
+	color: var(--muted-foreground);
+}
+
+.rc-acts {
+	display: flex;
+	gap: 6px;
+}
+
+.rc-acts .btn {
+	flex: 1;
+	justify-content: center;
+	min-width: 0;
+}
+
+.rc-acts .btn.icon {
+	flex: none;
+}
+
+.rc-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 28px;
+	color: var(--muted-foreground);
+}
+
+.rc-status .grow {
+	flex: 1;
+}
+
+.rc-status.bad {
+	color: var(--danger-text);
+}
+
+.rc-status.good {
+	color: var(--success-text, var(--foreground));
+}
+
+.rc .progress {
+	margin: 0;
+}
+
+.state-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+	gap: 16px;
+}
+
+.state-grid figure {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 0;
+}
+
+.state-grid figcaption {
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+}
+
+.inv-wrap {
+	overflow-x: auto;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+}
+
+.inv {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--text-small);
+}
+
+.inv th,
+.inv td {
+	padding: 8px 12px;
+	text-align: left;
+	vertical-align: top;
+}
+
+.inv tr + tr th,
+.inv tr + tr td {
+	border-top: 1px solid var(--border);
+}
+
+.inv thead th {
+	color: var(--muted-foreground);
+	font-weight: 500;
+}

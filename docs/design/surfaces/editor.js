@@ -3243,7 +3243,7 @@ const renderDocs = () => {
 			["Zooms for new recordings", "为新录制自动添加缩放"],
 			[
 				"Settings › Studio › Auto zoom on clicks, unchanged. The editor's empty zoom lane still offers Add zooms automatically",
-				"设置 › Studio › 点击时自动缩放，不变。编辑器的空缩放轨仍提供自动添加",
+				"设置 › 工作室 › 点击时自动缩放，不变。编辑器的空缩放轨仍提供自动添加",
 			],
 		],
 		[
@@ -3253,7 +3253,7 @@ const renderDocs = () => {
 			],
 			[
 				"Export › Format › Tracks. One switch per track with its file type; the totals count files; the button is off until one track is chosen. Saved to a folder, so there is no clipboard destination. Studio recordings only",
-				"导出 › 格式 › 分轨。每条轨道一个开关，旁边是文件类型；统计显示文件数；一条都没选时按钮不可用。保存到文件夹，所以没有剪贴板目的地。仅 Studio 录制",
+				"导出 › 格式 › 分轨。每条轨道一个开关，旁边是文件类型；统计显示文件数；一条都没选时按钮不可用。保存到文件夹，所以没有剪贴板目的地。仅工作室录制",
 			],
 		],
 		[

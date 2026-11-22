@@ -224,6 +224,11 @@ const issues = {
 		"Camera disconnected. Recording continues without it.",
 		"摄像头已断开。录制继续，只是没有摄像头画面。",
 	],
+	switch: [
+		"warn",
+		"Couldn't switch to USB Microphone. The recording continues.",
+		"无法切换到 USB Microphone。录制继续。",
+	],
 	storage: [
 		"warn",
 		"Low storage. FrameEver will stop soon to save your recording.",
@@ -287,6 +292,7 @@ const renderLive = () => {
 		${seg("issue", live.issue ?? "none", [
 			["none", "No issue", "无问题"],
 			["mic", "Mic lost", "麦克风断开"],
+			["switch", "Switch failed", "切换失败"],
 			["storage", "Low storage", "空间不足"],
 		])}`;
 	renderDock();
@@ -317,6 +323,7 @@ const renderStates = () => {
 		["Saving", "正在保存", { phase: "saving" }],
 		["Confirm restart", "确认重新开始", { ask: "restart" }],
 		["Microphone lost", "麦克风断开", { issue: "mic", micState: "lost" }],
+		["Switch failed", "切换失败", { issue: "switch" }],
 		["Low storage", "空间不足", { issue: "storage" }],
 		["Pause failed", "暂停失败", { issue: "pause" }],
 		["Can't resume", "无法继续", { issue: "disk", paused: true }],
@@ -672,6 +679,14 @@ const copy = () => {
 				[
 					"Popover. A device not used at the start stays off for this take",
 					"浮层。开始时没用的设备本次保持关闭",
+				],
+			],
+			[
+				["Failed device switch", "设备切换失败"],
+				["The recording paused and stayed paused", "录制暂停并保持暂停"],
+				[
+					"The warning card names the device; the recording carries on with the device it had",
+					"警告卡片写出设备名；录制用原来的设备继续",
 				],
 			],
 			[

@@ -20,6 +20,7 @@ window.FE = (() => {
 		["installer", "Installer", "安装器", true],
 		["onboarding", "Onboarding", "引导", true],
 		["input-display", "Input display", "操作显示", true],
+		["result-card", "Result card", "结果卡片", true],
 	];
 	const state = { ...defaults, at: "" };
 

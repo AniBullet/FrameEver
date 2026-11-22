@@ -22,6 +22,7 @@ const v = {
 	fps: "60",
 	countdown: "0",
 	confirmMic: true,
+	keepDrawings: true,
 	cursor: true,
 	keys: true,
 	crash: true,
@@ -255,6 +256,17 @@ const sections = [
 				zh: "录制时",
 				rows: [
 					{
+						k: "keepDrawings",
+						en: "Keep drawings on screen",
+						zh: "保留屏幕上的画笔内容",
+						den: "When off, each drawing fades a few seconds after you draw it.",
+						dzh: "关闭时，每一笔画完几秒后淡出。",
+						c: "switch",
+						was: ["New with Draw on screen", "随屏幕画笔新增"],
+						kit: "switch",
+						fresh: true,
+					},
+					{
 						k: "fps",
 						en: "Maximum frame rate",
 						zh: "最高帧率",
@@ -341,6 +353,7 @@ const sections = [
 						c: "select",
 						opts: [
 							["edit", "Open editor", "打开编辑器"],
+							["card", "Show card", "显示卡片"],
 							["copy", "Copy", "复制"],
 							["both", "Copy and edit", "复制并编辑"],
 							["none", "Do nothing", "不做任何操作"],
@@ -488,6 +501,7 @@ const sections = [
 						c: "select",
 						opts: [
 							["edit", "Open editor", "打开编辑器"],
+							["card", "Show card", "显示卡片"],
 							["show", "Show FrameEver", "显示帧刻"],
 							["none", "Do nothing", "不做任何操作"],
 						],
@@ -656,6 +670,7 @@ const sections = [
 						c: "select",
 						opts: [
 							["library", "Show in library", "显示资源库"],
+							["card", "Show card", "显示卡片"],
 							["copy", "Copy file", "复制文件"],
 							["none", "Do nothing", "不做任何操作"],
 						],

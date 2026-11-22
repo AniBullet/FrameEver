@@ -394,12 +394,17 @@ class MainWindow {
 				"Screenshots need a display, window or area",
 				"截图需要选显示器、窗口或区域",
 			],
+			audio: [
+				"Screenshots need a display, window or area",
+				"截图需要选显示器、窗口或区域",
+			],
 		}[target];
 		const targets = [
 			["display", "monitor", "Display", "显示器"],
 			["window", "app-window", "Window", "窗口"],
 			["area", "scan", "Area", "区域"],
 			["camera", "webcam", "Camera", "摄像头"],
+			["audio", "mic", "Audio", "音频"],
 		];
 		const foot = `<button class="btn ghost icon" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings")}</button>${firstRun ? `<span class="grow first-hint">${L("Your recordings are here", "录好的内容都在这里")}<span class="hint-arrow">${this.doodle("UP_ARROW", 26)}</span></span>` : `<button class="sum" title="${pick("Recording options", "录制选项")}">${icon("sliders-horizontal", "sm")}<span class="tnum">${mode === "instant" ? "1080p" : L("Balanced", "均衡")} · ${L("60 FPS", "60 帧/秒")} · ${L("3 s", "3 秒")}</span></button>`}<button class="btn ghost" data-a="expand">${L("Library", "资源库")}${unseen ? `<span class="badge klein">${unseen}</span>` : ""}${icon("chevron-right")}</button>`;
 		return `<div class="rec"><div class="rec-main">
@@ -413,10 +418,10 @@ class MainWindow {
 					"",
 				)}</div><button class="btn ghost icon" title="${pick("Recording mode info", "录制模式说明")}">${icon("info", "sm")}</button></div>
 			<div class="targets">${targets.map(([id, ic, en, zh]) => `<button class="${target === id ? "on" : ""}" data-a="target" data-v="${id}">${id === "display" || id === "window" ? `<span class="choose">${icon("chevron-down", "sm")}</span>` : ""}${icon(ic, "lg")}${L(en, zh)}</button>`).join("")}</div>
-			<div class="device">${icon("webcam")}<span class="grow">${L("Camera", "摄像头")}</span><em>${L("No camera", "无摄像头")}</em>${icon("chevron-down", "sm")}</div>
+			<div class="device ${target === "audio" ? "off" : ""}">${icon("webcam")}<span class="grow">${L("Camera", "摄像头")}</span><em>${target === "audio" ? L("Not recorded", "不录制") : L("No camera", "无摄像头")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("mic")}<span class="grow">${L("Microphone", "麦克风")}</span><em>${L("Default", "默认")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("volume-2")}<span class="grow">${L("System audio", "系统声音")}</span><button class="switch on" data-a="toggle"></button></div>
-			<div class="start-row"><button class="btn primary tall" data-a="start">${FE.recordGlyph()}${startLabel}</button><button class="btn tall shot" data-a="shot" ${target === "camera" ? "disabled" : ""} title="${pick(...shotTitle)}" aria-label="${pick(...shotTitle)}">${icon("image")}</button></div>
+			<div class="start-row"><button class="btn primary tall" data-a="start">${FE.recordGlyph()}${startLabel}</button><button class="btn tall shot" data-a="shot" ${target === "camera" || target === "audio" ? "disabled" : ""} title="${pick(...shotTitle)}" aria-label="${pick(...shotTitle)}">${icon("image")}</button></div>
 		</div><div class="rec-foot">${foot}</div></div>`;
 	}
 
@@ -1520,6 +1525,12 @@ tabRow(
 showHand("hint");
 
 document.getElementById("windows-steps").innerHTML = [
+	[
+		"Audio only",
+		"仅音频",
+		"Audio is the fifth target: it records the microphone and system audio with no screen and no camera, in Studio or Instant. The camera row reads Not recorded and the screenshot button is off. It needs a microphone or system audio; with neither, Start recording is off and its tooltip says so. The recording opens in the editor’s Audio only view.",
+		"音频是第五个录制目标：只录麦克风和系统声音，不录屏幕和摄像头，工作室和即时模式都可用。摄像头一行显示“不录制”，截图按钮不可用。需要有麦克风或系统声音；两者都没有时“开始录制”不可用，悬停提示说明原因。录完在编辑器的“仅音频”视图里打开。",
+	],
 	[
 		"Opening the library",
 		"打开资源库",
