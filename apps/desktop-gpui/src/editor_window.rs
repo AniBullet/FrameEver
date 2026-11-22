@@ -6636,12 +6636,12 @@ impl EditorWindow {
             self.history = ProjectHistory::new(self.project.clone());
             self.tracks = TrackLanes::from_project(&self.project, self.has_camera);
             self.rebuild_timeline(cx);
-            self.publish_project();
             self.note_edit("auto-zoom-on-open", Some(TrackKind::Zoom));
         } else {
             self.history
                 .amend_all(|entry| entry.auto_zoom_pending = false);
         }
+        self.publish_project();
         self.schedule_save(window, cx);
         cx.notify();
         window.refresh();
