@@ -601,6 +601,10 @@ impl TextInputState {
         self.layout.clone()
     }
 
+    pub fn is_composing(&self) -> bool {
+        self.marked_range.is_some()
+    }
+
     pub fn text(&self) -> &str {
         &self.content
     }
@@ -637,6 +641,12 @@ impl TextInputState {
         self.redo_stack.clear();
         self.last_group = None;
         cx.notify();
+    }
+
+    pub fn clear_history(&mut self) {
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.last_group = None;
     }
 
     pub fn select_all_text(&mut self, cx: &mut Context<Self>) {

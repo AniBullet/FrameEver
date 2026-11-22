@@ -4,8 +4,9 @@ pub(crate) mod model;
 #[cfg(test)]
 mod tests;
 mod view;
+pub(crate) mod word_edit;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
@@ -13,7 +14,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use frameever_project::filler_words::FillerKind;
-use gpui::{FocusHandle, ListAlignment, ListState, TextLayout, px};
+use gpui::{FocusHandle, ListAlignment, ListOffset, ListState, Pixels, Point, TextLayout, px};
 
 use self::energy::EnergyEnvelope;
 use self::model::{TranscriptDoc, TranscriptEdl};
@@ -46,6 +47,19 @@ impl WordSelection {
     pub fn range(self) -> Range<usize> {
         self.anchor.min(self.focus)..self.anchor.max(self.focus) + 1
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct WordEditor {
+    pub word: usize,
+    pub text: String,
+    pub start: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct WordAnchor {
+    pub origin: Point<Pixels>,
+    pub width: Pixels,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -168,6 +182,10 @@ pub(crate) struct TranscriptState {
     pub energy_offsets: Vec<(f64, f64)>,
     pub voiced_for: usize,
     pub notice: Option<String>,
+    pub editing: Option<WordEditor>,
+    pub edit_input: Option<gpui::Entity<crate::ui::TextInputState>>,
+    pub edit_anchor: Rc<Cell<Option<WordAnchor>>>,
+    pub restored_on_press: bool,
 }
 
 impl TranscriptState {
@@ -194,6 +212,10 @@ impl TranscriptState {
             energy_offsets: Vec::new(),
             voiced_for: 0,
             notice: None,
+            editing: None,
+            edit_input: None,
+            edit_anchor: Rc::new(Cell::new(None)),
+            restored_on_press: false,
         }
     }
 
@@ -209,6 +231,7 @@ impl TranscriptState {
         let Some(captions) = project.captions.as_ref().filter(|_| has_words(project)) else {
             let changed = self.doc.is_some();
             self.doc = None;
+            self.editing = None;
             self.edl = None;
             self.list.reset(0);
             self.selection = None;
@@ -223,7 +246,23 @@ impl TranscriptState {
             .is_none_or(|doc| doc.signature != signature)
         {
             let doc = TranscriptDoc::build(captions);
+            if let Some(editing) = self.editing.as_mut() {
+                match word_edit::locate(&doc.words, editing.word, &editing.text, editing.start) {
+                    Some(word) => {
+                        editing.word = word;
+                        editing.start = doc.words[word].start;
+                    }
+                    None => self.editing = None,
+                }
+            }
+            let scroll = self.doc.is_some().then(|| self.list.logical_scroll_top());
             self.list.reset(doc.paragraphs.len());
+            if let Some(scroll) = scroll.filter(|_| !doc.paragraphs.is_empty()) {
+                self.list.scroll_to(ListOffset {
+                    item_ix: scroll.item_ix.min(doc.paragraphs.len() - 1),
+                    offset_in_item: scroll.offset_in_item,
+                });
+            }
             self.layouts.borrow_mut().clear();
             self.selection = None;
             self.active = None;

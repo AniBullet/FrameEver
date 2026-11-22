@@ -230,6 +230,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Add caption at playhead", "在播放头处添加字幕"),
     ("New caption", "新字幕"),
     ("Download captions", "下载字幕"),
+    (
+        "Enter to save, Esc to cancel, Tab for the next word",
+        "Enter 保存，Esc 取消，Tab 跳到下一个词",
+    ),
     ("Captions saved", "字幕已保存"),
     (
         "Could not save the captions: {error}",

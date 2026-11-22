@@ -2986,7 +2986,7 @@ impl EditorWindow {
         self.note_edit("undo", None);
     }
 
-    fn redo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn redo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_frame_controls(window, cx);
         self.end_field_edit(cx);
         self.close_color_picker(cx);
@@ -3027,6 +3027,7 @@ impl EditorWindow {
         self.tracks.caption = restored.caption;
         self.tracks.keyboard = restored.keyboard;
         self.synchronize_caption_track(false);
+        self.transcript.dirty = true;
         self.rebuild_timeline(cx);
         if self.animated_gradient_config().is_some() {
             self.sidebar.source_tab = crate::editor_sidebar::initial_source_tab(&self.project);
@@ -15871,5 +15872,119 @@ mod tests {
             CAPTIONS * 3,
             elapsed.as_secs_f64() * 1e6 / PASSES as f64
         );
+    }
+}
+
+#[cfg(test)]
+mod add_caption_ui_tests {
+    use gpui::{AppContext, Context, Entity, IntoElement, Render, Window, div};
+
+    use crate::editor_window::EditorWindow;
+
+    struct View {
+        editor: Entity<EditorWindow>,
+        _project: tempfile::TempDir,
+    }
+
+    impl Render for View {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    fn fixture(
+        cx: &mut gpui::TestAppContext,
+        captions: serde_json::Value,
+    ) -> (Entity<EditorWindow>, &mut gpui::VisualTestContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().to_path_buf();
+        let (view, cx) = cx.add_window_view(move |window, cx| {
+            let editor = cx.new(|cx| EditorWindow::new(path, window, cx));
+            editor.update(cx, |editor, _| {
+                editor.project = serde_json::from_value(serde_json::json!({
+                    "timeline": {
+                        "segments": [{ "start": 0.0, "end": 10.0, "timescale": 1.0 }],
+                        "zoomSegments": []
+                    },
+                    "captions": captions
+                }))
+                .unwrap();
+                editor.clip_display_durations = vec![10.0];
+                editor.total = 10.0;
+                frameever_project::synchronize_captions(&mut editor.project, &[10.0]);
+            });
+            View {
+                editor,
+                _project: directory,
+            }
+        });
+        (view.read_with(cx, |view, _| view.editor.clone()), cx)
+    }
+
+    fn texts(editor: &mut EditorWindow) -> Vec<(String, f64, f64)> {
+        frameever_project::synchronize_captions(&mut editor.project, &[10.0]);
+        editor
+            .project
+            .timeline
+            .as_ref()
+            .unwrap()
+            .caption_segments
+            .iter()
+            .map(|segment| (segment.text.clone(), segment.start, segment.end))
+            .collect()
+    }
+
+    #[gpui::test]
+    fn the_playhead_caption_takes_the_next_free_gap(cx: &mut gpui::TestAppContext) {
+        let (editor, cx) = fixture(
+            cx,
+            serde_json::json!({
+                "segments": [{ "id": "segment-0", "start": 2.0, "end": 4.0, "text": "spoken",
+                    "words": [{ "text": "spoken", "start": 2.0, "end": 4.0 }] }],
+                "settings": { "enabled": false },
+                "sourceTimed": true
+            }),
+        );
+        editor.update_in(cx, |editor, window, cx| {
+            assert!(editor.add_caption_at(
+                2.5,
+                crate::editor_edits::NEW_CAPTION_LENGTH,
+                false,
+                window,
+                cx
+            ));
+            assert!(editor.tracks.caption);
+            assert!(editor.project.captions.as_ref().unwrap().settings.enabled);
+            assert_eq!(
+                texts(editor),
+                [
+                    ("spoken".to_string(), 2.0, 4.0),
+                    ("New caption".to_string(), 4.0, 6.0)
+                ]
+            );
+            assert!(editor.add_caption_at(9.5, 1.0, true, window, cx));
+            assert_eq!(texts(editor)[2], ("New caption".to_string(), 9.0, 10.0));
+            let doc =
+                crate::transcript::model::flatten_words(editor.project.captions.as_ref().unwrap());
+            assert_eq!(doc.len(), 1);
+        });
+    }
+
+    #[gpui::test]
+    fn a_full_caption_track_refuses_with_a_notice(cx: &mut gpui::TestAppContext) {
+        let (editor, cx) = fixture(
+            cx,
+            serde_json::json!({
+                "segments": [{ "id": "caption-full", "start": 0.0, "end": 10.0, "text": "all" }],
+                "settings": { "enabled": true },
+                "sourceTimed": true
+            }),
+        );
+        editor.update_in(cx, |editor, window, cx| {
+            let before = serde_json::to_value(&editor.project).unwrap();
+            assert!(!editor.add_caption_at(5.0, 2.0, false, window, cx));
+            assert_eq!(serde_json::to_value(&editor.project).unwrap(), before);
+            assert!(editor.notice.is_some());
+        });
     }
 }
