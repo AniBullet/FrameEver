@@ -378,6 +378,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Smaller file", "文件更小"),
     ("Larger file", "文件更大"),
     ("Optimize file size", "优化文件大小"),
+    ("Enhance quality", "增强画质"),
+    (
+        "Sharpens zoomed-in and scaled-down screen content (slower)",
+        "让放大或缩小后的屏幕内容更清晰（较慢）",
+    ),
     (
         "Re-encodes with software for much smaller files (slower)",
         "用软件重新编码，文件小得多（较慢）",

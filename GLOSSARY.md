@@ -78,6 +78,10 @@ _Avoid_: Skin, theme, layout file
 The video or GIF file rendered from a project, whole or from a chosen stretch; the file the user keeps and shares by hand. GIF is only ever an export format.
 _Avoid_: Render, output file, GIF recording
 
+**Enhance quality**:
+A choice saved with the project that makes zoomed-in and scaled-down screen content sharper in exports and on the paused preview; playback and tracks exports stay plain. Compare shows the paused frame without it while held. 增强画质 in Chinese.
+_Avoid_: AI upscale, super resolution
+
 **Tracks export**:
 An export of a Studio recording as separate files, one per chosen track (screen, camera, microphone, system audio), each following the cuts and speed of the edit and without background or effects. 分轨导出 in Chinese.
 _Avoid_: Stems, raw export, multitrack

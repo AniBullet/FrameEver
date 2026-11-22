@@ -2030,7 +2030,7 @@ const exportForm = () => {
 					])
 		}
 		${gif ? "" : `<div class="row-sw"><span>${L("Optimize file size", "优化文件大小")}</span><button class="switch ${S.ex.optimize ? "on" : ""}" data-act="ext" data-k="optimize" aria-label="optimize"></button></div>`}
-		<div class="row-sw" title="${pick("Sharpens zoomed-in and low-contrast screen content. Exports take longer.", "让放大后和低对比度的屏幕内容更清晰。导出会更久。")}"><span>${L("Enhance quality", "增强画质")}</span><button class="switch ${S.ex.enhance ? "on" : ""}" data-act="ext" data-k="enhance" aria-label="${pick("Enhance quality", "增强画质")}"></button></div>
+		<div class="row-sw" title="${pick("Sharpens zoomed-in and scaled-down screen content (slower)", "让放大或缩小后的屏幕内容更清晰（较慢）")}"><span>${L("Enhance quality", "增强画质")}</span><button class="switch ${S.ex.enhance ? "on" : ""}" data-act="ext" data-k="enhance" aria-label="${pick("Enhance quality", "增强画质")}"></button></div>
 		<div class="grp ${S.ex.adv ? "" : "shut"}" style="margin:6px -14px 0;border-bottom:0;border-top:1px solid var(--border)"><button data-act="ext" data-k="adv">${L("Advanced", "高级")}${icon("chevron-down")}</button>
 		${S.ex.adv ? `<div class="grp-body"><div class="row-sw"><span>${L("Export cursor only", "仅导出光标")}</span><button class="switch ${S.ex.cursor ? "on" : ""}" data-act="ext" data-k="cursor" aria-label="cursor"></button></div>${row(sl("bpp", "Bits per pixel", "每像素比特数", 0.02, 0.5, 0.15, "", 0.01))}</div>` : ""}</div>
 	</div>`;

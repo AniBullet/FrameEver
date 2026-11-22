@@ -1755,7 +1755,7 @@ impl EditorWindow {
     /// Close the colour picker's undo bracket, if it is holding one. Every
     /// dismissal goes through here, and so does a second popover opening on
     /// top of the first.
-    fn end_color_history(&mut self) {
+    pub(crate) fn end_color_history(&mut self) {
         if !std::mem::take(&mut self.sidebar.color_paused) {
             return;
         }

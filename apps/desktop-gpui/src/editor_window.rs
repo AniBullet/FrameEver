@@ -195,6 +195,8 @@ const HEADER_HEIGHT: f32 = crate::editor_chrome::TITLE_BAR_HEIGHT;
 pub(crate) const SIDEBAR_WIDTH: f32 = crate::editor_chrome::INSPECTOR_WIDTH;
 const SIDEBAR_MAX_WIDTH: f32 = 606.;
 const MIN_PLAYER_WIDTH: f32 = 480.;
+const ENHANCE_LABELS_MIN_PLAYER_WIDTH: f32 = 920.;
+const TOOLBAR_LABELS_MIN_PLAYER_WIDTH: f32 = 760.;
 const SIDEBAR_KEY_STEP: f32 = 16.;
 const SIDEBAR_GRIP_WIDTH: f32 = 8.;
 const SIDEBAR_WIDTH_SETTING: &str = "editorSidebarWidth";
@@ -735,6 +737,30 @@ pub(crate) enum SharpPreview {
     NoEngine,
     NoCanvas,
     AlreadySharp,
+}
+
+fn toolbar_is_compact(player_width: f32) -> bool {
+    player_width < TOOLBAR_LABELS_MIN_PLAYER_WIDTH
+}
+
+fn compare_redraw_size(
+    shown: (f32, f32),
+    canvas: Option<[u32; 2]>,
+    interactive: XY<u32>,
+) -> XY<u32> {
+    let sharp = shown.0 > interactive.x as f32 || shown.1 > interactive.y as f32;
+    match canvas {
+        Some(canvas) if sharp => XY::new(canvas[0], canvas[1]),
+        _ => interactive,
+    }
+}
+
+fn paused_redraw_size(sharpens: bool, canvas: [u32; 2], interactive: XY<u32>) -> XY<u32> {
+    if sharpens {
+        XY::new(canvas[0], canvas[1])
+    } else {
+        interactive
+    }
 }
 
 pub(crate) type PreviewCanvasPx = Rc<std::cell::Cell<Option<[u32; 2]>>>;
@@ -1536,6 +1562,8 @@ pub struct EditorWindow {
     preview_canvas_px: PreviewCanvasPx,
     sharp_preview: Option<gpui::Task<()>>,
     paused_requests: Option<PreviewRequests>,
+    enhanced_redraw_due: bool,
+    preview_comparing: bool,
     header: Entity<EditorSectionView>,
     toolbar: Entity<EditorSectionView>,
     transport_controls: Entity<EditorSectionView>,
@@ -2083,6 +2111,7 @@ impl EditorWindow {
         crate::theme::bind_window(window, cx);
         cx.observe_window_activation(window, |this, window, cx| {
             if !window.is_window_active() {
+                this.set_preview_comparing(false, cx);
                 if let Some(crop) = this.crop.as_mut()
                     && crop.keys.release()
                 {
@@ -2255,6 +2284,8 @@ impl EditorWindow {
             preview_canvas_px,
             sharp_preview: None,
             paused_requests: None,
+            enhanced_redraw_due: false,
+            preview_comparing: false,
             header,
             toolbar,
             transport_controls,
@@ -2892,21 +2923,65 @@ impl EditorWindow {
     /// the re-render is skipped while playing exactly as `emitRenderFrame`'s
     /// `if (!editorState.playing)` gate does (`:493`).
     pub(crate) fn publish_project(&self) {
+        self.publish_project_at(self.preview_resolution());
+    }
+
+    fn publish_project_at(&self, resolution: XY<u32>) {
         if !self.project_ready() {
             return;
         }
         let Some(instance) = &self.instance else {
             return;
         };
-        instance.project_config.0.send(self.project.clone()).ok();
+        instance
+            .project_config
+            .0
+            .send(self.previewed_project())
+            .ok();
         if !self.playing {
             let time = self.view.preview_time.unwrap_or(self.playhead).max(0.0);
             request_frame(
                 instance,
                 (time * EDITOR_PREVIEW_FPS as f64).floor() as u32,
-                self.preview_resolution(),
+                resolution,
             );
         }
+    }
+
+    fn previewed_project(&self) -> ProjectConfiguration {
+        let mut project = self.project.clone();
+        project.enhance_quality &= !self.preview_comparing;
+        project
+    }
+
+    pub(crate) fn toggle_enhance_quality(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.project_ready() {
+            return;
+        }
+        self.preview_comparing = false;
+        self.end_color_history();
+        self.flip_enhance_quality();
+        self.project_changed(window, cx);
+        self.note_project_edit("enhance-quality");
+    }
+
+    fn flip_enhance_quality(&mut self) {
+        self.project.enhance_quality = !self.project.enhance_quality;
+    }
+
+    pub(crate) fn set_preview_comparing(&mut self, comparing: bool, cx: &mut Context<Self>) {
+        let comparing = comparing && !self.preparing_retry_pending;
+        if self.preview_comparing == comparing {
+            return;
+        }
+        self.preview_comparing = comparing;
+        let size = compare_redraw_size(
+            self.preview.read(cx).frame_size,
+            self.preview_canvas_px.get(),
+            self.preview_resolution(),
+        );
+        self.publish_project_at(size);
+        cx.notify();
     }
 
     /// The disk half: restart the 250ms timer, then write on the background
@@ -3023,6 +3098,7 @@ impl EditorWindow {
             || crate::editor_sidebar::is_none_background(&self.project)
                 != crate::editor_sidebar::is_none_background(&config);
         self.project = config;
+        self.preview_comparing = false;
         let restored = TrackLanes::from_project(&self.project, self.has_camera);
         self.tracks.caption = restored.caption;
         self.tracks.keyboard = restored.keyboard;
@@ -3331,6 +3407,7 @@ impl EditorWindow {
         let Some(handle) = window.window_handle().downcast::<Self>() else {
             return;
         };
+        self.set_preview_comparing(false, cx);
         self.preparing_retry_pending = true;
         self.preparing_candidate_frame = None;
         let path = self.project_path.clone();
@@ -3496,7 +3573,8 @@ impl EditorWindow {
                 presentation.playback.playing = false;
             }
         }
-        if self.playing {
+        let was_playing = self.playing;
+        if was_playing {
             self.playing = false;
             self.view.playing = false;
             self.report_playback();
@@ -3505,6 +3583,7 @@ impl EditorWindow {
             .instance
             .as_ref()
             .map(|instance| instance.preview_tx.subscribe());
+        self.enhanced_redraw_due = was_playing && self.project.enhance_quality;
         self.schedule_sharp_preview(Duration::ZERO, cx);
         cx.notify();
     }
@@ -3528,6 +3607,8 @@ impl EditorWindow {
     }
 
     fn start_playback(&mut self, from: f64, cx: &mut Context<Self>) {
+        self.set_preview_comparing(false, cx);
+        self.enhanced_redraw_due = false;
         let Some(transport) = &self.transport else {
             return;
         };
@@ -4493,7 +4574,8 @@ impl EditorWindow {
         if self.playing {
             return SharpPreview::Playing;
         }
-        if self.preview_quality == crate::store::EditorPreviewQuality::Quarter {
+        let may_sharpen = self.preview_quality != crate::store::EditorPreviewQuality::Quarter;
+        if !may_sharpen && !self.enhanced_redraw_due {
             return SharpPreview::ChosenQuality;
         }
         if self.preparing_presentation.is_some()
@@ -4508,7 +4590,9 @@ impl EditorWindow {
         let Some(canvas) = self.preview_canvas_px.get() else {
             return SharpPreview::NoCanvas;
         };
-        if !sharp_preview_needed(canvas, self.preview.read(cx).frame_size) {
+        if !self.enhanced_redraw_due
+            && !sharp_preview_needed(canvas, self.preview.read(cx).frame_size)
+        {
             return SharpPreview::AlreadySharp;
         }
         let requests = instance.preview_tx.subscribe();
@@ -4559,9 +4643,13 @@ impl EditorWindow {
                 if requested_since_pause && pending {
                     return;
                 }
-                instance.preview_tx.send_modify(|value| {
-                    *value = Some((frame, EDITOR_PREVIEW_FPS, XY::new(canvas[0], canvas[1])))
-                });
+                let sharpens =
+                    may_sharpen && sharp_preview_needed(canvas, view.preview.read(cx).frame_size);
+                let size = paused_redraw_size(sharpens, canvas, view.preview_resolution());
+                view.enhanced_redraw_due = false;
+                instance
+                    .preview_tx
+                    .send_modify(|value| *value = Some((frame, EDITOR_PREVIEW_FPS, size)));
             });
         }));
         SharpPreview::Scheduled
@@ -11125,10 +11213,11 @@ impl EditorWindow {
     /// preview-resolution control on the right.
     fn render_player_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let narrow = {
+        let player_width = {
             let viewport_width = f32::from(window.viewport_size().width);
             editor_player_width(viewport_width, self.sidebar_width(viewport_width))
-        } < 560.;
+        };
+        let narrow = toolbar_is_compact(player_width);
         div()
             .w_full()
             .h_full()
@@ -11136,7 +11225,7 @@ impl EditorWindow {
             .flex_row()
             .items_center()
             .justify_between()
-            .gap(px(8.))
+            .gap(px(if narrow { 4. } else { 8. }))
             .px(px(12.))
             .flex_none()
             .overflow_hidden()
@@ -11147,7 +11236,11 @@ impl EditorWindow {
                     .flex_row()
                     .items_center()
                     .flex_none()
-                    .gap(px(8.))
+                    .gap(px(if narrow { 2. } else { 8. }))
+                    .child(self.render_enhance_controls(
+                        player_width >= ENHANCE_LABELS_MIN_PLAYER_WIDTH,
+                        cx,
+                    ))
                     .child(
                         ui::EditorButton::plain(&theme, "full-screen-preview")
                             .left_icon("icons/maximize.svg")
@@ -11157,15 +11250,86 @@ impl EditorWindow {
                                 this.toggle_full_screen_preview(window, cx);
                             })),
                     )
-                    .child(
+                    .children((!narrow).then(|| {
                         div()
                             .text_size(px(12.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(Hsla::from(theme.editor.text_2))
-                            .child(t!("Preview")),
-                    )
+                            .child(t!("Preview"))
+                    }))
                     .child(self.render_preview_quality(cx)),
             )
+    }
+
+    fn render_enhance_controls(&self, labels: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let ready = self.project_ready();
+        let enhanced = self.project.enhance_quality;
+        let can_compare = ready && !self.playing;
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(2.))
+            .child(
+                ui::EditorButton::plain(&theme, "enhance-quality")
+                    .text(&theme)
+                    .left_icon("icons/wand-sparkles.svg")
+                    .when(labels, |button| button.label(t!("Enhance")))
+                    .tooltip(
+                        &theme,
+                        if labels {
+                            t!("Show the paused frame enhanced")
+                        } else {
+                            t!("Enhance")
+                        },
+                    )
+                    .disabled(!ready)
+                    .pressed(enhanced)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_enhance_quality(window, cx);
+                    })),
+            )
+            .children(enhanced.then(|| {
+                div()
+                    .id("compare-hold")
+                    .when(can_compare, |this| {
+                        this.on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                                this.set_preview_comparing(true, cx);
+                            }),
+                        )
+                    })
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseUpEvent, _, cx| {
+                            this.set_preview_comparing(false, cx);
+                        }),
+                    )
+                    .on_mouse_up_out(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseUpEvent, _, cx| {
+                            this.set_preview_comparing(false, cx);
+                        }),
+                    )
+                    .child(
+                        ui::EditorButton::plain(&theme, "compare-original")
+                            .text(&theme)
+                            .left_icon("icons/columns-2.svg")
+                            .when(labels, |button| button.label(t!("Compare")))
+                            .tooltip(
+                                &theme,
+                                if labels {
+                                    t!("Hold to see the original")
+                                } else {
+                                    t!("Compare (hold)")
+                                },
+                            )
+                            .disabled(!can_compare)
+                            .pressed(self.preview_comparing),
+                    )
+            }))
     }
 
     /// The toolbar's left cluster.
@@ -11297,6 +11461,7 @@ impl EditorWindow {
         if !self.visual_ready() {
             return;
         }
+        self.set_preview_comparing(false, cx);
         self.full_screen_preview = !self.full_screen_preview;
         if self.full_screen_preview != window.is_fullscreen() {
             window.toggle_fullscreen();
@@ -15428,6 +15593,159 @@ mod tests {
             assert!(editor.audio_picker.is_none());
             assert!(editor.audio_picker_request.is_none());
         });
+    }
+
+    mod enhance_quality {
+        use super::*;
+
+        #[gpui::test]
+        fn compare_shows_the_original_and_leaves_the_project_alone(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _project) = super::timeline_history::fixture(cx);
+            editor.update(cx, |editor, cx| {
+                editor.project.enhance_quality = true;
+                assert!(editor.previewed_project().enhance_quality);
+                editor.set_preview_comparing(true, cx);
+                assert!(!editor.previewed_project().enhance_quality);
+                assert!(editor.project.enhance_quality);
+                editor.set_preview_comparing(false, cx);
+                assert!(editor.previewed_project().enhance_quality);
+            });
+        }
+
+        #[gpui::test]
+        fn playback_ends_a_held_compare(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _project) = super::timeline_history::fixture(cx);
+            editor.update(cx, |editor, cx| {
+                editor.project.enhance_quality = true;
+                editor.set_preview_comparing(true, cx);
+                editor.start_playback(0.0, cx);
+                assert!(editor.previewed_project().enhance_quality);
+            });
+        }
+
+        #[gpui::test]
+        fn undo_ends_a_held_compare(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _project) = super::timeline_history::fixture(cx);
+            editor.update_in(cx, |editor, window, cx| {
+                editor.set_preview_comparing(true, cx);
+                let mut undone = editor.project.clone();
+                undone.enhance_quality = true;
+                editor.apply_history(undone, window, cx);
+                assert!(editor.previewed_project().enhance_quality);
+            });
+        }
+
+        #[gpui::test]
+        fn pausing_redraws_the_enhanced_frame_at_any_preview_quality(
+            cx: &mut gpui::TestAppContext,
+        ) {
+            let (editor, cx, _project) = super::timeline_history::fixture(cx);
+            editor.update(cx, |editor, cx| {
+                editor.preview_quality = crate::store::EditorPreviewQuality::Quarter;
+                editor.playing = true;
+                editor.stop_playback(cx);
+                assert_eq!(
+                    editor.schedule_sharp_preview(Duration::ZERO, cx),
+                    SharpPreview::ChosenQuality
+                );
+
+                editor.project.enhance_quality = true;
+                editor.playing = true;
+                editor.stop_playback(cx);
+                assert_eq!(
+                    editor.schedule_sharp_preview(Duration::ZERO, cx),
+                    SharpPreview::NoEngine
+                );
+            });
+        }
+
+        #[gpui::test]
+        fn stepping_while_paused_asks_for_no_second_redraw(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _project) = super::timeline_history::fixture(cx);
+            editor.update(cx, |editor, cx| {
+                editor.preview_quality = crate::store::EditorPreviewQuality::Quarter;
+                editor.project.enhance_quality = true;
+                editor.playing = false;
+                editor.stop_playback(cx);
+                assert_eq!(
+                    editor.schedule_sharp_preview(Duration::ZERO, cx),
+                    SharpPreview::ChosenQuality
+                );
+            });
+        }
+
+        #[gpui::test]
+        fn compare_cannot_start_while_the_editor_reloads_its_project(
+            cx: &mut gpui::TestAppContext,
+        ) {
+            let (editor, cx, _project) = super::timeline_history::fixture(cx);
+            editor.update(cx, |editor, cx| {
+                editor.project.enhance_quality = true;
+                editor.preparing_retry_pending = true;
+                editor.set_preview_comparing(true, cx);
+                assert!(editor.previewed_project().enhance_quality);
+            });
+        }
+
+        #[gpui::test]
+        fn the_switch_reaches_the_project_while_a_style_segment_is_edited(
+            cx: &mut gpui::TestAppContext,
+        ) {
+            let (editor, cx, _project) = super::timeline_history::fixture(cx);
+            editor.update(cx, |editor, _| {
+                editor.sidebar.style_target = Some((0, crate::editor_sidebar::StyleGroup::Cursor));
+                editor.flip_enhance_quality();
+                assert!(editor.project.enhance_quality);
+            });
+        }
+
+        #[gpui::test]
+        fn opening_export_ends_a_held_compare(cx: &mut gpui::TestAppContext) {
+            let (editor, cx, _project) = super::timeline_history::fixture(cx);
+            editor.update_in(cx, |editor, window, cx| {
+                editor.project.enhance_quality = true;
+                editor.set_preview_comparing(true, cx);
+                editor.open_export(window, cx);
+                assert!(editor.previewed_project().enhance_quality);
+            });
+        }
+
+        #[test]
+        fn compare_keeps_the_size_of_the_frame_on_screen() {
+            let interactive = XY::new(960, 540);
+            let canvas = Some([1920, 1080]);
+            assert_eq!(
+                compare_redraw_size((1920., 1080.), canvas, interactive),
+                XY::new(1920, 1080)
+            );
+            assert_eq!(
+                compare_redraw_size((960., 540.), canvas, interactive),
+                interactive
+            );
+            assert_eq!(
+                compare_redraw_size((1920., 1080.), None, interactive),
+                interactive
+            );
+        }
+
+        #[test]
+        fn the_toolbar_drops_its_labels_before_enhance_and_compare_clip_it() {
+            let widest_english_row = 744.;
+            assert!(toolbar_is_compact(widest_english_row - 1.));
+            assert!(toolbar_is_compact(669.));
+            assert!(!toolbar_is_compact(900.));
+        }
+
+        #[test]
+        fn a_paused_redraw_never_goes_above_a_chosen_quarter_quality() {
+            let interactive = XY::new(480, 270);
+            let canvas = [1920, 1080];
+            assert_eq!(
+                paused_redraw_size(true, canvas, interactive),
+                XY::new(1920, 1080)
+            );
+            assert_eq!(paused_redraw_size(false, canvas, interactive), interactive);
+        }
     }
 
     mod paused_handoff {

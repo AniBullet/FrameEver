@@ -146,6 +146,7 @@ pub fn preset_config(project: &ProjectConfiguration) -> Value {
         map.insert("timeline".into(), Value::Null);
         map.insert("clips".into(), Value::Array(Vec::new()));
         map.remove("overlayOrder");
+        map.remove("enhanceQuality");
         map.remove("autoZoomVersion");
         map.remove("autoZoomPending");
         if let Some(captions) = map.get_mut("captions").and_then(Value::as_object_mut) {
@@ -200,6 +201,16 @@ mod tests {
         let settings = applied.captions.unwrap().settings;
         assert_eq!(settings.filler_language.as_deref(), Some("zh"));
         assert_eq!(settings.size, 40);
+    }
+
+    #[test]
+    fn presets_neither_save_nor_replace_enhance_quality() {
+        let mut on = ProjectConfiguration::default();
+        on.enhance_quality = true;
+        let preset = preset_config(&on);
+        assert!(preset.get("enhanceQuality").is_none());
+        assert!(apply_preset(&preset, &on).unwrap().enhance_quality);
+        assert!(default_project_config(&on).enhance_quality);
     }
 
     fn store_with(names: &[&str], default: Option<usize>) -> PresetsStore {

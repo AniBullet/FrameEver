@@ -779,6 +779,7 @@ impl EditorWindow {
         if self.playing {
             self.toggle_play_from_crop(cx);
         }
+        self.set_preview_comparing(false, cx);
         self.selection = None;
         let mut ui = ExportUi::load();
         ui.offer_clip(clip, clip_only);
@@ -2316,6 +2317,7 @@ impl EditorWindow {
                     .child(t!("Larger file")),
             )
             .child(self.export_optimize_row(ui, cx))
+            .child(self.export_enhance_row(cx))
     }
 
     fn export_gif_quality_field(&self, ui: &ExportUi, cx: &mut Context<Self>) -> impl IntoElement {
@@ -2361,13 +2363,39 @@ impl EditorWindow {
                     .child(t!("Smaller file"))
                     .child(t!("Larger file")),
             )
+            .child(self.export_enhance_row(cx))
+    }
+
+    fn export_enhance_row(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        div()
+            .id("export-enhance-row")
+            .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+            .tooltip(move |_window, cx| {
+                ui::Tooltip::new(
+                    &theme,
+                    t!("Sharpens zoomed-in and scaled-down screen content (slower)"),
+                )
+                .view(cx)
+            })
+            .child(self.export_toggle_row(
+                "export-enhance",
+                t!("Enhance quality"),
+                None,
+                self.project.enhance_quality,
+                cx.listener(|this, _, window, cx| {
+                    this.toggle_enhance_quality(window, cx);
+                    this.refresh_export_preview(window, cx);
+                    cx.notify();
+                }),
+            ))
     }
 
     fn export_toggle_row(
         &self,
         id: &'static str,
         title: &'static str,
-        description: &'static str,
+        description: Option<&'static str>,
         checked: bool,
         on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
     ) -> impl IntoElement {
@@ -2392,13 +2420,13 @@ impl EditorWindow {
                             .text_color(Hsla::from(editor.text_1))
                             .child(title),
                     )
-                    .child(
+                    .children(description.map(|description| {
                         div()
                             .text_size(px(11.))
                             .line_height(px(14.))
                             .text_color(Hsla::from(editor.text_3))
-                            .child(description),
-                    ),
+                            .child(description)
+                    })),
             )
             .child(ui::Toggle::plain(&self.theme, id, checked).on_click(on_click))
     }
@@ -2407,7 +2435,9 @@ impl EditorWindow {
         self.export_toggle_row(
             "export-optimize",
             t!("Optimize file size"),
-            t!("Re-encodes with software for much smaller files (slower)"),
+            Some(t!(
+                "Re-encodes with software for much smaller files (slower)"
+            )),
             ui.optimize_filesize,
             cx.listener(|this, _, window, cx| {
                 if let Some(ui) = this.export.as_mut() {
@@ -2478,7 +2508,7 @@ impl EditorWindow {
                 this.child(self.export_toggle_row(
                     "export-cursor-only",
                     t!("Export cursor only"),
-                    t!("Keeps the same cursor motion and clicks on a transparent background"),
+                    Some(t!("Keeps the same cursor motion and clicks on a transparent background")),
                     ui.cursor_only,
                     cx.listener(|this, _, window, cx| {
                         if let Some(ui) = this.export.as_mut() {
@@ -2604,7 +2634,7 @@ impl EditorWindow {
                     this.child(self.export_toggle_row(
                         "export-force-ffmpeg",
                         t!("Force FFmpeg decoder"),
-                        t!("Skip hardware decoder (auto-fallback enabled)"),
+                        Some(t!("Skip hardware decoder (auto-fallback enabled)")),
                         ui.force_ffmpeg,
                         cx.listener(|this, _, window, cx| {
                             if let Some(ui) = this.export.as_mut() {
