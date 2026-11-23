@@ -441,6 +441,9 @@ pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
         return Err(t!("Video path {path} not found!", path = path.display()));
     }
 
+    crate::unused_media::settle(path)
+        .map_err(|error| t!("Failed to load recording meta: {error}", error = error))?;
+
     // Repairs tracks older recorders stamped at the wrong rate, and display
     // fps that finalization replaced with the average rate, before anything
     // reads them. Non-fatal: the editor opens the files as they are.
@@ -3432,6 +3435,11 @@ impl EditorWindow {
 
     pub fn take_instance(&mut self) -> Option<Arc<EditorInstance>> {
         self.instance.take()
+    }
+
+    pub(crate) fn unused_media_request(&self) -> Option<crate::unused_media::Request> {
+        let instance = self.instance.as_ref()?;
+        crate::unused_media::Request::new(&self.project, &instance.recordings)
     }
 
     pub fn timeline_transform(&self) -> Transform {

@@ -1127,6 +1127,8 @@ pub fn recycle_project_in(dirs: &[PathBuf], path: &Path) -> Result<Option<Delete
     let Some(canonical_path) = deletable_project(dirs, path)? else {
         return Ok(None);
     };
+    let _cleanup = crate::unused_media::Claim::take(&canonical_path)
+        .ok_or_else(|| t!("This recording is still in use. Try again in a moment.").to_string())?;
     let _thumbnails = hold_thumbnail_writes()?;
     let project = dunce::simplified(&canonical_path).to_path_buf();
     recycle::recycle(&project)?;

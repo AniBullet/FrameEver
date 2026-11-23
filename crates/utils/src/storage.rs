@@ -209,7 +209,7 @@ pub fn is_project(path: &Path) -> bool {
 }
 
 pub const FORMAT_VERSION: u64 = 2;
-const PROJECT_FILE_NAME: &str = "frameever.json";
+pub const PROJECT_FILE_NAME: &str = "frameever.json";
 const FORMAT_VERSION_KEY: &str = "formatVersion";
 const EXPORTS_KEY: &str = "exports";
 const CHAPTER_MARKERS_KEY: &str = "chapterMarkers";
@@ -357,8 +357,26 @@ pub fn write_chapter_markers(project: &Path, markers: &[ChapterMarker]) -> std::
     write_project_file(project, &document)
 }
 
+pub fn with_chapter_markers(
+    project_file: &[u8],
+    markers: &[ChapterMarker],
+) -> std::io::Result<Vec<u8>> {
+    let mut document: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_slice(project_file).map_err(std::io::Error::other)?;
+    let entries = serde_json::to_value(markers).map_err(std::io::Error::other)?;
+    document.insert(CHAPTER_MARKERS_KEY.into(), entries);
+    serde_json::to_vec_pretty(&document).map_err(std::io::Error::other)
+}
+
 pub fn chapter_markers(project: &Path) -> Vec<ChapterMarker> {
-    let document = read_project_file(project);
+    chapter_markers_of(read_project_file(project))
+}
+
+pub fn chapter_markers_in(project_file: &[u8]) -> Vec<ChapterMarker> {
+    chapter_markers_of(serde_json::from_slice(project_file).unwrap_or_default())
+}
+
+fn chapter_markers_of(document: serde_json::Map<String, serde_json::Value>) -> Vec<ChapterMarker> {
     let mut markers: Vec<ChapterMarker> = document
         .get(CHAPTER_MARKERS_KEY)
         .and_then(serde_json::Value::as_array)

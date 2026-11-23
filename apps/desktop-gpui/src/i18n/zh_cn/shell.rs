@@ -698,6 +698,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("Recording retained", "已保留录制文件"),
     (
+        "This recording is still in use. Try again in a moment.",
+        "这个录制文件仍在使用中。请稍后再试。",
+    ),
+    (
         "This recording is still in use. Finish or cancel what is using it and try again: {error}",
         "这个录制文件仍在使用中。请完成或取消正在使用它的操作后重试：{error}",
     ),

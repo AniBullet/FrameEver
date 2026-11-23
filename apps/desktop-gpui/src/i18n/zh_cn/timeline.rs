@@ -121,6 +121,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Merge with next clip", "与下一个片段合并"),
     ("Rename clip", "重命名片段"),
     ("Delete clip", "删除片段"),
+    ("{name} (removed clips)", "{name}（已删除的片段）"),
     ("Can't delete the only clip", "不能删除唯一的片段"),
     ("Delete before playhead", "删除播放头之前的部分"),
     ("Delete after playhead", "删除播放头之后的部分"),
