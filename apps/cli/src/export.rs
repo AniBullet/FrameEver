@@ -21,6 +21,34 @@ pub enum ExportFormat {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum FormatArg {
+    Mp4,
+    Gif,
+    Mov,
+    Mp3,
+    Wav,
+}
+
+enum ChosenFormat {
+    Video(Option<ExportFormat>),
+    Audio(frameever_export::audio::AudioExportFormat),
+}
+
+impl ChosenFormat {
+    fn of(format: Option<FormatArg>) -> Self {
+        use frameever_export::audio::AudioExportFormat;
+        match format {
+            None => Self::Video(None),
+            Some(FormatArg::Mp4) => Self::Video(Some(ExportFormat::Mp4)),
+            Some(FormatArg::Gif) => Self::Video(Some(ExportFormat::Gif)),
+            Some(FormatArg::Mov) => Self::Video(Some(ExportFormat::Mov)),
+            Some(FormatArg::Mp3) => Self::Audio(AudioExportFormat::Mp3),
+            Some(FormatArg::Wav) => Self::Audio(AudioExportFormat::Wav),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum QualityArg {
     Maximum,
     Social,
@@ -59,7 +87,7 @@ impl From<QualityArg> for frameever_export::mp4::ExportCompression {
 #[derive(Args)]
 #[command(long_about = "Render a '.ever' project to a video file.
 
-NOTE: here --format selects the CONTAINER (mp4/gif/mov), NOT the output mode. For machine-readable
+NOTE: here --format selects the CONTAINER (mp4/gif/mov, or mp3/wav for the sound alone), NOT the output mode. For machine-readable
 output pass --json (the global flag), which streams NDJSON progress + completion events to stdout.
 The NDJSON uses PascalCase type tags and snake_case fields ({\"type\":\"Progress\",\"rendered_count\":N,
 \"total_frames\":N} then {\"type\":\"Completed\",\"path\":\"...\"}); on failure a final
@@ -72,9 +100,12 @@ pub struct Export {
     /// Output file to write the export to
     #[arg(long, short = 'o')]
     output: Option<PathBuf>,
-    /// Container to export: mp4 (default), gif, or mov. NOT the output mode — use --json for JSON
-    #[arg(long, value_enum)]
-    format: Option<ExportFormat>,
+    #[arg(
+        long,
+        value_enum,
+        help = "Container to export: mp4 (default), gif or mov, or mp3 or wav for the project's edited sound alone (Studio projects; default '<project>/output/result.mp3'). NOT the output mode — use --json for JSON"
+    )]
+    format: Option<FormatArg>,
     /// Frames per second to render
     #[arg(long)]
     fps: Option<u32>,
@@ -362,9 +393,9 @@ impl Export {
         }
     }
 
-    fn resolve_settings(&self) -> Result<CliExportSettings, String> {
+    fn resolve_settings(&self, format: Option<ExportFormat>) -> Result<CliExportSettings, String> {
         let flags = ExportFlags {
-            format: self.format,
+            format,
             fps: self.fps,
             resolution: self.resolution.clone(),
             quality: self.quality,
@@ -427,7 +458,15 @@ impl Export {
                 .run_tracks(&tracks, output, progress_json, completion_json, stdout)
                 .await;
         }
-        let settings = self.resolve_settings()?;
+        let format = match ChosenFormat::of(self.format) {
+            ChosenFormat::Video(format) => format,
+            ChosenFormat::Audio(format) => {
+                return self
+                    .run_audio(format, output, progress_json, completion_json, stdout)
+                    .await;
+            }
+        };
+        let settings = self.resolve_settings(format)?;
 
         ensure_remuxed(self.project_path.clone()).await?;
         let meta = RecordingMeta::load_for_project(&self.project_path)
@@ -522,6 +561,82 @@ impl Export {
 }
 
 impl Export {
+    fn audio_conflicts(&self) -> Option<&'static str> {
+        if self.settings_json.is_some() {
+            Some("--settings-json")
+        } else if self.fps.is_some() {
+            Some("--fps")
+        } else if self.resolution.is_some() {
+            Some("--resolution")
+        } else if self.quality.is_some() {
+            Some("--quality")
+        } else if self.codec.is_some() {
+            Some("--codec")
+        } else if self.optimize_filesize {
+            Some("--optimize-filesize")
+        } else {
+            None
+        }
+    }
+
+    async fn run_audio(
+        self,
+        format: frameever_export::audio::AudioExportFormat,
+        output: Option<PathBuf>,
+        progress_json: bool,
+        completion_json: bool,
+        stdout: &Arc<Mutex<std::io::Stdout>>,
+    ) -> Result<(), String> {
+        if let Some(flag) = self.audio_conflicts() {
+            return Err(format!(
+                "--format {} exports the sound alone and cannot be combined with {flag}",
+                format.extension()
+            ));
+        }
+        let project_path = self.project_path;
+        ensure_remuxed(project_path.clone()).await?;
+        let output = output.unwrap_or_else(|| {
+            project_path
+                .join("output")
+                .join(format!("result.{}", format.extension()))
+        });
+        let progress_stdout = Arc::clone(stdout);
+        let saved = frameever_export::audio::export_audio(
+            project_path,
+            None,
+            format,
+            output,
+            Arc::new(AtomicBool::new(false)),
+            move |progress| {
+                if progress_json {
+                    let _ = emit_export_message(
+                        &progress_stdout,
+                        &ExportProgressMessage::Progress {
+                            rendered_count: progress.done.min(u64::from(u32::MAX)) as u32,
+                            total_frames: progress.total.min(u64::from(u32::MAX)) as u32,
+                        },
+                    );
+                }
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            frameever_export::tracks::TrackExportError::NotStudio => {
+                "Instant recordings are a finished video; MP3 and WAV export is for Studio projects"
+                    .to_string()
+            }
+            error => error.to_string(),
+        })?;
+
+        if progress_json || completion_json {
+            emit_export_message(stdout, &ExportProgressMessage::Completed { path: &saved })?;
+        } else {
+            println!("Exported audio to {}", saved.display());
+        }
+        info!("Exported audio to '{}'", saved.display());
+        Ok(())
+    }
+
     fn tracks_conflicts(&self) -> Option<&'static str> {
         if self.settings_json.is_some() {
             Some("--settings-json")
@@ -1050,6 +1165,104 @@ mod tests {
                 .unwrap_err()
                 .contains("Unknown track 'cursor'")
         );
+    }
+
+    fn export_args(args: &[&str]) -> Export {
+        #[derive(clap::Parser)]
+        struct Cli {
+            #[command(flatten)]
+            export: Export,
+        }
+        let mut argv = vec!["export"];
+        argv.extend_from_slice(args);
+        <Cli as clap::Parser>::try_parse_from(argv).unwrap().export
+    }
+
+    fn studio_project_with_a_tone() -> tempfile::TempDir {
+        ffmpeg::init().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        frameever_enc_ffmpeg::standin::write_black_standin(
+            &project.path().join("display.mp4"),
+            64,
+            64,
+            30,
+            std::time::Duration::from_secs(1),
+            &["libx264"],
+        )
+        .unwrap();
+        let frames = 48_000u32;
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + frames * 2).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&48_000u32.to_le_bytes());
+        wav.extend_from_slice(&96_000u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(frames * 2).to_le_bytes());
+        for _ in 0..frames {
+            wav.extend_from_slice(&8_000i16.to_le_bytes());
+        }
+        std::fs::write(project.path().join("mic.wav"), wav).unwrap();
+        std::fs::write(
+            project.path().join("recording-meta.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "pretty_name": "CLI audio export",
+                "segments": [{
+                    "display": {"path": "display.mp4", "fps": 30},
+                    "mic": {"path": "mic.wav"}
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        frameever_project::ProjectConfiguration::default()
+            .write(project.path())
+            .unwrap();
+        project
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn mp3_and_wav_export_the_sound_into_the_output_folder() {
+        let project = studio_project_with_a_tone();
+        let path = project.path().to_str().unwrap();
+        let stdout = Arc::new(Mutex::new(stdout()));
+        for extension in ["mp3", "wav"] {
+            export_args(&[path, "--format", extension])
+                .run_inner(false, false, &stdout)
+                .await
+                .unwrap();
+            let saved = project
+                .path()
+                .join("output")
+                .join(format!("result.{extension}"));
+            let input = ffmpeg::format::input(&saved).unwrap();
+            assert!(input.streams().best(ffmpeg::media::Type::Video).is_none());
+            let seconds = input.duration() as f64 / f64::from(ffmpeg::ffi::AV_TIME_BASE);
+            assert!((seconds - 1.0).abs() < 0.1, "{extension} lasts {seconds}");
+        }
+    }
+
+    #[tokio::test]
+    async fn audio_formats_refuse_video_settings() {
+        let stdout = Arc::new(Mutex::new(stdout()));
+        for flags in [
+            ["--fps", "30"],
+            ["--resolution", "640x360"],
+            ["--codec", "hevc"],
+        ] {
+            let mut args = vec!["missing.ever", "--format", "wav"];
+            args.extend_from_slice(&flags);
+            let error = export_args(&args)
+                .run_inner(false, false, &stdout)
+                .await
+                .unwrap_err();
+            assert!(error.contains(flags[0]), "{error}");
+        }
     }
 
     fn playable_instant_project() -> tempfile::TempDir {

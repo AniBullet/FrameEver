@@ -466,7 +466,7 @@ fn try_fast_capture(target: &ScreenCaptureTarget) -> Option<DynamicImage> {
             }
             unsafe { core_graphics::image::CGImage::from_ptr(image) }
         }
-        ScreenCaptureTarget::CameraOnly => {
+        ScreenCaptureTarget::CameraOnly | ScreenCaptureTarget::AudioOnly => {
             return None;
         }
     };
@@ -601,7 +601,7 @@ fn frame_to_rgba(frame: &Frame) -> anyhow::Result<RgbaImage> {
 #[cfg(target_os = "windows")]
 fn windows_capture_settings(target: &ScreenCaptureTarget) -> anyhow::Result<(Settings, bool)> {
     if matches!(target, ScreenCaptureTarget::CameraOnly) {
-        return Err(anyhow!("Camera-only not supported for screenshots"));
+        return Err(anyhow!("Screenshots need a screen, window or area"));
     }
 
     let mut settings = Settings {
@@ -872,7 +872,9 @@ fn capture_screenshot_fallback(target: ScreenCaptureTarget) -> anyhow::Result<Rg
             debug!("Windows GDI area capture");
             Ok(image)
         }
-        ScreenCaptureTarget::CameraOnly => Err(unsupported_error()),
+        ScreenCaptureTarget::CameraOnly | ScreenCaptureTarget::AudioOnly => {
+            Err(unsupported_error())
+        }
     }
 }
 
@@ -913,7 +915,7 @@ fn try_fast_capture(target: &ScreenCaptureTarget) -> Option<DynamicImage> {
             let display = scap_targets::Display::from_id(&screen)?;
             display.raw_handle().try_as_capture_item().ok()?
         }
-        ScreenCaptureTarget::CameraOnly => {
+        ScreenCaptureTarget::CameraOnly | ScreenCaptureTarget::AudioOnly => {
             return None;
         }
     };
@@ -1030,8 +1032,8 @@ pub async fn capture_screenshot(target: ScreenCaptureTarget) -> anyhow::Result<D
                     )
                     .ok_or_else(|| anyhow!("Failed to get content filter"))?
             }
-            ScreenCaptureTarget::CameraOnly => {
-                return Err(anyhow!("Camera-only not supported for screenshots"));
+            ScreenCaptureTarget::CameraOnly | ScreenCaptureTarget::AudioOnly => {
+                return Err(anyhow!("Screenshots need a screen, window or area"));
             }
         };
 
@@ -1048,8 +1050,8 @@ pub async fn capture_screenshot(target: ScreenCaptureTarget) -> anyhow::Result<D
                 .and_then(|d| d.physical_size())
                 .map(|s| s.width())
                 .unwrap_or(1920.0),
-            ScreenCaptureTarget::CameraOnly => {
-                return Err(anyhow!("Camera-only not supported for screenshots"));
+            ScreenCaptureTarget::CameraOnly | ScreenCaptureTarget::AudioOnly => {
+                return Err(anyhow!("Screenshots need a screen, window or area"));
             }
         } as usize;
 
@@ -1066,8 +1068,8 @@ pub async fn capture_screenshot(target: ScreenCaptureTarget) -> anyhow::Result<D
                 .and_then(|d| d.physical_size())
                 .map(|s| s.height())
                 .unwrap_or(1080.0),
-            ScreenCaptureTarget::CameraOnly => {
-                return Err(anyhow!("Camera-only not supported for screenshots"));
+            ScreenCaptureTarget::CameraOnly | ScreenCaptureTarget::AudioOnly => {
+                return Err(anyhow!("Screenshots need a screen, window or area"));
             }
         } as usize;
 
@@ -1135,8 +1137,8 @@ pub async fn capture_screenshot(target: ScreenCaptureTarget) -> anyhow::Result<D
                     .try_as_capture_item()
                     .map_err(|e| anyhow!("Failed to get capture item: {e:?}"))
             }
-            ScreenCaptureTarget::CameraOnly => {
-                return Err(anyhow!("Camera-only not supported for screenshots"));
+            ScreenCaptureTarget::CameraOnly | ScreenCaptureTarget::AudioOnly => {
+                return Err(anyhow!("Screenshots need a screen, window or area"));
             }
         };
 

@@ -46,7 +46,7 @@ fn capture_target_kind(
             Some(frameever_automation::CaptureTargetKind::Display)
         }
         ScreenCaptureTarget::Area { .. } => Some(frameever_automation::CaptureTargetKind::Area),
-        ScreenCaptureTarget::CameraOnly => None,
+        ScreenCaptureTarget::CameraOnly | ScreenCaptureTarget::AudioOnly => None,
     }
 }
 

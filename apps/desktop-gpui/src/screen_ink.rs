@@ -342,7 +342,9 @@ pub fn draw_surface(target: Option<&ScreenCaptureTarget>) -> DrawSurface {
             DrawSurface::Screen
         }
         Some(ScreenCaptureTarget::Window { .. }) => DrawSurface::Window,
-        Some(ScreenCaptureTarget::CameraOnly) | None => DrawSurface::Nothing,
+        Some(ScreenCaptureTarget::CameraOnly | ScreenCaptureTarget::AudioOnly) | None => {
+            DrawSurface::Nothing
+        }
     }
 }
 

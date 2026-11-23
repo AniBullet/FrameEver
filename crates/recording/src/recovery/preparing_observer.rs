@@ -478,6 +478,7 @@ mod tests {
                     cursors: frameever_project::Cursors::Correct(Default::default()),
                     status: Some(StudioRecordingStatus::NeedsRemux),
                     cursor_shape_version: 0,
+                    audio_only: false,
                 },
             })),
             upload: None,

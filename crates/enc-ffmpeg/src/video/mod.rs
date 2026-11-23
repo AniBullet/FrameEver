@@ -6,6 +6,7 @@ pub mod hevc;
 pub mod isolated_self_test;
 pub mod prores;
 mod rgb_to_yuv;
+pub mod standin;
 #[cfg(target_os = "macos")]
 pub mod videotoolbox_hw;
 

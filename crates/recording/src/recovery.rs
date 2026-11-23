@@ -436,6 +436,9 @@ impl RecoveryManager {
 
         let mut recoverable_segments = Vec::new();
         let mut total_duration = Duration::ZERO;
+        let audio_only = meta
+            .studio_meta()
+            .is_some_and(StudioRecordingMeta::is_audio_only);
 
         let mut segment_dirs: Vec<_> = std::fs::read_dir(&segments_dir)
             .ok()?
@@ -458,6 +461,10 @@ impl RecoveryManager {
                 .strip_prefix("segment-")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
+
+            if audio_only {
+                Self::restore_audio_only_standin(&segment_path);
+            }
 
             let display_info = Self::segment_track_fragments(&segment_path, "display", true);
             let display_fragments = display_info.fragments;
@@ -516,6 +523,24 @@ impl RecoveryManager {
             recoverable_segments,
             estimated_duration: total_duration,
         })
+    }
+
+    fn restore_audio_only_standin(segment_path: &Path) {
+        let standin = segment_path.join("display.mp4");
+        if standin.is_file() {
+            return;
+        }
+        let duration = ["audio-input", "system_audio"]
+            .iter()
+            .filter_map(|track| Self::find_audio_fragments(&segment_path.join(track)))
+            .filter_map(|fragments| Self::estimate_fragments_duration(&fragments))
+            .max();
+        let Some(duration) = duration else {
+            return;
+        };
+        if let Err(error) = crate::sources::standin_for_span(&standin, duration) {
+            warn!(%error, segment = %segment_path.display(), "Could not rebuild the audio-only display track");
+        }
     }
 
     fn find_studio_fragments_with_init(dir: &Path) -> FragmentsInfo {
@@ -2848,6 +2873,10 @@ impl RecoveryManager {
                     .meta
                     .studio_meta()
                     .map_or(0, StudioRecordingMeta::cursor_shape_version),
+                audio_only: recording
+                    .meta
+                    .studio_meta()
+                    .is_some_and(StudioRecordingMeta::is_audio_only),
             },
         })
     }
@@ -5092,6 +5121,7 @@ mod clean_studio_snapshot_tests {
                     cursors: Cursors::default(),
                     status: Some(status),
                     cursor_shape_version: 0,
+                    audio_only: false,
                 },
             })),
         }
@@ -5135,6 +5165,46 @@ mod clean_studio_snapshot_tests {
         }
         encoder.finish().unwrap().unwrap();
         path
+    }
+
+    #[test]
+    fn an_interrupted_audio_only_recording_gets_its_display_track_back() {
+        ffmpeg::init().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let project = directory.path();
+        fs::create_dir_all(project.join("content/segments/segment-0")).unwrap();
+        RecordingMeta {
+            platform: None,
+            project_path: project.to_path_buf(),
+            pretty_name: "Audio only recovery fixture".into(),
+            sharing: None,
+            upload: None,
+            inner: RecordingMetaInner::Studio(Box::new(StudioRecordingMeta::MultipleSegments {
+                inner: MultipleSegments {
+                    segments: Vec::new(),
+                    cursors: Cursors::default(),
+                    status: Some(StudioRecordingStatus::InProgress),
+                    cursor_shape_version: 0,
+                    audio_only: true,
+                },
+            })),
+        }
+        .save_for_project()
+        .unwrap();
+        add_fragmented_audio(project, "audio-input", 94);
+
+        let recording = RecoveryManager::inspect_recording(project)
+            .expect("an audio only recording with its microphone is offered for recovery");
+        let recovered = RecoveryManager::recover(&recording).unwrap();
+
+        assert!(recovered.meta.is_audio_only());
+        let StudioRecordingMeta::MultipleSegments { inner } = &recovered.meta else {
+            panic!("Expected segmented Studio metadata");
+        };
+        assert!(inner.segments[0].mic.is_some());
+        let display = project.join(OUTPUT);
+        let seconds = get_media_duration(&display).unwrap().as_secs_f64();
+        assert!((seconds - 2.0).abs() < 0.2, "{seconds}");
     }
 
     fn respawn_only_studio_project() -> tempfile::TempDir {
@@ -7373,6 +7443,7 @@ mod transactional_recovery_tests {
                     cursors: Cursors::default(),
                     status: Some(StudioRecordingStatus::NeedsRemux),
                     cursor_shape_version: 0,
+                    audio_only: false,
                 },
             })),
         };
@@ -8074,6 +8145,7 @@ mod transactional_recovery_tests {
                     cursors: Cursors::default(),
                     status: Some(StudioRecordingStatus::NeedsRemux),
                     cursor_shape_version: 0,
+                    audio_only: false,
                 },
             })),
         };

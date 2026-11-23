@@ -279,7 +279,7 @@ impl<F: FnMut(TrackProgress)> ProgressReporter<'_, F> {
     }
 }
 
-struct StagedFiles(Vec<PathBuf>);
+pub(crate) struct StagedFiles(pub(crate) Vec<PathBuf>);
 
 impl Drop for StagedFiles {
     fn drop(&mut self) {
@@ -289,7 +289,7 @@ impl Drop for StagedFiles {
     }
 }
 
-fn export_token() -> String {
+pub(crate) fn export_token() -> String {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
@@ -302,7 +302,7 @@ fn staging_path(dir: &Path, kind: TrackKind, token: &str) -> PathBuf {
     dir.join(format!(".{}.{token}.partial.{extension}", kind.slug()))
 }
 
-fn publish(files: &[(PathBuf, PathBuf)], token: &str) -> Result<(), String> {
+pub(crate) fn publish(files: &[(PathBuf, PathBuf)], token: &str) -> Result<(), String> {
     if let Some((_, folder)) = files.iter().find(|(_, destination)| destination.is_dir()) {
         return Err(format!(
             "{} is a folder, so the track cannot be saved there",
@@ -362,12 +362,17 @@ struct Prepared {
     duration: f64,
 }
 
-async fn prepare(
+pub(crate) struct PreparedTimeline {
+    pub recording_meta: RecordingMeta,
+    pub project: ProjectConfiguration,
+    pub recordings: Arc<ProjectRecordingsMeta>,
+    pub duration: f64,
+}
+
+pub(crate) fn prepare_timeline(
     project_path: &Path,
     config: Option<ProjectConfiguration>,
-    tracks: &[TrackKind],
-    force_ffmpeg_decoder: bool,
-) -> Result<Prepared, TrackExportError> {
+) -> Result<PreparedTimeline, TrackExportError> {
     let recording_meta = RecordingMeta::load_for_project(project_path)
         .map_err(|error| format!("Could not read the recording: {error}"))?;
     let studio_meta = recording_meta
@@ -399,28 +404,65 @@ async fn prepare(
         &frameever_project::late_audio_trim_limits(studio_meta, &recording_durations),
     );
 
-    let available = available_tracks(&recordings, &project);
+    Ok(PreparedTimeline {
+        recording_meta,
+        project,
+        recordings,
+        duration: 0.0,
+    })
+}
+
+impl PreparedTimeline {
+    pub(crate) fn measured(mut self) -> Result<Self, TrackExportError> {
+        let studio_meta = self
+            .recording_meta
+            .studio_meta()
+            .ok_or(TrackExportError::NotStudio)?;
+        self.duration = frameever_rendering::get_duration(
+            &self.recordings,
+            &self.recording_meta,
+            studio_meta,
+            &self.project,
+        );
+        if !self.duration.is_finite() || self.duration <= 0.0 {
+            return Err(TrackExportError::Failed(
+                "There is nothing to export: the timeline is empty".into(),
+            ));
+        }
+        if let Some(timeline) = &self.project.timeline
+            && timeline
+                .segments
+                .iter()
+                .any(|segment| segment.recording_clip as usize >= self.recordings.segments.len())
+        {
+            return Err(TrackExportError::Failed(
+                "The timeline refers to a clip this recording does not have".into(),
+            ));
+        }
+        Ok(self)
+    }
+}
+
+async fn prepare(
+    project_path: &Path,
+    config: Option<ProjectConfiguration>,
+    tracks: &[TrackKind],
+    force_ffmpeg_decoder: bool,
+) -> Result<Prepared, TrackExportError> {
+    let timeline = prepare_timeline(project_path, config)?;
+    let available = available_tracks(&timeline.recordings, &timeline.project);
     if let Some(missing) = tracks.iter().find(|kind| !available.contains(kind)) {
         return Err(TrackExportError::Unavailable(*missing));
     }
-
-    let duration =
-        frameever_rendering::get_duration(&recordings, &recording_meta, studio_meta, &project);
-    if !duration.is_finite() || duration <= 0.0 {
-        return Err(TrackExportError::Failed(
-            "There is nothing to export: the timeline is empty".into(),
-        ));
-    }
-    if let Some(timeline) = &project.timeline
-        && timeline
-            .segments
-            .iter()
-            .any(|segment| segment.recording_clip as usize >= recordings.segments.len())
-    {
-        return Err(TrackExportError::Failed(
-            "The timeline refers to a clip this recording does not have".into(),
-        ));
-    }
+    let PreparedTimeline {
+        recording_meta,
+        project,
+        recordings,
+        duration,
+    } = timeline.measured()?;
+    let studio_meta = recording_meta
+        .studio_meta()
+        .ok_or(TrackExportError::NotStudio)?;
 
     let force_ffmpeg_decoder = force_ffmpeg_decoder || !cfg!(target_os = "macos");
     let needs_audio = tracks.iter().any(|kind| !kind.is_video());
@@ -1024,7 +1066,7 @@ async fn export_audio_track<F: FnMut(TrackProgress)>(
     })
 }
 
-fn run_blocking<T>(work: impl FnOnce() -> T) -> T {
+pub(crate) fn run_blocking<T>(work: impl FnOnce() -> T) -> T {
     match tokio::runtime::Handle::try_current() {
         Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
             tokio::task::block_in_place(work)

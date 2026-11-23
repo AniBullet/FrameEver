@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod compress;
 pub mod estimates;
 pub mod gif;
@@ -920,6 +921,7 @@ mod clip_offset_tests {
                 cursors: Cursors::default(),
                 status: None,
                 cursor_shape_version: 0,
+                audio_only: false,
             },
         }
     }

@@ -1,0 +1,4 @@
+pub const AUDIO_ONLY_CANVAS_WIDTH: u32 = 1920;
+pub const AUDIO_ONLY_CANVAS_HEIGHT: u32 = 1080;
+pub const AUDIO_ONLY_CANVAS_FPS: u32 = 30;
+pub const AUDIO_ONLY_CANVAS_ENCODERS: &[&str] = &["libx264"];

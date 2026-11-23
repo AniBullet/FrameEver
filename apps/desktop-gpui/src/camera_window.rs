@@ -1440,7 +1440,7 @@ fn camera_capture_size(
 ) -> Option<(f64, f64)> {
     use frameever_recording::screen_capture::ScreenCaptureTarget;
     match target {
-        ScreenCaptureTarget::CameraOnly => None,
+        ScreenCaptureTarget::CameraOnly | ScreenCaptureTarget::AudioOnly => None,
         ScreenCaptureTarget::Area { bounds, .. } => {
             #[cfg(target_os = "windows")]
             let scale = {

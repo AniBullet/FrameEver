@@ -36,6 +36,8 @@ struct RecordStartInput {
     #[serde(default)]
     system_audio: bool,
     #[serde(default)]
+    audio: bool,
+    #[serde(default)]
     path: Option<String>,
 }
 
@@ -93,6 +95,9 @@ fn record_start_args(input: RecordStartInput) -> Vec<String> {
     }
     if input.system_audio {
         args.push("--system-audio".to_string());
+    }
+    if input.audio {
+        args.push("--audio".to_string());
     }
     args
 }
@@ -227,7 +232,7 @@ impl LocalMcpServer {
 
     #[tool(
         name = "record_start",
-        description = "Start a detached recording of a screen or window. Returns the recording id, process id and project path",
+        description = "Start a detached recording of a screen or window, or with audio set, of the microphone and system audio alone. Returns the recording id, process id and project path",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -300,7 +305,7 @@ impl LocalMcpServer {
 
     #[tool(
         name = "export",
-        description = "Export a .ever project to a local video file and return the output path",
+        description = "Export a .ever project to a local video file, or with format mp3 or wav to its sound alone, and return the output path",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -426,6 +431,7 @@ mod tests {
             camera: None,
             mic: Some("Mic".to_string()),
             system_audio: true,
+            audio: false,
             path: None,
         });
         assert_eq!(

@@ -43,7 +43,7 @@ pub struct RecordParams {
     #[arg(long, value_enum, default_value_t = RecordMode::Studio)]
     mode: RecordMode,
     /// Capture from the camera with this device id (see `frameever targets cameras`)
-    #[arg(long)]
+    #[arg(long, conflicts_with = "audio")]
     camera: Option<String>,
     /// Capture from the microphone with this device name (see `frameever targets mics`)
     #[arg(long)]
@@ -79,7 +79,21 @@ impl RecordParams {
         if self.fps == Some(0) {
             return Err("--fps must be greater than 0".to_string());
         }
+        if self.target.audio && self.mic.is_none() && !self.system_audio {
+            return Err(format!(
+                "{}; pass --mic <name> or --system-audio",
+                studio_recording::AUDIO_ONLY_NEEDS_A_SOURCE
+            ));
+        }
         Ok(())
+    }
+
+    fn recording_mode(&self) -> RecordMode {
+        if self.target.audio {
+            RecordMode::Studio
+        } else {
+            self.mode
+        }
     }
 
     fn to_cli_args(&self) -> Vec<String> {
@@ -91,6 +105,9 @@ impl RecordParams {
         if let Some(id) = &self.target.window {
             args.push("--window".to_string());
             args.push(id.to_string());
+        }
+        if self.target.audio {
+            args.push("--audio".to_string());
         }
         args.push("--mode".to_string());
         args.push(self.mode.to_string());
@@ -240,7 +257,7 @@ async fn run_foreground(params: RecordParams, format: OutputFormat) -> Result<()
     let completed = finalize(actor, params.duration, interactive, None).await?;
     crate::automation::run_recording_finished(
         completed.project_path(),
-        automation_mode(params.mode),
+        automation_mode(params.recording_mode()),
     )
     .await;
     emit_stopped(format, &completed)
@@ -452,7 +469,7 @@ async fn session_worker(params: RecordParams, recording_id: &str) -> Result<(), 
     let completed = finalize(actor, params.duration, false, Some(&stop_path)).await?;
     crate::automation::run_recording_finished(
         completed.project_path(),
-        automation_mode(params.mode),
+        automation_mode(params.recording_mode()),
     )
     .await;
     let recording_meta_exists = completed
@@ -766,8 +783,9 @@ async fn start_recording(
         .with_system_audio(params.system_audio);
     let mut instant_builder = instant_recording::Actor::builder(path.clone(), target)
         .with_system_audio(params.system_audio);
+    let mode = params.recording_mode();
     let camera_recorded =
-        !(cfg!(target_os = "macos") && params.mode == RecordMode::Instant && !camera_only_target);
+        !(cfg!(target_os = "macos") && mode == RecordMode::Instant && !camera_only_target);
 
     // Feeds must be locked and attached before build(); the lock keeps the device open for the whole
     // recording, so the feed actor handle itself does not need to be retained.
@@ -840,13 +858,10 @@ async fn start_recording(
         instant_builder = instant_builder.with_mic_feed(lock);
     }
 
-    let upload_lock = prepare_recording_project(
-        &path,
-        params.mode,
-        params.mic.is_some() || params.system_audio,
-    )?;
+    let upload_lock =
+        prepare_recording_project(&path, mode, params.mic.is_some() || params.system_audio)?;
 
-    match params.mode {
+    match mode {
         RecordMode::Studio => {
             let builder = studio_defaults(&frameever_utils::storage::settings_file())
                 .apply_to_studio_builder(studio_builder, params.fps);
@@ -1199,6 +1214,9 @@ fn resolve_path(params: &RecordParams, recording_id: &str) -> Result<PathBuf, St
 }
 
 fn resolve_target(params: &RecordParams) -> Result<ScreenCaptureTarget, String> {
+    if params.target.audio {
+        return Ok(ScreenCaptureTarget::AudioOnly);
+    }
     match (&params.target.screen, &params.target.window) {
         (Some(id), _) => frameever_recording::screen_capture::list_displays()
             .into_iter()
@@ -1224,7 +1242,7 @@ fn resolve_target(params: &RecordParams) -> Result<ScreenCaptureTarget, String> 
                 )
             }),
         _ => Err(
-            "No target specified; pass --screen <id> or --window <id> (see `frameever targets`)"
+            "No target specified; pass --screen <id>, --window <id> or --audio (see `frameever targets`)"
                 .to_string(),
         ),
     }
@@ -1284,6 +1302,12 @@ struct RecordTargets {
     /// ID of the window to capture
     #[arg(long, group = "target")]
     window: Option<WindowId>,
+    #[arg(
+        long,
+        group = "target",
+        help = "Record only the microphone and system audio, with no screen or camera, as a Studio project"
+    )]
+    audio: bool,
 }
 
 // `rename_all` only renames the variant tags (started/stopped/error); `rename_all_fields` is what
@@ -1352,6 +1376,7 @@ mod tests {
             target: RecordTargets {
                 screen: None,
                 window: None,
+                audio: false,
             },
             mode,
             camera: None,
@@ -1583,6 +1608,61 @@ mod tests {
         let record = <Record as clap::Parser>::try_parse_from(["record"]).unwrap();
         let path = resolve_path(&record.params, "abc123").unwrap();
         assert_eq!(path.file_name().unwrap(), "abc123.ever");
+    }
+
+    fn parse_record(args: &[&str]) -> Result<RecordParams, clap::Error> {
+        #[derive(clap::Parser)]
+        struct Record {
+            #[command(flatten)]
+            params: RecordParams,
+        }
+        let mut argv = vec!["record"];
+        argv.extend_from_slice(args);
+        <Record as clap::Parser>::try_parse_from(argv).map(|record| record.params)
+    }
+
+    #[test]
+    fn audio_records_a_studio_project_from_the_audio_sources_alone() {
+        for mode in ["studio", "instant"] {
+            let params = parse_record(&["--audio", "--system-audio", "--mode", mode]).unwrap();
+            params.validate().unwrap();
+            assert_eq!(params.recording_mode(), RecordMode::Studio);
+            assert!(matches!(
+                resolve_target(&params).unwrap(),
+                ScreenCaptureTarget::AudioOnly
+            ));
+            let worker = parse_record(
+                &params
+                    .to_cli_args()
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+            assert!(worker.target.audio);
+            assert!(worker.system_audio);
+        }
+    }
+
+    #[test]
+    fn audio_without_a_microphone_or_system_audio_is_refused() {
+        let error = parse_record(&["--audio"]).unwrap().validate().unwrap_err();
+        assert!(
+            error.starts_with(studio_recording::AUDIO_ONLY_NEEDS_A_SOURCE),
+            "{error}"
+        );
+        assert!(
+            parse_record(&["--audio", "--mic", "Desk"])
+                .unwrap()
+                .validate()
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn audio_takes_no_screen_window_or_camera() {
+        assert!(parse_record(&["--audio", "--screen", "1"]).is_err());
+        assert!(parse_record(&["--audio", "--camera", "cam", "--system-audio"]).is_err());
     }
 
     #[test]

@@ -83,6 +83,7 @@ fn source_label(target: &ScreenCaptureTarget) -> Option<&'static str> {
         ScreenCaptureTarget::Display { .. } => Some(t!("Display")),
         ScreenCaptureTarget::Window { .. } => Some(t!("Window")),
         ScreenCaptureTarget::Area { .. } => Some(t!("Area")),
+        ScreenCaptureTarget::AudioOnly => Some(t!("Audio")),
         ScreenCaptureTarget::CameraOnly => None,
     }
 }

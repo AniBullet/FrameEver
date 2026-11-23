@@ -65,15 +65,20 @@ pub enum ScreenCaptureTarget {
         bounds: LogicalBounds,
     },
     CameraOnly,
+    AudioOnly,
 }
 
 impl ScreenCaptureTarget {
+    pub fn is_audio_only(&self) -> bool {
+        matches!(self, Self::AudioOnly)
+    }
+
     pub fn display(&self) -> Option<Display> {
         match self {
             Self::Display { id } => Display::from_id(id),
             Self::Window { id } => Window::from_id(id).and_then(|w| w.display()),
             Self::Area { screen, .. } => Display::from_id(screen),
-            Self::CameraOnly => None,
+            Self::CameraOnly | Self::AudioOnly => None,
         }
     }
 
@@ -168,7 +173,7 @@ impl ScreenCaptureTarget {
                     return Some(CursorCropBounds::new_windows(bounds));
                 }
             }
-            Self::CameraOnly => None,
+            Self::CameraOnly | Self::AudioOnly => None,
         }
     }
 
@@ -202,7 +207,7 @@ impl ScreenCaptureTarget {
                     )
                 }
             }
-            Self::CameraOnly => None,
+            Self::CameraOnly | Self::AudioOnly => None,
         }
     }
 
@@ -212,6 +217,7 @@ impl ScreenCaptureTarget {
             Self::Window { id } => Window::from_id(id).and_then(|w| w.name()),
             Self::Area { screen, .. } => Display::from_id(screen).and_then(|d| d.name()),
             Self::CameraOnly => Some("Camera".to_string()),
+            Self::AudioOnly => Some("Audio".to_string()),
         }
     }
 
@@ -221,6 +227,7 @@ impl ScreenCaptureTarget {
             ScreenCaptureTarget::Window { .. } => "Window",
             ScreenCaptureTarget::Area { .. } => "Area",
             ScreenCaptureTarget::CameraOnly => "Camera",
+            ScreenCaptureTarget::AudioOnly => "Audio",
         }
     }
 }

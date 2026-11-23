@@ -135,6 +135,7 @@ fn imported_video_meta(
                 cursors: Cursors::default(),
                 status: Some(status),
                 cursor_shape_version: frameever_project::CURSOR_SHAPE_VERSION,
+                audio_only: false,
             },
         })),
         upload: None,

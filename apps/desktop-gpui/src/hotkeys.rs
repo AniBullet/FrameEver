@@ -950,7 +950,7 @@ fn target_is_live(target: &ScreenCaptureTarget) -> bool {
         ScreenCaptureTarget::Area { screen, .. } => {
             scap_targets::Display::from_id(screen).is_some()
         }
-        ScreenCaptureTarget::CameraOnly => true,
+        ScreenCaptureTarget::CameraOnly | ScreenCaptureTarget::AudioOnly => true,
     }
 }
 

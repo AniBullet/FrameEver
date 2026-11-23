@@ -204,6 +204,7 @@ pub(crate) mod tests {
                     cursors: Default::default(),
                     status: Some(StudioRecordingStatus::Complete),
                     cursor_shape_version: 0,
+                    audio_only: false,
                 },
             })),
         }

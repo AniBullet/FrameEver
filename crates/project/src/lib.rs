@@ -1,4 +1,5 @@
 mod animated_gradient;
+mod audio_only;
 pub mod auto_zoom;
 mod caption_timing;
 mod configuration;
@@ -11,6 +12,7 @@ mod meta;
 mod shapes;
 
 pub use animated_gradient::*;
+pub use audio_only::*;
 pub use caption_timing::{
     MAX_CAPTION_WORD_DURATION, caption_text_from_words, derive_caption_track_segments,
     held_tail_clip, is_cjk, is_cjk_punctuation, source_caption_id, synchronize_captions,
