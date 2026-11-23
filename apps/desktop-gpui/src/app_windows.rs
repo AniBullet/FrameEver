@@ -4931,7 +4931,9 @@ fn load_editor_project_candidate(
         .detach();
 
         load_editor_waveforms(instance.clone(), handle, cx);
-        load_editor_filmstrips(instance.clone(), handle, cx);
+        if !instance.render_constants.is_audio_only() {
+            load_editor_filmstrips(instance.clone(), handle, cx);
+        }
 
         if handle
             .update(cx, |view, window, cx| {

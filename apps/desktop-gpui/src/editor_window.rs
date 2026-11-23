@@ -2502,6 +2502,7 @@ impl EditorWindow {
             input.set_disabled(false, cx);
         });
         self.state = LoadState::Ready(Box::new(summary));
+        self.apply_audio_only_timeline();
         cx.notify();
         window.refresh();
     }
@@ -2560,6 +2561,7 @@ impl EditorWindow {
         self.timeline.clip_paths = clip_paths;
         self.timeline.filmstrips = filmstrips;
         self.timeline.music_waveforms = music_waveforms;
+        self.apply_audio_only_timeline();
         if self.timeline.total_duration > 0.0 {
             self.total = self.timeline.total_duration;
         }
@@ -2631,6 +2633,7 @@ impl EditorWindow {
     ) {
         self.timeline.mic_waveforms = mic;
         self.timeline.system_waveforms = system;
+        self.refresh_audio_levels();
         cx.notify();
         window.refresh();
     }
@@ -2864,6 +2867,7 @@ impl EditorWindow {
             return;
         }
         self.synchronize_caption_track(false);
+        self.project.match_audio_visuals_to_background();
         self.history.record(&self.project);
         self.rebuild_timeline(cx);
         self.publish_project();
@@ -2877,6 +2881,7 @@ impl EditorWindow {
             return;
         }
         self.synchronize_caption_track(false);
+        self.project.match_audio_visuals_to_background();
         self.history.record(&self.project);
         self.publish_project();
         cx.notify();
@@ -10160,6 +10165,7 @@ impl EditorWindow {
         let menu = self.add_track?;
         let theme = self.theme;
         let scene_available = self.scene_available();
+        let audio_only = self.is_audio_only();
         let hint: SharedString = match menu.hovered {
             None => t!("Choose a track to add to your timeline.").into(),
             Some(kind) => {
@@ -10213,8 +10219,12 @@ impl EditorWindow {
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(
                             div().flex().flex_row().gap(px(4.)).p(px(6.)).children(
-                                ADD_TRACK_OPTIONS.iter().copied().enumerate().map(
-                                    |(index, kind)| {
+                                ADD_TRACK_OPTIONS
+                                    .iter()
+                                    .copied()
+                                    .filter(|kind| !audio_only || kind.shown_in_audio_only())
+                                    .enumerate()
+                                    .map(|(index, kind)| {
                                         self.render_add_track_tile(
                                             index,
                                             kind,
@@ -10222,8 +10232,7 @@ impl EditorWindow {
                                             scene_available,
                                             cx,
                                         )
-                                    },
-                                ),
+                                    }),
                             ),
                         )
                         .child(
@@ -11223,14 +11232,14 @@ impl EditorWindow {
 
     /// The player's top row: the stage's own triggers on the left, the
     /// preview-resolution control on the right.
-    fn render_player_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_player_toolbar(&self, window: &Window, cx: &mut Context<Self>) -> gpui::Div {
         let theme = self.theme;
         let player_width = {
             let viewport_width = f32::from(window.viewport_size().width);
             editor_player_width(viewport_width, self.sidebar_width(viewport_width))
         };
         let narrow = toolbar_is_compact(player_width);
-        div()
+        let toolbar = div()
             .w_full()
             .h_full()
             .flex()
@@ -11240,37 +11249,41 @@ impl EditorWindow {
             .gap(px(if narrow { 4. } else { 8. }))
             .px(px(12.))
             .flex_none()
-            .overflow_hidden()
-            .child(self.render_player_actions(narrow, cx))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .flex_none()
-                    .gap(px(if narrow { 2. } else { 8. }))
-                    .child(self.render_enhance_controls(
+            .overflow_hidden();
+        if self.shows_audio_card() {
+            return toolbar;
+        }
+        toolbar.child(self.render_player_actions(narrow, cx)).child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .flex_none()
+                .gap(px(if narrow { 2. } else { 8. }))
+                .child(
+                    self.render_enhance_controls(
                         player_width >= ENHANCE_LABELS_MIN_PLAYER_WIDTH,
                         cx,
-                    ))
-                    .child(
-                        ui::EditorButton::plain(&theme, "full-screen-preview")
-                            .left_icon("icons/maximize.svg")
-                            .tooltip(&theme, t!("Full-screen preview"))
-                            .disabled(!self.project_ready())
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.toggle_full_screen_preview(window, cx);
-                            })),
-                    )
-                    .children((!narrow).then(|| {
-                        div()
-                            .text_size(px(12.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(Hsla::from(theme.editor.text_2))
-                            .child(t!("Preview"))
-                    }))
-                    .child(self.render_preview_quality(cx)),
-            )
+                    ),
+                )
+                .child(
+                    ui::EditorButton::plain(&theme, "full-screen-preview")
+                        .left_icon("icons/maximize.svg")
+                        .tooltip(&theme, t!("Full-screen preview"))
+                        .disabled(!self.project_ready())
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.toggle_full_screen_preview(window, cx);
+                        })),
+                )
+                .children((!narrow).then(|| {
+                    div()
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(Hsla::from(theme.editor.text_2))
+                        .child(t!("Preview"))
+                }))
+                .child(self.render_preview_quality(cx)),
+        )
     }
 
     fn render_enhance_controls(&self, labels: bool, cx: &mut Context<Self>) -> impl IntoElement {
@@ -11378,18 +11391,20 @@ impl EditorWindow {
             )
             // `EditorButton tooltipText="Crop Video"` (`Player.tsx:293-299`)
             // -> `cropDialogHandler`.
-            .child(
-                ui::EditorButton::plain(&theme, "crop")
-                    .text(&theme)
-                    .left_icon("icons/crop.svg")
-                    .when(!narrow, |button| button.label(t!("Crop")))
-                    .tooltip(&theme, t!("Crop Video"))
-                    .disabled(!self.project_ready())
-                    .pressed(self.crop.is_some())
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_crop(window, cx);
-                    })),
-            )
+            .when(!self.is_audio_only(), |actions| {
+                actions.child(
+                    ui::EditorButton::plain(&theme, "crop")
+                        .text(&theme)
+                        .left_icon("icons/crop.svg")
+                        .when(!narrow, |button| button.label(t!("Crop")))
+                        .tooltip(&theme, t!("Crop Video"))
+                        .disabled(!self.project_ready())
+                        .pressed(self.crop.is_some())
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.open_crop(window, cx);
+                        })),
+                )
+            })
             .child(
                 ui::EditorButton::plain(&theme, "snapshot")
                     .text(&theme)
@@ -11493,8 +11508,10 @@ impl EditorWindow {
     /// the sprite atlas.
     fn render_preview_canvas(&self, cx: &mut Context<Self>, overlay: bool) -> impl IntoElement {
         let theme = self.theme;
+        let audio_card = self.shows_audio_card();
         let body = match (&self.state, self.latest_frame.is_some()) {
             (LoadState::Failed(message), _) => self.render_error_state(message).into_any_element(),
+            _ if audio_card => self.render_audio_card(cx),
             (_, true) => loading::reveal(
                 "editor-preview-ready",
                 self.preview
@@ -11515,7 +11532,7 @@ impl EditorWindow {
             // `CanvasElementsOverlay` + `SnapGuidesOverlay`
             // (`Player.tsx:636-643`), both mounted inside the letterbox
             // wrapper and only while a frame exists.
-            .children(if overlay && self.project_ready() {
+            .children(if overlay && self.project_ready() && !audio_card {
                 self.render_canvas_overlay(cx)
             } else {
                 None

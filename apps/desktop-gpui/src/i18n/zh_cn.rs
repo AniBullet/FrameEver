@@ -18,6 +18,9 @@ pub static TABLES: &[&[(&str, &str)]] = &[
 
 pub static CONTEXTUAL: &[(&str, &str, &str)] = &[
     ("font weight", "Light", "细"),
+    ("audio visuals", "Circle", "圆环"),
+    ("audio visuals", "Medium", "中"),
+    ("timeline lane", "Recording", "录音"),
     ("export format", "Tracks", "分轨"),
     ("transcript", "Cut", "剪掉"),
     ("window menu", "Size", "尺寸"),

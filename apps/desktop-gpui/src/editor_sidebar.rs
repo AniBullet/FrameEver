@@ -2635,7 +2635,8 @@ impl EditorWindow {
         let theme = self.theme;
         let summary = self.summary();
         let selection = self.sidebar_selection().cloned();
-        let selected_tab = self.sidebar.tab;
+        let selected_tab = self.shown_sidebar_tab();
+        let audio_only = self.is_audio_only();
         let title = selection
             .as_ref()
             .map_or(tr(selected_tab.label()), |selection| {
@@ -2644,6 +2645,7 @@ impl EditorWindow {
         let items: Vec<_> = SidebarTab::ALL
             .into_iter()
             .enumerate()
+            .filter(|(_, tab)| !audio_only || tab.shown_in_audio_only())
             .map(|(index, tab)| {
                 let disabled = match tab {
                     SidebarTab::Camera => !summary.is_some_and(|summary| summary.has_camera),
@@ -2722,10 +2724,25 @@ impl EditorWindow {
             .into_any_element()
     }
 
+    pub(crate) fn shown_sidebar_tab(&self) -> SidebarTab {
+        let tab = self.sidebar.tab;
+        if self.is_audio_only() && !tab.shown_in_audio_only() {
+            SidebarTab::Audio
+        } else {
+            tab
+        }
+    }
+
     fn render_tab_body(&self, cx: &mut Context<Self>) -> AnyElement {
-        let content: AnyElement = match self.sidebar.tab {
+        let content: AnyElement = match self.shown_sidebar_tab() {
             SidebarTab::Screen => self.render_screen_tab(cx).into_any_element(),
-            SidebarTab::Background => self.render_background_tab(cx).into_any_element(),
+            SidebarTab::Background => div()
+                .flex()
+                .flex_col()
+                .gap(px(14.))
+                .children(self.render_audio_visuals_group(cx))
+                .child(self.render_background_tab(cx))
+                .into_any_element(),
             SidebarTab::Camera => self.render_camera_tab(cx),
             SidebarTab::Audio => self.render_audio_tab(cx),
             SidebarTab::Cursor => self.render_cursor_tab(cx),

@@ -1,4 +1,11 @@
 pub static ENTRIES: &[(&str, &str)] = &[
+    ("Audio only", "仅音频"),
+    ("This recording has no video.", "这段录制没有视频。"),
+    ("Add visuals", "添加视觉效果"),
+    ("Visuals", "视觉效果"),
+    ("Show visuals", "显示视觉效果"),
+    ("Bars", "柱状"),
+    ("Wave", "波形"),
     ("Clip options", "片段选项"),
     ("Move clip up", "上移片段"),
     ("Move clip down", "下移片段"),

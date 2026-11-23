@@ -37,7 +37,7 @@ The on-disk folder holding one recording's media tracks, metadata and edit confi
 _Avoid_: Recording folder, session
 
 **Audio only recording**:
-A recording of the microphone and system audio with no screen and no camera, started in Studio or Instant mode. Audio is its recording target, beside display, window, area and camera; it is not a recording mode. In either mode it is saved as a Studio project, which opens in the editor and exports as MP3 or WAV. 仅音频录制 in Chinese.
+A recording of the microphone and system audio with no screen and no camera, started in Studio or Instant mode. Audio is its recording target, beside display, window, area and camera; it is not a recording mode. In either mode it is saved as a Studio project, which opens in the editor and exports as MP3 or WAV; once it is given visuals (Background › Visuals: bars, wave or circle over the background), it also exports as MP4 or GIF. 仅音频录制 in Chinese.
 _Avoid_: Audio mode, voice memo, podcast mode
 
 **Chapter mark**:

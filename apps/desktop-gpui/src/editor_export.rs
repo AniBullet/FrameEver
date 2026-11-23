@@ -426,7 +426,7 @@ pub struct ExportUi {
     pub tracks: Vec<ExportTrack>,
     excluded_tracks: Vec<ExportTrack>,
     pub audio_format: AudioExportFormat,
-    audio_only: bool,
+    picture: ExportPicture,
     sound: bool,
     saved_format: ExportFormatKind,
 }
@@ -524,7 +524,7 @@ impl ExportUi {
                 .filter_map(|slug| ExportTrack::from_slug(slug))
                 .collect(),
             audio_format: audio_format_from_slug(prefs.audio_format.as_deref()),
-            audio_only: false,
+            picture: ExportPicture::Recorded,
             sound: false,
             saved_format: match ExportFormatKind::from_slug(&prefs.format) {
                 ExportFormatKind::Audio => ExportFormatKind::Mp4,
@@ -541,14 +541,26 @@ impl ExportUi {
         self.format.renders_video()
     }
 
-    fn set_audio_only(&mut self, audio_only: bool) {
-        self.audio_only = audio_only;
-        if audio_only {
-            self.format = ExportFormatKind::Audio;
-            self.cursor_only = false;
-            self.clip_only = false;
-        } else if self.format == ExportFormatKind::Audio && !self.has_audio() {
-            self.format = ExportFormatKind::Mp4;
+    fn set_picture(&mut self, picture: ExportPicture) {
+        self.picture = picture;
+        match picture {
+            ExportPicture::None => {
+                self.format = ExportFormatKind::Audio;
+                self.cursor_only = false;
+                self.clip_only = false;
+            }
+            ExportPicture::Visuals => {
+                self.format = match self.saved_format {
+                    ExportFormatKind::Tracks | ExportFormatKind::Audio => ExportFormatKind::Mp4,
+                    format => format,
+                };
+                self.cursor_only = false;
+            }
+            ExportPicture::Recorded => {
+                if self.format == ExportFormatKind::Audio && !self.has_audio() {
+                    self.format = ExportFormatKind::Mp4;
+                }
+            }
         }
     }
 
@@ -663,7 +675,7 @@ impl ExportUi {
     fn offer_clip(&mut self, clip: Option<ExportClip>, clip_only: bool) {
         self.clip_only = clip_only && clip.is_some();
         self.clip = clip;
-        if self.clip_only && !self.renders_video() && !self.audio_only {
+        if self.clip_only && !self.renders_video() && self.picture == ExportPicture::Recorded {
             self.format = ExportFormatKind::Mp4;
         }
     }
@@ -968,7 +980,11 @@ impl EditorWindow {
         ui.sound = self.summary().is_some_and(|summary| {
             frameever_export::audio::has_audio(&summary.recordings, &self.project)
         });
-        ui.set_audio_only(self.summary().is_some_and(|summary| summary.audio_only));
+        ui.set_picture(match (self.is_audio_only(), self.audio_visuals_enabled()) {
+            (false, _) => ExportPicture::Recorded,
+            (true, false) => ExportPicture::None,
+            (true, true) => ExportPicture::Visuals,
+        });
         if has_transparent_background(&self.project) && ui.renders_video() {
             ui.format = ExportFormatKind::Gif;
         }
@@ -2228,7 +2244,7 @@ impl EditorWindow {
             cursor_only: ui.cursor_only,
             no_tracks: ui.track_options.is_empty(),
             no_audio: !ui.has_audio(),
-            audio_only: ui.audio_only,
+            picture: ui.picture,
         };
         let disabled = move |format: ExportFormatKind| availability.disabled(format);
         self.export_section(t!("Format"), "icons/video.svg").child(
@@ -3309,23 +3325,30 @@ fn export_stat(
         })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExportPicture {
+    Recorded,
+    None,
+    Visuals,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct FormatAvailability {
     transparent: bool,
     cursor_only: bool,
     no_tracks: bool,
     no_audio: bool,
-    audio_only: bool,
+    picture: ExportPicture,
 }
 
 impl FormatAvailability {
     fn disabled(self, format: ExportFormatKind) -> bool {
-        match format {
-            ExportFormatKind::Audio => self.no_audio,
-            _ if self.audio_only => true,
-            ExportFormatKind::Mp4 => self.transparent || self.cursor_only,
-            ExportFormatKind::Gif => self.cursor_only,
-            ExportFormatKind::Tracks => self.no_tracks,
+        match (format, self.picture) {
+            (ExportFormatKind::Audio, _) => self.no_audio,
+            (_, ExportPicture::None) | (ExportFormatKind::Tracks, ExportPicture::Visuals) => true,
+            (ExportFormatKind::Mp4, _) => self.transparent || self.cursor_only,
+            (ExportFormatKind::Gif, _) => self.cursor_only,
+            (ExportFormatKind::Tracks, _) => self.no_tracks,
         }
     }
 }
@@ -3563,8 +3586,8 @@ pub(crate) async fn render_video(
 #[cfg(test)]
 mod tests {
     use super::{
-        ExportClip, ExportDestination, ExportFormatKind, ExportPhase, ExportResolution,
-        ExportSource, ExportTrack, ExportUi, FormatAvailability, TrackOption,
+        ExportClip, ExportDestination, ExportFormatKind, ExportPhase, ExportPicture,
+        ExportResolution, ExportSource, ExportTrack, ExportUi, FormatAvailability, TrackOption,
         cancel_matching_export, capture_fps, estimated_tracks_bytes, export_fps_options,
         export_resolutions, highest_recorded_fps, last_video_settings, normalize_export_options,
         preview_time_in_range, selected_clip, selected_tracks,
@@ -3897,7 +3920,7 @@ mod tests {
             cursor_only,
             no_tracks,
             no_audio: false,
-            audio_only: false,
+            picture: ExportPicture::Recorded,
         }
         .disabled(format)
     }
@@ -3909,7 +3932,7 @@ mod tests {
             cursor_only: false,
             no_tracks: false,
             no_audio: false,
-            audio_only: false,
+            picture: ExportPicture::Recorded,
         };
         assert!(!video.disabled(ExportFormatKind::Audio));
         assert!(!video.disabled(ExportFormatKind::Mp4));
@@ -3919,7 +3942,7 @@ mod tests {
         };
         assert!(silent.disabled(ExportFormatKind::Audio));
         let audio_only = FormatAvailability {
-            audio_only: true,
+            picture: ExportPicture::None,
             ..video
         };
         for format in [
@@ -3930,6 +3953,35 @@ mod tests {
             assert!(audio_only.disabled(format), "{format:?}");
         }
         assert!(!audio_only.disabled(ExportFormatKind::Audio));
+        let visuals = FormatAvailability {
+            picture: ExportPicture::Visuals,
+            ..video
+        };
+        assert!(!visuals.disabled(ExportFormatKind::Mp4));
+        assert!(!visuals.disabled(ExportFormatKind::Gif));
+        assert!(!visuals.disabled(ExportFormatKind::Audio));
+        assert!(visuals.disabled(ExportFormatKind::Tracks));
+    }
+
+    #[test]
+    fn an_audio_only_project_with_visuals_opens_export_on_its_last_video_format() {
+        for (saved, expected) in [
+            ("Gif", ExportFormatKind::Gif),
+            ("Tracks", ExportFormatKind::Mp4),
+            ("Audio", ExportFormatKind::Mp4),
+        ] {
+            let mut ui = ExportUi::from_preferences(ExportPrefs {
+                format: saved.into(),
+                ..prefs()
+            });
+            ui.sound = true;
+            ui.cursor_only = true;
+            ui.clip_only = true;
+            ui.set_picture(ExportPicture::Visuals);
+            assert_eq!(ui.format, expected, "{saved}");
+            assert!(!ui.cursor_only);
+            assert!(ui.clip_only, "a clip export stays on the clip");
+        }
     }
 
     #[test]
@@ -3942,7 +3994,7 @@ mod tests {
         ui.set_track_options(options(&[ExportTrack::Microphone]));
         ui.sound = true;
         ui.cursor_only = true;
-        ui.set_audio_only(true);
+        ui.set_picture(ExportPicture::None);
         assert_eq!(ui.format, ExportFormatKind::Audio);
         assert!(!ui.cursor_only);
         assert!(ui.saves_to_file());
@@ -3962,7 +4014,7 @@ mod tests {
             ..prefs()
         });
         ui.set_track_options(options(&[ExportTrack::Screen]));
-        ui.set_audio_only(false);
+        ui.set_picture(ExportPicture::Recorded);
         assert_eq!(ui.format, ExportFormatKind::Mp4);
     }
 

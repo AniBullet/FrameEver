@@ -53,7 +53,7 @@ use gpui::{
 
 use crate::{
     editor_edits::{Selection, clip_is_muted},
-    i18n::t,
+    i18n::{t, tc},
     theme::Theme,
 };
 
@@ -1269,6 +1269,7 @@ pub struct TimelineMedia {
 /// Everything the timeline draws, derived once per project-config change.
 #[derive(Debug, Clone, Default)]
 pub struct TimelineModel {
+    pub audio_only: bool,
     pub style: Vec<Segment>,
     pub image: Vec<Segment>,
     pub rows: Vec<TrackRow>,
@@ -1579,6 +1580,7 @@ impl TimelineModel {
             filmstrips: HashMap::new(),
             music_waveforms: HashMap::new(),
             clip_ghost_gap: None,
+            audio_only: false,
         };
         model.rows = build_rows(
             config,
@@ -2022,7 +2024,8 @@ impl SegmentUi<'_> {
 // Rendering
 // ---------------------------------------------------------------------------
 
-pub fn track_chip(kind: TrackKind, rest: Hsla, active: Hsla) -> impl IntoElement {
+pub fn track_chip(kind: TrackKind, audio_only: bool, rest: Hsla, active: Hsla) -> impl IntoElement {
+    let recording = audio_only && kind == TrackKind::Clip;
     div()
         .w_full()
         .h_full()
@@ -2034,7 +2037,11 @@ pub fn track_chip(kind: TrackKind, rest: Hsla, active: Hsla) -> impl IntoElement
         .pr(px(TRACK_GUTTER_PADDING_RIGHT))
         .child(
             svg()
-                .path(kind.icon())
+                .path(if recording {
+                    "icons/mic.svg"
+                } else {
+                    kind.icon()
+                })
                 .size(px(14.))
                 .flex_none()
                 .text_color(rest)
@@ -2047,7 +2054,11 @@ pub fn track_chip(kind: TrackKind, rest: Hsla, active: Hsla) -> impl IntoElement
                 .text_size(px(11.))
                 .line_height(px(14.))
                 .font_weight(FontWeight::MEDIUM)
-                .child(kind.label()),
+                .child(if recording {
+                    tc!("timeline lane", "Recording")
+                } else {
+                    kind.label()
+                }),
         )
 }
 
@@ -2396,7 +2407,12 @@ pub fn render_row(
                 .w(px(TRACK_GUTTER))
                 .flex_none()
                 .relative()
-                .child(track_chip(row.kind, rest_text, active_text)),
+                .child(track_chip(
+                    row.kind,
+                    model.audio_only,
+                    rest_text,
+                    active_text,
+                )),
         )
         .child(
             div()
@@ -2958,18 +2974,23 @@ fn render_segment(
         ..
     } = &segment.detail
     {
-        let strip_height = (height - CLIP_WAVE_BAND).max(0.);
-        fill = fill.child(
-            render_filmstrip(model, segment, view, width, strip_height)
-                .when(*muted, |this| this.opacity(0.5)),
-        );
+        let wave_height = if model.audio_only {
+            height
+        } else {
+            let strip_height = (height - CLIP_WAVE_BAND).max(0.);
+            fill = fill.child(
+                render_filmstrip(model, segment, view, width, strip_height)
+                    .when(*muted, |this| this.opacity(0.5)),
+            );
+            CLIP_WAVE_BAND
+        };
         fill = fill.child(
             div()
                 .absolute()
                 .left_0()
                 .right_0()
                 .bottom_0()
-                .h(px(CLIP_WAVE_BAND))
+                .h(px(wave_height))
                 .bg(Hsla::from(theme.editor.card)),
         );
         if segment.detail.shows_waveform() {
@@ -2981,7 +3002,7 @@ fn render_segment(
                 holds,
                 view,
                 width,
-                CLIP_WAVE_BAND,
+                wave_height,
                 waveform_color(theme),
             ));
         }
@@ -3452,7 +3473,11 @@ fn render_waveform(
         .collect();
     let transform = view.transform;
     let full_width = width.max(1.) as f64;
-    let wave_height = height.min(WAVEFORM_MAX_HEIGHT);
+    let wave_height = if model.audio_only {
+        height
+    } else {
+        height.min(WAVEFORM_MAX_HEIGHT)
+    };
     let wave_color = color;
     let paths = model.waveform_paths.clone();
 
