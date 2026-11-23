@@ -87,9 +87,15 @@ pub fn has_audio(
     recordings: &frameever_rendering::ProjectRecordingsMeta,
     project: &ProjectConfiguration,
 ) -> bool {
-    crate::tracks::available_tracks(recordings, project)
-        .iter()
-        .any(|kind| !kind.is_video())
+    let recorded = !project.audio.mute
+        && crate::tracks::available_tracks(recordings, project)
+            .iter()
+            .any(|kind| !kind.is_video());
+    let music = project
+        .timeline
+        .as_ref()
+        .is_some_and(|timeline| !timeline.audio_segments.is_empty());
+    recorded || music
 }
 
 pub async fn export_audio(
@@ -105,6 +111,17 @@ pub async fn export_audio(
         return Err(TrackExportError::Failed(
             "MP3 export is not available in this build".into(),
         ));
+    }
+    if let Some(extension) = output_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        && AudioExportFormat::from_extension(extension) != Some(format)
+    {
+        return Err(TrackExportError::Failed(format!(
+            "{} is not a .{} file",
+            output_path.display(),
+            format.extension()
+        )));
     }
     let PreparedTimeline {
         recording_meta,
@@ -725,5 +742,43 @@ mod tests {
                 .count();
             assert_eq!(leftovers, 0, "no staged file is left behind");
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_file_name_must_match_the_format() {
+        let project = project_with_two_seconds_of_tone();
+        let out = tempfile::tempdir().unwrap();
+        let path = out.path().join("sound.wav");
+        let error = export_audio(
+            project.path().to_path_buf(),
+            None,
+            AudioExportFormat::Mp3,
+            path.clone(),
+            Arc::new(AtomicBool::new(false)),
+            |_| {},
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains(".mp3"), "{error}");
+        assert!(!path.exists());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_muted_recording_has_no_sound_to_export() {
+        let project = project_with_two_seconds_of_tone();
+        let mut config = ProjectConfiguration::load(project.path()).unwrap();
+        config.audio.mute = true;
+        let out = tempfile::tempdir().unwrap();
+        let error = export_audio(
+            project.path().to_path_buf(),
+            Some(config),
+            AudioExportFormat::Wav,
+            out.path().join("sound.wav"),
+            Arc::new(AtomicBool::new(false)),
+            |_| {},
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("no sound"), "{error}");
     }
 }

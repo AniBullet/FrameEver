@@ -427,6 +427,8 @@ pub struct ExportUi {
     excluded_tracks: Vec<ExportTrack>,
     pub audio_format: AudioExportFormat,
     audio_only: bool,
+    sound: bool,
+    saved_format: ExportFormatKind,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -523,13 +525,16 @@ impl ExportUi {
                 .collect(),
             audio_format: audio_format_from_slug(prefs.audio_format.as_deref()),
             audio_only: false,
+            sound: false,
+            saved_format: match ExportFormatKind::from_slug(&prefs.format) {
+                ExportFormatKind::Audio => ExportFormatKind::Mp4,
+                format => format,
+            },
         }
     }
 
     fn has_audio(&self) -> bool {
-        self.track_options
-            .iter()
-            .any(|option| !option.kind.is_video())
+        self.sound
     }
 
     fn renders_video(&self) -> bool {
@@ -541,6 +546,7 @@ impl ExportUi {
         if audio_only {
             self.format = ExportFormatKind::Audio;
             self.cursor_only = false;
+            self.clip_only = false;
         } else if self.format == ExportFormatKind::Audio && !self.has_audio() {
             self.format = ExportFormatKind::Mp4;
         }
@@ -615,14 +621,21 @@ impl ExportUi {
         true
     }
 
-    fn persist(&self) {
+    fn persist(&mut self) {
+        if self.format != ExportFormatKind::Audio {
+            self.saved_format = self.format;
+        }
         let prefs = self.preferences();
         store::update(|state| state.export = Some(prefs));
     }
 
     fn preferences(&self) -> ExportPrefs {
         ExportPrefs {
-            format: self.format.slug().to_string(),
+            format: if self.format == ExportFormatKind::Audio {
+                self.saved_format.slug().to_string()
+            } else {
+                self.format.slug().to_string()
+            },
             fps: self.fps,
             export_to: self.destination.slug().to_string(),
             resolution: self.resolution.label().to_string(),
@@ -952,6 +965,9 @@ impl EditorWindow {
                 .map(|summary| track_options(&summary.recordings, &self.project))
                 .unwrap_or_default(),
         );
+        ui.sound = self.summary().is_some_and(|summary| {
+            frameever_export::audio::has_audio(&summary.recordings, &self.project)
+        });
         ui.set_audio_only(self.summary().is_some_and(|summary| summary.audio_only));
         if has_transparent_background(&self.project) && ui.renders_video() {
             ui.format = ExportFormatKind::Gif;
@@ -2793,7 +2809,7 @@ impl EditorWindow {
                                         if let Some(value) = ui::keyboard_slider_value(event.keystroke.key.as_str(), ui.bpp(), BPP_MIN, BPP_MAX, BPP_STEP) {
                                             window.prevent_default(); cx.stop_propagation();
                                             this.set_export_bpp(value, cx);
-                                            if let Some(ui) = this.export.as_ref() { ui.persist(); }
+                                            if let Some(ui) = this.export.as_mut() { ui.persist(); }
                                             this.refresh_export_preview(window, cx);
                                         }
                                     }))
@@ -3917,13 +3933,14 @@ mod tests {
     }
 
     #[test]
-    fn an_audio_only_project_opens_export_on_audio_and_remembers_the_file_type() {
+    fn an_audio_only_project_opens_export_on_audio_and_keeps_the_video_format_for_later() {
         let mut ui = ExportUi::from_preferences(ExportPrefs {
             format: "Gif".into(),
             audio_format: Some("wav".into()),
             ..prefs()
         });
         ui.set_track_options(options(&[ExportTrack::Microphone]));
+        ui.sound = true;
         ui.cursor_only = true;
         ui.set_audio_only(true);
         assert_eq!(ui.format, ExportFormatKind::Audio);
@@ -3932,10 +3949,10 @@ mod tests {
         assert!(ui.range_labels().is_none());
         assert_eq!(ui.audio_format, AudioExportFormat::Wav);
         let reopened = ExportUi::from_preferences(ui.preferences());
-        assert_eq!(reopened.format, ExportFormatKind::Audio);
+        assert_eq!(reopened.format, ExportFormatKind::Gif);
         assert_eq!(reopened.audio_format, AudioExportFormat::Wav);
         let video = last_video_settings(Some(ui.preferences()), ExportSource::default(), false);
-        assert_eq!(video.format, ExportFormatKind::Mp4);
+        assert_eq!(video.format, ExportFormatKind::Gif);
     }
 
     #[test]

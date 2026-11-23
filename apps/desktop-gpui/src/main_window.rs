@@ -2287,7 +2287,9 @@ impl MainWindow {
 
         let (camera_feed, mic_feed, mic_meter, input_readiness, device_settings) = {
             let feeds = Feeds::global(cx);
-            feeds.update(cx, |feeds, cx| feeds.resume_camera_preview(cx));
+            if !target.is_audio_only() {
+                feeds.update(cx, |feeds, cx| feeds.resume_camera_preview(cx));
+            }
             let feeds = feeds.read(cx);
             (
                 feeds.camera_actor(),
@@ -2330,7 +2332,7 @@ impl MainWindow {
     ) {
         if self.enumerating
             || self.device_format_pending.is_some()
-            || self.pending_device_restore.camera_id.is_some()
+            || (self.pending_device_restore.camera_id.is_some() && !config.target.is_audio_only())
             || self.pending_device_restore.microphone_name.is_some()
         {
             self.session.update(cx, |session, cx| {
