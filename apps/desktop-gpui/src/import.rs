@@ -33,10 +33,11 @@ pub const VIDEO_IMPORT_EXTENSIONS: &[&str] =
     &["mp4", "mov", "avi", "mkv", "webm", "wmv", "m4v", "flv"];
 pub const IMAGE_IMPORT_EXTENSIONS: &[&str] =
     &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"];
+pub const AUDIO_IMPORT_EXTENSIONS: &[&str] = &["mp3", "wav", "m4a", "aac", "ogg", "opus", "flac"];
 /// The tray's combined "Media Files" filter (`src-tauri/src/tray.rs:845-851`).
 const MEDIA_IMPORT_EXTENSIONS: &[&str] = &[
     "mp4", "mov", "avi", "mkv", "webm", "wmv", "m4v", "flv", "png", "jpg", "jpeg", "webp", "gif",
-    "bmp", "tif", "tiff",
+    "bmp", "tif", "tiff", "mp3", "wav", "m4a", "aac", "ogg", "opus", "flac",
 ];
 pub(crate) const OVERLAY_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp"];
 const MAX_IMAGE_DIMENSION: u32 = 16_384;
@@ -66,6 +67,10 @@ pub fn is_supported_video_import_path(path: &Path) -> bool {
 
 pub fn is_supported_image_import_path(path: &Path) -> bool {
     path.is_file() && has_supported_extension(path, IMAGE_IMPORT_EXTENSIONS)
+}
+
+pub fn is_supported_audio_import_path(path: &Path) -> bool {
+    path.is_file() && has_supported_extension(path, AUDIO_IMPORT_EXTENSIONS)
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +155,7 @@ fn imported_video_meta(
 pub enum ImportKind {
     Video,
     Image,
+    Audio,
 }
 
 /// `ImportStage` (`import.rs:47-53`). Terminal stages never sit in
@@ -242,7 +248,9 @@ fn apply_progress(update: ImportProgress, cx: &mut App) {
         // `ShowCapWindow::ScreenshotEditor` the same way.
         if cx.has_global::<crate::app_windows::AppWindows>() {
             match kind {
-                ImportKind::Video => crate::app_windows::open_editor(project_path, cx),
+                ImportKind::Video | ImportKind::Audio => {
+                    crate::app_windows::open_editor(project_path, cx)
+                }
                 ImportKind::Image => crate::app_windows::open_screenshot_editor(project_path, cx),
             }
         }
@@ -290,6 +298,18 @@ pub fn pick_and_import_video(cx: &mut App) {
     .detach();
 }
 
+pub fn pick_and_import_audio(cx: &mut App) {
+    cx.spawn(async move |cx| {
+        let Some(path) =
+            pick_import_file(&[(t!("Audio Files"), AUDIO_IMPORT_EXTENSIONS)], cx).await
+        else {
+            return;
+        };
+        cx.update(|cx| import_audio_from_path(path, cx));
+    })
+    .detach();
+}
+
 pub fn pick_and_import_image(cx: &mut App) {
     cx.spawn(async move |cx| {
         let Some(path) =
@@ -311,6 +331,7 @@ pub fn pick_and_import_media(cx: &mut App) {
                 (t!("Media Files"), MEDIA_IMPORT_EXTENSIONS),
                 (t!("Video Files"), VIDEO_IMPORT_EXTENSIONS),
                 (t!("Image Files"), IMAGE_IMPORT_EXTENSIONS),
+                (t!("Audio Files"), AUDIO_IMPORT_EXTENSIONS),
             ],
             cx,
         )
@@ -322,6 +343,8 @@ pub fn pick_and_import_media(cx: &mut App) {
             cx.update(|cx| import_video_from_path(path, cx));
         } else if is_supported_image_import_path(&path) {
             cx.update(|cx| import_image_from_path(path, cx));
+        } else if is_supported_audio_import_path(&path) {
+            cx.update(|cx| import_audio_from_path(path, cx));
         } else {
             tracing::error!(path = %path.display(), "unsupported media import path");
             show_error_dialog(t!("Unsupported media file.").to_string());
@@ -345,6 +368,13 @@ pub fn import_image_from_path(source_path: PathBuf, cx: &mut App) {
     tracing::info!(source = %source_path.display(), "starting image import");
     spawn_import(cx, show_import_error, move |tx| {
         run_image_import(&source_path, &tx)
+    });
+}
+
+pub fn import_audio_from_path(source_path: PathBuf, cx: &mut App) {
+    tracing::info!(source = %source_path.display(), "starting audio import");
+    spawn_import(cx, show_import_error, move |tx| {
+        run_audio_import(&source_path, &crate::recording::recordings_dir(), &tx)
     });
 }
 
@@ -436,11 +466,13 @@ fn show_import_error(kind: ImportKind, message: &str) {
     let media = match kind {
         ImportKind::Video => "video",
         ImportKind::Image => "image",
+        ImportKind::Audio => "audio",
     };
     tracing::error!("failed to import {media}: {message}");
     show_error_dialog(match kind {
         ImportKind::Video => t!("Couldn't import this video. {message}", message = message),
         ImportKind::Image => t!("Couldn't import this image. {message}", message = message),
+        ImportKind::Audio => t!("Couldn't import this audio. {message}", message = message),
     });
 }
 
@@ -672,6 +704,49 @@ fn run_video_import(source_path: &Path, tx: &flume::Sender<ImportProgress>) {
 
     sink.send(ImportStage::Complete, 1.0, t!("Import complete!"));
     tracing::info!(path = %project_path.display(), "video import complete");
+}
+
+fn run_audio_import(source_path: &Path, recordings_dir: &Path, tx: &flume::Sender<ImportProgress>) {
+    use frameever_export::audio_project::{AudioProjectError, create_audio_only_project};
+
+    let project_name = generate_project_name(source_path, "Imported Audio");
+    let sanitized_name = sanitize_filename(&project_name);
+    let pending = ProgressSink {
+        tx,
+        kind: ImportKind::Audio,
+        project_path: &recordings_dir.join(project_dir_name(&sanitized_name)),
+        pretty_name: &project_name,
+    };
+    if frameever_export::validate_output_path(recordings_dir).is_err() {
+        pending.send(
+            ImportStage::Failed,
+            0.0,
+            t!("Recording output must be a local file path"),
+        );
+        return;
+    }
+    match create_audio_only_project(recordings_dir, &sanitized_name, &project_name, source_path) {
+        Ok(meta) => {
+            ProgressSink {
+                project_path: &meta.project_path,
+                ..pending
+            }
+            .send(ImportStage::Complete, 1.0, t!("Import complete!"));
+            tracing::info!(path = %meta.project_path.display(), "audio import complete");
+        }
+        Err(error) => {
+            tracing::error!("audio import failed: {error}");
+            let message = match error {
+                AudioProjectError::NoAudio => t!("This file has no sound.").to_string(),
+                AudioProjectError::Unreadable(_) | AudioProjectError::UnknownLength => t!(
+                    "Its format may not be supported. Try another file; the logs have the details."
+                )
+                .to_string(),
+                other => other.to_string(),
+            };
+            pending.send(ImportStage::Failed, 0.0, &message);
+        }
+    }
 }
 
 /// `start_image_import` (`import.rs:1899-2017`).
@@ -3029,6 +3104,78 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    fn write_tone_wav(path: &Path, seconds: f64) {
+        let rate = 48_000u32;
+        let frames = (seconds * f64::from(rate)) as u32;
+        let mut bytes = Vec::with_capacity(44 + frames as usize * 2);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + frames * 2).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&rate.to_le_bytes());
+        bytes.extend_from_slice(&(rate * 2).to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&(frames * 2).to_le_bytes());
+        for frame in 0..frames {
+            let t = f64::from(frame) / f64::from(rate);
+            let value = ((t * 440.0 * std::f64::consts::TAU).sin() * 8_000.0) as i16;
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn an_audio_file_imports_as_a_finished_audio_only_project() {
+        ffmpeg::init().unwrap();
+        let root = temp_dir("audio-import");
+        let recordings = root.join("recordings");
+        let source = root.join("Interview.wav");
+        write_tone_wav(&source, 1.5);
+        let (tx, rx) = flume::unbounded();
+
+        run_audio_import(&source, &recordings, &tx);
+
+        let updates: Vec<ImportProgress> = rx.drain().collect();
+        let [done] = updates.as_slice() else {
+            panic!("expected one update, got {updates:?}");
+        };
+        assert_eq!(done.kind, ImportKind::Audio);
+        assert_eq!(done.stage, ImportStage::Complete);
+        assert!(done.pretty_name.starts_with("Interview "));
+        assert_eq!(done.project_path.parent(), Some(recordings.as_path()));
+        assert!(crate::library::is_audio_only(&done.project_path));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_unreadable_audio_file_fails_and_leaves_no_project() {
+        ffmpeg::init().unwrap();
+        let root = temp_dir("audio-import-bad");
+        let recordings = root.join("recordings");
+        std::fs::create_dir_all(&recordings).unwrap();
+        let source = root.join("broken.mp3");
+        std::fs::write(&source, b"not audio").unwrap();
+        let (tx, rx) = flume::unbounded();
+
+        run_audio_import(&source, &recordings, &tx);
+
+        let updates: Vec<ImportProgress> = rx.drain().collect();
+        let [failed] = updates.as_slice() else {
+            panic!("expected one update, got {updates:?}");
+        };
+        assert_eq!(failed.stage, ImportStage::Failed);
+        assert_eq!(
+            failed.message,
+            t!("Its format may not be supported. Try another file; the logs have the details.")
+        );
+        assert_eq!(std::fs::read_dir(&recordings).unwrap().count(), 0);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn imports_are_in_flight_before_their_first_progress_update() {
         let _imports = IMPORT_TEST_LOCK.lock().unwrap();
@@ -3069,6 +3216,17 @@ mod tests {
         assert!(
             !is_supported_video_import_path(&misnamed_dir),
             "a directory named like a video is not importable"
+        );
+        let audio = dir.join("talk.FLAC");
+        std::fs::write(&audio, b"a").unwrap();
+        assert!(is_supported_audio_import_path(&audio));
+        assert!(!is_supported_video_import_path(&audio));
+        assert!(!is_supported_audio_import_path(&video));
+        assert!(!is_supported_audio_import_path(&image));
+        assert!(
+            AUDIO_IMPORT_EXTENSIONS
+                .iter()
+                .all(|extension| MEDIA_IMPORT_EXTENSIONS.contains(extension))
         );
 
         std::fs::remove_dir_all(&dir).ok();

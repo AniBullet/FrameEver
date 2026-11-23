@@ -229,7 +229,12 @@ pub fn create_project(parent: &Path, name: &str) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(parent)?;
     let project = unused_project_path(parent, name)?;
     std::fs::create_dir(&project)?;
-    stamp_format_version(&project)?;
+    if let Err(error) = stamp_format_version(&project) {
+        if let Err(cleanup) = std::fs::remove_dir(&project) {
+            tracing::warn!(project = %project.display(), %cleanup, "could not remove an unstamped project folder");
+        }
+        return Err(error);
+    }
     Ok(project)
 }
 

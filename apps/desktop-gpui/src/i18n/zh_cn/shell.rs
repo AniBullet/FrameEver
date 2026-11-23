@@ -133,6 +133,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("1 item · {size}", "1 项 · {size}"),
     ("{count} items · {size}", "{count} 项 · {size}"),
     ("Import video", "导入视频"),
+    ("Import audio", "导入音频"),
     ("Camera", "摄像头"),
     ("Instant", "即时"),
     ("Studio", "工作室"),

@@ -380,6 +380,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("Video Files", "视频文件"),
     ("Image Files", "图片文件"),
+    ("Audio Files", "音频文件"),
     ("Media Files", "媒体文件"),
     ("Unsupported media file.", "不支持的媒体文件。"),
     (
@@ -390,6 +391,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Couldn't import this image. {message}",
         "无法导入此图片。{message}",
     ),
+    (
+        "Couldn't import this audio. {message}",
+        "无法导入此音频。{message}",
+    ),
+    ("This file has no sound.", "这个文件没有声音。"),
     (
         "Its format may not be supported. Try another file; the logs have the details.",
         "可能不支持它的格式。换一个文件试试；详细信息在日志里。",

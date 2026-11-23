@@ -450,7 +450,7 @@ class MainWindow {
 				: "";
 		const importMenu =
 			menu === "import"
-				? `<div class="menu"><button data-a="import">${L("Import video", "导入视频")}</button><button data-a="import">${L("Import image", "导入图片")}</button></div>`
+				? `<div class="menu"><button data-a="import">${L("Import video", "导入视频")}</button><button data-a="import">${L("Import audio", "导入音频")}</button><button data-a="import">${L("Import image", "导入图片")}</button></div>`
 				: "";
 		return `<div class="toolbar">
 			<div class="seg">${tabs.map(([id, en, zh]) => `<button class="${type === id ? "on" : ""}" data-a="type" data-v="${id}">${L(en, zh)} <em class="tnum">${count(id)}</em></button>`).join("")}</div>

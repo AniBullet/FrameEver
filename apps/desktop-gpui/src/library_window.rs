@@ -1006,7 +1006,9 @@ fn shown_label(count: usize, size: u64) -> String {
 
 fn import_wanted(tab: Tab, kind: crate::import::ImportKind) -> bool {
     match kind {
-        crate::import::ImportKind::Video => tab != Tab::Screenshots,
+        crate::import::ImportKind::Video | crate::import::ImportKind::Audio => {
+            tab != Tab::Screenshots
+        }
         crate::import::ImportKind::Image => matches!(tab, Tab::All | Tab::Screenshots),
     }
 }
@@ -2066,6 +2068,14 @@ impl LibraryWindow {
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.close_library_menu(cx);
                             cx.defer(crate::import::pick_and_import_video);
+                        })),
+                )
+                .child(
+                    self.popup_row("library-import-audio")
+                        .child(t!("Import audio"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.close_library_menu(cx);
+                            cx.defer(crate::import::pick_and_import_audio);
                         })),
                 )
                 .child(

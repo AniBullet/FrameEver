@@ -1619,6 +1619,15 @@ impl EditorWindow {
             return;
         }
         if source.is_file() && has_allowed_extension(&source.to_string_lossy(), &["mp4"]) {
+            if self.is_audio_only() {
+                cx.spawn(async move |_, _| {
+                    show_import_error(t!(
+                        "Audio only recordings and video clips can't be combined in one project."
+                    ))
+                })
+                .detach();
+                return;
+            }
             self.import_mp4(source, window, cx);
             return;
         }
@@ -2383,7 +2392,7 @@ fn thumbnail_frame_reaches_target(frame: &ffmpeg::frame::Video, target_timestamp
 const VIDEO_IMPORT_EXTENSIONS: &[&str] = &["mp4", "mov", "avi", "mkv", "webm", "wmv", "m4v", "flv"];
 const IMAGE_IMPORT_EXTENSIONS: &[&str] =
     &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"];
-const AUDIO_IMPORT_EXTENSIONS: &[&str] = &["ogg", "m4a", "mp3", "wav", "aac", "flac"];
+use crate::import::AUDIO_IMPORT_EXTENSIONS;
 const KEYBOARD_IMPORT_EXTENSIONS: &[&str] = &["bin", "json"];
 const CURSOR_EVENTS_IMPORT_EXTENSIONS: &[&str] = &["json"];
 
@@ -3394,6 +3403,17 @@ pub(crate) fn append_cap_project_to_editor(
         StudioRecordingStatus::Complete | StudioRecordingStatus::NeedsRemux => {}
     }
 
+    let target_audio_only = RecordingMeta::load_for_project(target_project_path)
+        .ok()
+        .and_then(|meta| meta.studio_meta().map(StudioRecordingMeta::is_audio_only))
+        .unwrap_or(false);
+    if source_studio_meta.is_audio_only() != target_audio_only {
+        return Err(
+            t!("Audio only recordings and video clips can't be combined in one project.")
+                .to_string(),
+        );
+    }
+
     let source_segments = studio_segments_for_import(source_studio_meta);
     if source_segments.is_empty() {
         return Err(t!("Source FrameEver project has no recording segments").to_string());
@@ -3728,6 +3748,45 @@ mod tests {
         assert_eq!(
             existing_recording_picker(false),
             ExistingRecordingPicker::Folder
+        );
+    }
+
+    #[test]
+    fn audio_only_and_video_projects_are_never_combined() {
+        let target = ImportFixture::new(MP4_WITHOUT_AUDIO);
+        let audio_only = target.root.join("audio.ever");
+        let audio_segment = audio_only.join("content/segments/segment-0");
+        std::fs::create_dir_all(&audio_segment).unwrap();
+        std::fs::write(audio_segment.join("display.mp4"), MP4_WITHOUT_AUDIO).unwrap();
+        let mut meta = RecordingMeta::load_for_project(&target.project).unwrap();
+        meta.project_path = audio_only.clone();
+        let RecordingMetaInner::Studio(studio) = &mut meta.inner else {
+            panic!("fixture is not a studio recording");
+        };
+        let StudioRecordingMeta::MultipleSegments { inner } = studio.as_mut() else {
+            panic!("fixture is not multi-segment");
+        };
+        inner.audio_only = true;
+        meta.save_for_project().unwrap();
+        target.config.write(&audio_only).unwrap();
+        let refused = t!("Audio only recordings and video clips can't be combined in one project.")
+            .to_string();
+
+        let video_before = target.project_bytes();
+        assert_eq!(
+            append_cap_project_to_editor(&target.project, &audio_only).unwrap_err(),
+            refused
+        );
+        assert_eq!(target.project_bytes(), video_before);
+
+        let audio_meta_before = std::fs::read(audio_only.join("recording-meta.json")).unwrap();
+        assert_eq!(
+            append_cap_project_to_editor(&audio_only, &target.project).unwrap_err(),
+            refused
+        );
+        assert_eq!(
+            std::fs::read(audio_only.join("recording-meta.json")).unwrap(),
+            audio_meta_before
         );
     }
 

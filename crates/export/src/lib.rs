@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod audio_project;
 pub mod compress;
 pub mod estimates;
 pub mod gif;

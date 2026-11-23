@@ -308,6 +308,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Failed to import clip: {message}",
         "无法导入片段：{message}",
     ),
+    (
+        "Audio only recordings and video clips can't be combined in one project.",
+        "仅音频录制和视频片段不能放在同一个项目里。",
+    ),
     ("Recording Error", "录制出错"),
     ("Failed to add clip: {message}", "无法添加片段：{message}"),
     ("Missing video file: {path}", "缺少视频文件：{path}"),
