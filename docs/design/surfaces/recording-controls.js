@@ -199,6 +199,7 @@ const drawStrip = (
 		["pencil", "Pen", "画笔"],
 		["highlighter", "Highlighter", "荧光笔"],
 		["arrow-up-right", "Arrow", "箭头"],
+		["square", "Rectangle", "矩形"],
 	]
 		.map(([n, en, zh]) =>
 			btn(
@@ -273,10 +274,15 @@ const renderDock = () => {
 const renderInk = () => {
 	const colours = ["var(--primary)", "var(--danger)", "var(--warning)"];
 	screen.querySelector(".ink").innerHTML = ink
-		.map(
-			(line) =>
-				`<polyline points="${line.points.join(" ")}" fill="none" stroke="${colours[line.colour]}" stroke-width="${line.tool === "highlighter" ? 14 : 3}" stroke-opacity="${line.tool === "highlighter" ? 0.4 : 1}" stroke-linecap="round" stroke-linejoin="round"/>`,
-		)
+		.map((line) => {
+			if (line.tool === "square") {
+				const [a, b] = [line.points[0], line.points.at(-1)].map((p) =>
+					p.split(",").map(Number),
+				);
+				return `<rect x="${Math.min(a[0], b[0])}" y="${Math.min(a[1], b[1])}" width="${Math.abs(b[0] - a[0])}" height="${Math.abs(b[1] - a[1])}" fill="none" stroke="${colours[line.colour]}" stroke-width="3" stroke-linejoin="round"/>`;
+			}
+			return `<polyline points="${line.points.join(" ")}" fill="none" stroke="${colours[line.colour]}" stroke-width="${line.tool === "highlighter" ? 14 : 3}" stroke-opacity="${line.tool === "highlighter" ? 0.4 : 1}" stroke-linecap="round" stroke-linejoin="round"/>`;
+		})
 		.join("");
 };
 
@@ -612,6 +618,27 @@ const copy = () => {
 				["Close the popover, then leave the bar", "关闭浮层，再离开控制条"],
 				keys("Esc"),
 				["Inside the bar", "控制条内"],
+			],
+			[
+				["Pen, highlighter, arrow, rectangle", "画笔、荧光笔、箭头、矩形"],
+				`${keys("P")} ${keys("H")} ${keys("A")} ${keys("R")}`,
+				["While drawing", "画笔模式中"],
+			],
+			[
+				["Straight line, arrow at 45°, square", "直线、45° 箭头、正方形"],
+				["Hold Shift while dragging", "拖动时按住 Shift"],
+				["While drawing", "画笔模式中"],
+			],
+			[
+				["Drawing in a window recording", "窗口录制中的画笔"],
+				[
+					"Off: a window capture does not see the overlay",
+					"不可用：窗口捕获看不到覆盖层",
+				],
+				[
+					"The button stays, turned off. Camera only recordings have no button",
+					"按钮保留但不可用。仅摄像头录制没有这个按钮",
+				],
 			],
 		],
 	);

@@ -552,6 +552,17 @@ impl RecordingSession {
         });
     }
 
+    #[cfg(test)]
+    pub(crate) fn record_target_for_test(
+        &mut self,
+        target: frameever_recording::sources::screen_capture::ScreenCaptureTarget,
+    ) {
+        self.record_for_test(None);
+        if let Some(config) = self.last_config.as_mut() {
+            config.target = target;
+        }
+    }
+
     pub(crate) fn records_microphone(&self, label: &str) -> bool {
         !self.input_failures.is_off(InputKind::Microphone)
             && self.microphone_label().as_deref() == Some(label)

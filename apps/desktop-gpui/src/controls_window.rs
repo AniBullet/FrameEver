@@ -19,7 +19,7 @@ use crate::{
     feeds::Feeds,
     i18n::t,
     recording::RecordingMode,
-    screen_ink::{INK_COLOURS, InkAction, InkTool, ScreenInk},
+    screen_ink::{DrawSurface, INK_COLOURS, InkAction, InkTool, ScreenInk},
     session::{InputKind, Phase, RecordingSession},
     theme::Theme,
     ui,
@@ -105,7 +105,12 @@ fn format_options_header(
         .join(" · ")
 }
 
-const DRAW_TOOLS: [InkTool; 3] = [InkTool::Pen, InkTool::Highlighter, InkTool::Arrow];
+const DRAW_TOOLS: [InkTool; 4] = [
+    InkTool::Pen,
+    InkTool::Highlighter,
+    InkTool::Arrow,
+    InkTool::Rectangle,
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RecordingIssue {
@@ -318,7 +323,7 @@ impl ControlsWindow {
     }
 
     fn toggle_draw(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !crate::screen_ink::can_draw(self.session.read(cx).phase)
+        if !crate::screen_ink::can_draw(self.session.read(cx))
             || self.session.read(cx).pause_unavailable()
         {
             return;
@@ -364,6 +369,7 @@ impl ControlsWindow {
                 "H",
             ),
             ("draw-arrow", "icons/arrow-up-right.svg", t!("Arrow"), "A"),
+            ("draw-rectangle", "icons/square.svg", t!("Rectangle"), "R"),
         ]
         .into_iter()
         .enumerate()
@@ -1339,7 +1345,11 @@ impl ControlsWindow {
 
     fn can_draw(&self, cx: &gpui::App) -> bool {
         let session = self.session.read(cx);
-        matches!(session.phase, Phase::Recording { .. }) && !session.pause_unavailable()
+        crate::screen_ink::can_draw(session) && !session.pause_unavailable()
+    }
+
+    fn draw_surface(&self, cx: &gpui::App) -> DrawSurface {
+        crate::screen_ink::draw_surface(self.session.read(cx).capture_target().as_ref())
     }
 
     fn microphone_state(&self, cx: &gpui::App) -> MicrophoneButton {
@@ -1764,6 +1774,7 @@ impl ControlsWindow {
         let paused = session.is_paused();
         let busy = self.busy(cx);
         let can_draw = self.can_draw(cx);
+        let draw_surface = self.draw_surface(cx);
         let pause_pending = session.pause_pending();
         let pause_tooltip = if session.pause_uncertain() {
             t!("Capture state is unconfirmed. Use Stop.")
@@ -1885,18 +1896,23 @@ impl ControlsWindow {
             .when(self.session.read(cx).chapter_marks_available(), |this| {
                 this.child(self.render_chapter_mark(cx))
             })
-            .child(
-                self.action_button("draw", "icons/pencil.svg", !can_draw, Control::Draw)
-                    .when(self.drawing(cx), |this| this.bg(theme.selection))
-                    .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Draw on screen")).view(cx))
-                    .when(can_draw, |this| {
-                        this.on_click(
-                            cx.listener(|this, _, window, cx| {
+            .when(draw_surface != DrawSurface::Nothing, |this| {
+                let tooltip = if draw_surface == DrawSurface::Window {
+                    t!("Not in window recordings")
+                } else {
+                    t!("Draw on screen")
+                };
+                this.child(
+                    self.action_button("draw", "icons/pencil.svg", !can_draw, Control::Draw)
+                        .when(self.drawing(cx), |this| this.bg(theme.selection))
+                        .tooltip(move |_, cx| ui::Tooltip::new(&theme, tooltip).view(cx))
+                        .when(can_draw, |this| {
+                            this.on_click(cx.listener(|this, _, window, cx| {
                                 this.press(Control::Draw, window, cx)
-                            }),
-                        )
-                    }),
-            )
+                            }))
+                        }),
+                )
+            })
             .child(
                 self.action_button(
                     "settings",
@@ -2164,6 +2180,7 @@ mod repaint_tests {
         let (controls, cx) = cx.add_window_view(|window, cx| {
             let session = RecordingSession::global(cx);
             session.update(cx, |session, _| {
+                session.record_target_for_test(screen_target());
                 session.phase = Phase::Recording { paused: true };
                 session.changing_input = true;
             });
@@ -2212,6 +2229,40 @@ mod repaint_tests {
         });
     }
 
+    fn screen_target() -> frameever_recording::sources::screen_capture::ScreenCaptureTarget {
+        frameever_recording::sources::screen_capture::ScreenCaptureTarget::Display {
+            id: "1".parse().unwrap(),
+        }
+    }
+
+    #[gpui::test]
+    fn controls_draw_is_off_in_a_window_recording(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            Feeds::init(cx);
+            RecordingSession::init(cx);
+            ScreenInk::init(cx);
+        });
+        let (controls, cx) = cx.add_window_view(|window, cx| {
+            let session = RecordingSession::global(cx);
+            session.update(cx, |session, _| {
+                session.record_target_for_test(
+                    frameever_recording::sources::screen_capture::ScreenCaptureTarget::Window {
+                        id: "1".parse().unwrap(),
+                    },
+                );
+                session.phase = Phase::Recording { paused: false }
+            });
+            ControlsWindow::new(session, false, window, cx)
+        });
+        controls.update_in(cx, |controls, window, cx| {
+            assert_eq!(controls.draw_surface(cx), DrawSurface::Window);
+            assert!(!controls.can_draw(cx));
+            controls.toggle_draw(window, cx);
+        });
+        cx.run_until_parked();
+        controls.update_in(cx, |controls, _, cx| assert!(!controls.drawing(cx)));
+    }
+
     #[gpui::test]
     fn controls_draw_opens_the_tool_strip_and_closes_other_cards(cx: &mut gpui::TestAppContext) {
         cx.update(|cx| {
@@ -2222,6 +2273,7 @@ mod repaint_tests {
         let (controls, cx) = cx.add_window_view(|window, cx| {
             let session = RecordingSession::global(cx);
             session.update(cx, |session, _| {
+                session.record_target_for_test(screen_target());
                 session.phase = Phase::Recording { paused: false }
             });
             ControlsWindow::new(session, false, window, cx)

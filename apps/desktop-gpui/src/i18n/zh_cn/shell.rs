@@ -326,6 +326,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Starts in {count}", "{count} 秒后开始"),
     ("Draw on screen", "屏幕画笔"),
     ("Pen", "画笔"),
+    ("Not in window recordings", "窗口录制中不可用"),
     ("Colour {number}", "颜色 {number}"),
     (
         "draw on the screen while recording; what you draw is saved in the video",

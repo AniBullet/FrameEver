@@ -1,3 +1,4 @@
+use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
 use gpui::{
     App, AppContext as _, Context, CursorStyle, Entity, EventEmitter, FocusHandle, Global, Hsla,
     InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
@@ -5,6 +6,7 @@ use gpui::{
     canvas, div, point, prelude::FluentBuilder as _, px,
 };
 use lyon_tessellation::{LineCap, LineJoin, StrokeOptions};
+use std::time::{Duration, Instant};
 
 use crate::session::{Phase, RecordingSession};
 
@@ -17,6 +19,11 @@ const INK_RGB: [u32; INK_COLOURS] = [
 ];
 const MIN_STEP: f32 = 1.5;
 const MIN_ARROW: f32 = 6.;
+const MIN_RECTANGLE_SIDE: f32 = 2.;
+const MAX_STROKES: usize = 200;
+const POINTS_PER_RUN: usize = 256;
+const HOLD: Duration = Duration::from_secs(3);
+const FADE: Duration = Duration::from_millis(600);
 const ARROW_HEAD: f32 = 14.;
 const ARROW_SPREAD: f32 = 0.49;
 
@@ -25,21 +32,26 @@ pub enum InkTool {
     Pen,
     Highlighter,
     Arrow,
+    Rectangle,
 }
 
 impl InkTool {
     fn width(self) -> f32 {
         match self {
             InkTool::Highlighter => 14.,
-            InkTool::Pen | InkTool::Arrow => 3.,
+            InkTool::Pen | InkTool::Arrow | InkTool::Rectangle => 3.,
         }
     }
 
     fn opacity(self) -> f32 {
         match self {
             InkTool::Highlighter => 0.4,
-            InkTool::Pen | InkTool::Arrow => 1.,
+            InkTool::Pen | InkTool::Arrow | InkTool::Rectangle => 1.,
         }
+    }
+
+    fn freehand(self) -> bool {
+        matches!(self, InkTool::Pen | InkTool::Highlighter)
     }
 }
 
@@ -57,6 +69,7 @@ pub fn ink_action_for_key(key: &str, control: bool) -> Option<InkAction> {
         ("p", false) => Some(InkAction::Tool(InkTool::Pen)),
         ("h", false) => Some(InkAction::Tool(InkTool::Highlighter)),
         ("a", false) => Some(InkAction::Tool(InkTool::Arrow)),
+        ("r", false) => Some(InkAction::Tool(InkTool::Rectangle)),
         ("1", false) => Some(InkAction::Colour(0)),
         ("2", false) => Some(InkAction::Colour(1)),
         ("3", false) => Some(InkAction::Colour(2)),
@@ -73,6 +86,103 @@ pub struct Stroke {
     pub tool: InkTool,
     pub colour: usize,
     pub points: Vec<(f32, f32)>,
+    pub straight: bool,
+    pub fades_from: Option<Instant>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Outline {
+    Line(Vec<(f32, f32)>),
+    Arrow { from: (f32, f32), to: (f32, f32) },
+    Rectangle { from: (f32, f32), to: (f32, f32) },
+}
+
+impl Stroke {
+    pub fn outline(&self) -> Option<Outline> {
+        let start = *self.points.first()?;
+        let end = *self.points.last()?;
+        Some(match self.tool {
+            InkTool::Pen | InkTool::Highlighter if self.straight => Outline::Line(vec![start, end]),
+            InkTool::Pen | InkTool::Highlighter => Outline::Line(self.points.clone()),
+            InkTool::Arrow => Outline::Arrow {
+                from: start,
+                to: if self.straight {
+                    snap_to_45(start, end)
+                } else {
+                    end
+                },
+            },
+            InkTool::Rectangle => Outline::Rectangle {
+                from: start,
+                to: if self.straight {
+                    square_corner(start, end)
+                } else {
+                    end
+                },
+            },
+        })
+    }
+
+    fn too_small(&self) -> bool {
+        match self.outline() {
+            Some(Outline::Line(_)) => false,
+            Some(Outline::Arrow { from, to }) => distance(from, to) < MIN_ARROW,
+            Some(Outline::Rectangle { from, to }) => {
+                (to.0 - from.0).abs() < MIN_RECTANGLE_SIDE
+                    || (to.1 - from.1).abs() < MIN_RECTANGLE_SIDE
+            }
+            None => true,
+        }
+    }
+
+    fn settle(&mut self) {
+        self.points = match self.outline() {
+            Some(Outline::Line(points)) => points,
+            Some(Outline::Arrow { from, to } | Outline::Rectangle { from, to }) => vec![from, to],
+            None => return,
+        };
+        self.straight = false;
+    }
+
+    pub fn fading_at(&self, now: Instant) -> bool {
+        self.fades_from
+            .is_some_and(|from| now >= from + HOLD && now < from + HOLD + FADE)
+    }
+
+    pub fn opacity_at(&self, now: Instant) -> Option<f32> {
+        match self.fades_from {
+            Some(from) => opacity_after(now.saturating_duration_since(from)),
+            None => Some(1.),
+        }
+    }
+}
+
+pub fn snap_to_45(from: (f32, f32), to: (f32, f32)) -> (f32, f32) {
+    let length = distance(from, to);
+    if length == 0. {
+        return to;
+    }
+    let step = std::f32::consts::FRAC_PI_4;
+    let angle = ((to.1 - from.1).atan2(to.0 - from.0) / step).round() * step;
+    (from.0 + length * angle.cos(), from.1 + length * angle.sin())
+}
+
+pub fn square_corner(from: (f32, f32), to: (f32, f32)) -> (f32, f32) {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let side = dx.abs().max(dy.abs());
+    (from.0 + side.copysign(dx), from.1 + side.copysign(dy))
+}
+
+pub fn opacity_after(elapsed: Duration) -> Option<f32> {
+    if elapsed < HOLD {
+        return Some(1.);
+    }
+    let fading = elapsed.saturating_sub(HOLD);
+    if fading >= FADE {
+        return None;
+    }
+    let t = fading.as_secs_f32() / FADE.as_secs_f32();
+    Some(1. - t * t * (3. - 2. * t))
 }
 
 #[derive(Debug)]
@@ -127,18 +237,22 @@ impl Ink {
             .filter(move |stroke| stroke.display == display)
     }
 
-    pub fn begin(&mut self, display: usize, at: (f32, f32)) {
-        self.finish();
+    pub fn begin(&mut self, display: usize, at: (f32, f32), straight: bool) -> Option<usize> {
+        self.finish(None);
+        let dropped = (self.strokes.len() >= MAX_STROKES).then(|| self.strokes.remove(0).display);
         self.strokes.push(Stroke {
             display,
             tool: self.tool,
             colour: self.colour,
             points: vec![at],
+            straight,
+            fades_from: None,
         });
         self.drawing = true;
+        dropped
     }
 
-    pub fn extend(&mut self, at: (f32, f32)) -> bool {
+    pub fn extend(&mut self, at: (f32, f32), straight: bool) -> bool {
         if !self.drawing {
             return false;
         }
@@ -148,31 +262,51 @@ impl Ink {
         let Some(last) = stroke.points.last().copied() else {
             return false;
         };
+        let turned = stroke.straight != straight;
+        stroke.straight = straight;
         if distance(last, at) < MIN_STEP {
-            return false;
+            return turned;
         }
-        if stroke.tool == InkTool::Arrow {
+        if !stroke.tool.freehand() {
             stroke.points.truncate(1);
         }
         stroke.points.push(at);
         true
     }
 
-    pub fn finish(&mut self) -> Option<usize> {
+    pub fn finish(&mut self, fades_from: Option<Instant>) -> Option<usize> {
         if !std::mem::take(&mut self.drawing) {
             return None;
         }
-        let stroke = self.strokes.last()?;
-        let too_short = stroke.tool == InkTool::Arrow
-            && stroke
-                .points
-                .first()
-                .zip(stroke.points.last())
-                .is_none_or(|(start, end)| distance(*start, *end) < MIN_ARROW);
-        if too_short {
+        let stroke = self.strokes.last_mut()?;
+        if stroke.too_small() {
             return self.strokes.pop().map(|stroke| stroke.display);
         }
-        None
+        stroke.settle();
+        stroke.fades_from = fades_from;
+        Some(stroke.display)
+    }
+
+    pub fn prune(&mut self, now: Instant) -> bool {
+        let before = self.strokes.len();
+        self.strokes
+            .retain(|stroke| stroke.opacity_at(now).is_some());
+        self.strokes.len() != before
+    }
+
+    pub fn next_fade_change(&self, now: Instant) -> Option<Instant> {
+        self.strokes
+            .iter()
+            .filter_map(|stroke| stroke.fades_from)
+            .map(|from| {
+                let shown = from + HOLD;
+                if shown > now { shown } else { shown + FADE }
+            })
+            .min()
+    }
+
+    pub fn fading_at(&self, now: Instant) -> bool {
+        self.strokes.iter().any(|stroke| stroke.fading_at(now))
     }
 
     pub fn undo(&mut self) -> Option<usize> {
@@ -195,8 +329,26 @@ pub fn arrow_head(start: (f32, f32), end: (f32, f32)) -> [(f32, f32); 2] {
         .map(|wing| (end.0 - length * wing.cos(), end.1 - length * wing.sin()))
 }
 
-pub fn can_draw(phase: Phase) -> bool {
-    matches!(phase, Phase::Recording { .. })
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DrawSurface {
+    Nothing,
+    Window,
+    Screen,
+}
+
+pub fn draw_surface(target: Option<&ScreenCaptureTarget>) -> DrawSurface {
+    match target {
+        Some(ScreenCaptureTarget::Display { .. } | ScreenCaptureTarget::Area { .. }) => {
+            DrawSurface::Screen
+        }
+        Some(ScreenCaptureTarget::Window { .. }) => DrawSurface::Window,
+        Some(ScreenCaptureTarget::CameraOnly) | None => DrawSurface::Nothing,
+    }
+}
+
+pub fn can_draw(session: &RecordingSession) -> bool {
+    matches!(session.phase, Phase::Recording { .. })
+        && draw_surface(session.capture_target().as_ref()) == DrawSurface::Screen
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -210,6 +362,7 @@ pub struct ScreenInk {
     windows: Vec<WindowHandle<InkOverlay>>,
     displays: Vec<scap_targets::DisplayId>,
     previous_foreground: Option<isize>,
+    fade: Option<gpui::Task<()>>,
 }
 
 impl EventEmitter<InkChanged> for ScreenInk {}
@@ -226,11 +379,12 @@ impl ScreenInk {
             windows: Vec::new(),
             displays: Vec::new(),
             previous_foreground: None,
+            fade: None,
         });
         let session = RecordingSession::global(cx);
         let observed = ink.clone();
         cx.observe(&session, move |session, cx| {
-            if can_draw(session.read(cx).phase) {
+            if can_draw(session.read(cx)) {
                 return;
             }
             let idle = {
@@ -285,18 +439,25 @@ impl ScreenInk {
         }
     }
 
-    fn begin(&mut self, display: usize, at: (f32, f32), cx: &mut Context<Self>) {
+    fn begin(&mut self, display: usize, at: (f32, f32), straight: bool, cx: &mut Context<Self>) {
         if !self.active {
             return;
         }
-        self.ink.begin(display, at);
+        self.finish(cx);
+        if let Some(dropped) = self.ink.begin(display, at, straight)
+            && dropped != display
+        {
+            cx.emit(InkChanged {
+                display: Some(dropped),
+            });
+        }
         cx.emit(InkChanged {
             display: Some(display),
         });
     }
 
-    fn extend(&mut self, display: usize, at: (f32, f32), cx: &mut Context<Self>) {
-        if self.ink.extend(at) {
+    fn extend(&mut self, display: usize, at: (f32, f32), straight: bool, cx: &mut Context<Self>) {
+        if self.ink.extend(at, straight) {
             cx.emit(InkChanged {
                 display: Some(display),
             });
@@ -304,12 +465,42 @@ impl ScreenInk {
     }
 
     fn finish(&mut self, cx: &mut Context<Self>) {
-        if let Some(display) = self.ink.finish() {
+        let fades_from = strokes_fade().then(Instant::now);
+        if let Some(display) = self.ink.finish(fades_from) {
             cx.emit(InkChanged {
                 display: Some(display),
             });
         }
+        if fades_from.is_some() && self.fade.is_none() {
+            self.fade = Some(cx.spawn(async move |this, cx| {
+                loop {
+                    let Ok(Some(next)) = this.update(cx, |ink, _| {
+                        let next = ink.ink.next_fade_change(Instant::now());
+                        if next.is_none() {
+                            ink.fade = None;
+                        }
+                        next
+                    }) else {
+                        return;
+                    };
+                    cx.background_executor()
+                        .timer(next.saturating_duration_since(Instant::now()))
+                        .await;
+                    let updated = this.update(cx, |ink, cx| {
+                        ink.ink.prune(Instant::now());
+                        cx.emit(InkChanged { display: None });
+                    });
+                    if updated.is_err() {
+                        return;
+                    }
+                }
+            }));
+        }
     }
+}
+
+fn strokes_fade() -> bool {
+    !cfg!(test) && !crate::store::keep_drawings_on_screen()
 }
 
 pub fn toggle(cx: &mut App) {
@@ -324,7 +515,7 @@ pub fn set_active(active: bool, cx: &mut App) {
     let Some(ink) = ScreenInk::try_global(cx) else {
         return;
     };
-    if active && !can_draw(RecordingSession::global(cx).read(cx).phase) {
+    if active && !can_draw(RecordingSession::global(cx).read(cx)) {
         return;
     }
     if ink.read(cx).active == active {
@@ -455,35 +646,90 @@ pub fn ink_colour(colour: usize) -> Hsla {
     gpui::rgb(INK_RGB[colour.min(INK_COLOURS - 1)]).into()
 }
 
-fn paint_stroke(stroke: &Stroke, window: &mut Window) {
-    let Some(start) = stroke.points.first().copied() else {
-        return;
-    };
-    let end = stroke.points.last().copied().unwrap_or(start);
-    let width = stroke.tool.width();
-    let mut colour = ink_colour(stroke.colour);
-    colour.a = stroke.tool.opacity();
-    let mut builder = PathBuilder::stroke(px(width)).with_style(PathStyle::Stroke(
+fn stroke_options(width: f32, start: LineCap, end: LineCap) -> PathBuilder {
+    PathBuilder::stroke(px(width)).with_style(PathStyle::Stroke(
         StrokeOptions::default()
             .with_line_width(width)
-            .with_line_cap(LineCap::Round)
+            .with_start_cap(start)
+            .with_end_cap(end)
             .with_line_join(LineJoin::Round),
-    ));
-    builder.move_to(point(px(start.0), px(start.1)));
-    if stroke.points.len() == 1 {
-        builder.line_to(point(px(start.0 + 0.1), px(start.1)));
+    ))
+}
+
+pub fn line_runs(points: &[(f32, f32)]) -> Vec<Vec<(f32, f32)>> {
+    let mut runs = Vec::new();
+    let mut run: Vec<(f32, f32)> = Vec::new();
+    for &at in points {
+        if run.len() == POINTS_PER_RUN - 1
+            && let Some(&last) = run.last()
+        {
+            let seam = ((last.0 + at.0) / 2., (last.1 + at.1) / 2.);
+            run.push(seam);
+            runs.push(std::mem::replace(&mut run, vec![seam]));
+        }
+        run.push(at);
     }
-    for at in &stroke.points[1..] {
-        builder.line_to(point(px(at.0), px(at.1)));
+    if !run.is_empty() {
+        runs.push(run);
     }
-    if stroke.tool == InkTool::Arrow && stroke.points.len() > 1 {
-        let [left, right] = arrow_head(start, end);
-        builder.move_to(point(px(left.0), px(left.1)));
-        builder.line_to(point(px(end.0), px(end.1)));
-        builder.line_to(point(px(right.0), px(right.1)));
+    runs
+}
+
+fn paint_line(points: &[(f32, f32)], width: f32, colour: Hsla, window: &mut Window) {
+    let runs = line_runs(points);
+    let last = runs.len().saturating_sub(1);
+    for (index, run) in runs.into_iter().enumerate() {
+        let Some(start) = run.first().copied() else {
+            continue;
+        };
+        let cap = |outer: bool| if outer { LineCap::Round } else { LineCap::Butt };
+        let mut builder = stroke_options(width, cap(index == 0), cap(index == last));
+        let run = run.as_slice();
+        builder.move_to(point(px(start.0), px(start.1)));
+        if run.len() == 1 {
+            builder.line_to(point(px(start.0 + 0.1), px(start.1)));
+        }
+        for at in &run[1..] {
+            builder.line_to(point(px(at.0), px(at.1)));
+        }
+        if let Ok(path) = builder.build() {
+            window.paint_path(path, colour);
+        }
     }
-    if let Ok(path) = builder.build() {
-        window.paint_path(path, colour);
+}
+
+fn paint_stroke(stroke: &Stroke, opacity: f32, window: &mut Window) {
+    let Some(outline) = stroke.outline() else {
+        return;
+    };
+    let width = stroke.tool.width();
+    let mut colour = ink_colour(stroke.colour);
+    colour.a = stroke.tool.opacity() * opacity;
+    match outline {
+        Outline::Line(points) => paint_line(&points, width, colour, window),
+        Outline::Arrow { from, to } => {
+            let [left, right] = arrow_head(from, to);
+            let mut builder = stroke_options(width, LineCap::Round, LineCap::Round);
+            builder.move_to(point(px(from.0), px(from.1)));
+            builder.line_to(point(px(to.0), px(to.1)));
+            builder.move_to(point(px(left.0), px(left.1)));
+            builder.line_to(point(px(to.0), px(to.1)));
+            builder.line_to(point(px(right.0), px(right.1)));
+            if let Ok(path) = builder.build() {
+                window.paint_path(path, colour);
+            }
+        }
+        Outline::Rectangle { from, to } => {
+            let mut builder = stroke_options(width, LineCap::Round, LineCap::Round);
+            builder.move_to(point(px(from.0), px(from.1)));
+            builder.line_to(point(px(to.0), px(from.1)));
+            builder.line_to(point(px(to.0), px(to.1)));
+            builder.line_to(point(px(from.0), px(to.1)));
+            builder.close();
+            if let Ok(path) = builder.build() {
+                window.paint_path(path, colour);
+            }
+        }
     }
 }
 
@@ -504,8 +750,9 @@ impl Render for InkOverlay {
                         cx.listener(move |this, event: &MouseDownEvent, window, cx| {
                             window.focus(&this.focus, cx);
                             let at = (f32::from(event.position.x), f32::from(event.position.y));
+                            let straight = event.modifiers.shift;
                             this.ink
-                                .update(cx, |ink, cx| ink.begin(this.display, at, cx));
+                                .update(cx, |ink, cx| ink.begin(this.display, at, straight, cx));
                         }),
                     )
                     .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
@@ -513,8 +760,9 @@ impl Render for InkOverlay {
                             return;
                         }
                         let at = (f32::from(event.position.x), f32::from(event.position.y));
+                        let straight = event.modifiers.shift;
                         this.ink
-                            .update(cx, |ink, cx| ink.extend(this.display, at, cx));
+                            .update(cx, |ink, cx| ink.extend(this.display, at, straight, cx));
                     }))
                     .on_mouse_up(
                         MouseButton::Left,
@@ -538,8 +786,17 @@ impl Render for InkOverlay {
                 canvas(
                     |_, _, _| (),
                     move |_, (), window, _| {
+                        let now = Instant::now();
+                        let mut fading = false;
                         for stroke in &strokes {
-                            paint_stroke(stroke, window);
+                            let Some(opacity) = stroke.opacity_at(now) else {
+                                continue;
+                            };
+                            fading |= stroke.fading_at(now);
+                            paint_stroke(stroke, opacity, window);
+                        }
+                        if fading {
+                            window.request_animation_frame();
                         }
                     },
                 )
@@ -553,11 +810,11 @@ mod tests {
     use super::*;
 
     fn drawn(ink: &mut Ink, display: usize, points: &[(f32, f32)]) {
-        ink.begin(display, points[0]);
+        ink.begin(display, points[0], false);
         for at in &points[1..] {
-            ink.extend(*at);
+            ink.extend(*at, false);
         }
-        ink.finish();
+        ink.finish(None);
     }
 
     #[test]
@@ -590,12 +847,12 @@ mod tests {
     #[test]
     fn screen_ink_ignores_pointer_jitter_and_moves_without_a_stroke() {
         let mut ink = Ink::default();
-        assert!(!ink.extend((4., 4.)));
-        ink.begin(0, (10., 10.));
-        assert!(!ink.extend((10.5, 10.5)));
-        assert!(ink.extend((13., 10.)));
-        ink.finish();
-        assert!(!ink.extend((40., 40.)));
+        assert!(!ink.extend((4., 4.), false));
+        ink.begin(0, (10., 10.), false);
+        assert!(!ink.extend((10.5, 10.5), false));
+        assert!(ink.extend((13., 10.), false));
+        ink.finish(None);
+        assert!(!ink.extend((40., 40.), false));
         assert_eq!(
             ink.strokes_on(0).next().unwrap().points,
             vec![(10., 10.), (13., 10.)]
@@ -692,11 +949,20 @@ mod tests {
         assert!(!overlays_outdated(true, &two, &two));
     }
 
+    fn display_target() -> ScreenCaptureTarget {
+        ScreenCaptureTarget::Display {
+            id: "1".parse().unwrap(),
+        }
+    }
+
     fn recording(cx: &mut gpui::TestAppContext, phase: Phase) -> Entity<ScreenInk> {
         cx.update(|cx| {
             crate::feeds::Feeds::init(cx);
             let session = RecordingSession::init(cx);
-            session.update(cx, |session, _| session.phase = phase);
+            session.update(cx, |session, _| {
+                session.record_target_for_test(display_target());
+                session.phase = phase;
+            });
             ScreenInk::init(cx)
         })
     }
@@ -726,8 +992,8 @@ mod tests {
         cx.update(|cx| {
             set_active(true, cx);
             ink.update(cx, |ink, cx| {
-                ink.begin(0, (1., 1.), cx);
-                ink.extend(0, (40., 40.), cx);
+                ink.begin(0, (1., 1.), false, cx);
+                ink.extend(0, (40., 40.), false, cx);
                 ink.finish(cx);
                 ink.apply(InkAction::Leave, cx);
             });
@@ -738,7 +1004,7 @@ mod tests {
             assert_eq!(ink.read(cx).ink().strokes_on(0).count(), 1);
         });
         cx.update(|cx| {
-            ink.update(cx, |ink, cx| ink.begin(0, (5., 5.), cx));
+            ink.update(cx, |ink, cx| ink.begin(0, (5., 5.), false, cx));
             assert_eq!(ink.read(cx).ink().strokes_on(0).count(), 1);
             set_active(true, cx);
             RecordingSession::global(cx).update(cx, |session, cx| {
@@ -765,15 +1031,189 @@ mod tests {
             })
             .detach();
             ink.update(cx, |ink, cx| {
-                ink.begin(1, (1., 1.), cx);
-                ink.extend(1, (1.2, 1.2), cx);
-                ink.extend(1, (30., 30.), cx);
+                ink.begin(1, (1., 1.), false, cx);
+                ink.extend(1, (1.2, 1.2), false, cx);
+                ink.extend(1, (30., 30.), false, cx);
                 ink.finish(cx);
                 ink.apply(InkAction::Tool(InkTool::Arrow), cx);
                 ink.apply(InkAction::Colour(1), cx);
             });
         });
         cx.run_until_parked();
-        assert_eq!(*seen.borrow(), vec![Some(1), Some(1)]);
+        assert_eq!(*seen.borrow(), vec![Some(1), Some(1), Some(1)]);
+    }
+
+    fn close(a: (f32, f32), b: (f32, f32)) -> bool {
+        (a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3
+    }
+
+    #[test]
+    fn screen_ink_shift_snaps_arrows_to_45_degrees_and_squares_rectangles() {
+        let from = (100., 100.);
+        assert!(close(
+            snap_to_45(from, (200., 110.)),
+            (100. + 10_100f32.sqrt(), 100.)
+        ));
+        let diagonal = snap_to_45(from, (170., 180.));
+        assert!((diagonal.0 - from.0 - (diagonal.1 - from.1)).abs() < 1e-3);
+        assert_eq!(snap_to_45(from, from), from);
+        assert!(close(square_corner((50., 50.), (90., 60.)), (90., 90.)));
+        assert!(close(square_corner((50., 50.), (30., 0.)), (0., 0.)));
+    }
+
+    #[test]
+    fn screen_ink_shift_draws_straight_and_letting_go_brings_the_freehand_back() {
+        let mut ink = Ink::default();
+        ink.begin(0, (0., 0.), false);
+        ink.extend((5., 9.), true);
+        ink.extend((12., 3.), true);
+        let line = |ink: &Ink| ink.strokes_on(0).next().unwrap().outline();
+        assert_eq!(line(&ink), Some(Outline::Line(vec![(0., 0.), (12., 3.)])));
+        assert!(ink.extend((12.5, 3.), false));
+        assert_eq!(
+            line(&ink),
+            Some(Outline::Line(vec![(0., 0.), (5., 9.), (12., 3.)]))
+        );
+        ink.extend((20., 20.), true);
+        ink.finish(None);
+        assert_eq!(
+            ink.strokes_on(0).next().unwrap().points,
+            vec![(0., 0.), (20., 20.)]
+        );
+    }
+
+    #[test]
+    fn screen_ink_rectangle_keeps_its_corners_and_a_click_leaves_none() {
+        let mut ink = Ink::default();
+        ink.set_tool(InkTool::Rectangle);
+        ink.begin(0, (0., 0.), false);
+        ink.extend((30., 5.), false);
+        ink.extend((30., -10.), true);
+        ink.finish(None);
+        assert_eq!(
+            ink.strokes_on(0).next().unwrap().outline(),
+            Some(Outline::Rectangle {
+                from: (0., 0.),
+                to: (30., -30.)
+            })
+        );
+        drawn(&mut ink, 0, &[(100., 100.), (140., 101.)]);
+        assert_eq!(ink.strokes_on(0).count(), 1);
+        assert_eq!(
+            ink_action_for_key("r", false),
+            Some(InkAction::Tool(InkTool::Rectangle))
+        );
+    }
+
+    #[test]
+    fn screen_ink_strokes_hold_then_fade_out_unless_kept() {
+        assert_eq!(opacity_after(Duration::ZERO), Some(1.));
+        assert_eq!(opacity_after(HOLD - Duration::from_millis(1)), Some(1.));
+        assert!((opacity_after(HOLD + FADE / 2).unwrap() - 0.5).abs() < 0.01);
+        assert_eq!(opacity_after(HOLD + FADE), None);
+
+        let start = Instant::now();
+        let mut ink = Ink::default();
+        drawn(&mut ink, 0, &[(0., 0.), (9., 9.)]);
+        ink.begin(0, (20., 0.), false);
+        ink.extend((29., 9.), false);
+        ink.finish(Some(start));
+        assert_eq!(ink.next_fade_change(start), Some(start + HOLD));
+        assert_eq!(
+            ink.next_fade_change(start + HOLD + FADE / 2),
+            Some(start + HOLD + FADE)
+        );
+        assert!(!ink.fading_at(start));
+        assert!(ink.fading_at(start + HOLD));
+        assert!(ink.fading_at(start + HOLD + FADE / 2));
+        assert!(!ink.prune(start + HOLD));
+        assert!(ink.prune(start + HOLD + FADE));
+        let left: Vec<_> = ink.strokes_on(0).map(|stroke| stroke.points[0]).collect();
+        assert_eq!(left, vec![(0., 0.)]);
+        assert_eq!(ink.next_fade_change(start + HOLD + FADE), None);
+    }
+
+    #[test]
+    fn screen_ink_keeps_the_newest_strokes_when_the_limit_is_reached() {
+        let mut ink = Ink::default();
+        for index in 0..MAX_STROKES + 1 {
+            let x = index as f32 * 10.;
+            drawn(&mut ink, 0, &[(x, 0.), (x + 5., 5.)]);
+        }
+        assert_eq!(ink.strokes_on(0).count(), MAX_STROKES);
+        assert_eq!(ink.strokes_on(0).next().unwrap().points[0], (10., 0.));
+        assert_eq!(ink.begin(1, (0., 0.), false), Some(0));
+    }
+
+    #[test]
+    fn screen_ink_long_strokes_are_painted_in_runs_that_meet_and_all_build() {
+        let points: Vec<(f32, f32)> = (0..20_000)
+            .map(|index| (index as f32 * 2., if index % 2 == 0 { 0. } else { 40. }))
+            .collect();
+        let build = |run: &[(f32, f32)], start: LineCap, end: LineCap| {
+            let mut builder = stroke_options(3., start, end);
+            builder.move_to(point(px(run[0].0), px(run[0].1)));
+            for at in &run[1..] {
+                builder.line_to(point(px(at.0), px(at.1)));
+            }
+            builder.build()
+        };
+        assert!(build(&points, LineCap::Round, LineCap::Round).is_err());
+        let runs = line_runs(&points);
+        assert!(runs.len() > 1);
+        assert_eq!(runs[0][0], points[0]);
+        assert_eq!(
+            *runs.last().unwrap().last().unwrap(),
+            points[points.len() - 1]
+        );
+        let cross = |a: (f32, f32), b: (f32, f32), c: (f32, f32)| {
+            (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+        };
+        for pair in runs.windows(2) {
+            let [.., before, seam] = pair[0][..] else {
+                panic!("a run ends with at least two points");
+            };
+            assert_eq!(pair[1][0], seam);
+            assert!(cross(before, seam, pair[1][1]).abs() < 1e-3);
+        }
+        let drawn: Vec<_> = runs
+            .iter()
+            .flat_map(|run| run.iter().copied())
+            .filter(|at| points.contains(at))
+            .collect();
+        assert_eq!(drawn, points);
+        for run in &runs {
+            assert!(run.len() <= POINTS_PER_RUN);
+            assert!(build(run, LineCap::Butt, LineCap::Butt).is_ok());
+        }
+        assert_eq!(line_runs(&points[..3]), vec![points[..3].to_vec()]);
+    }
+
+    #[test]
+    fn screen_ink_is_offered_only_where_the_screen_is_recorded() {
+        assert_eq!(draw_surface(Some(&display_target())), DrawSurface::Screen);
+        assert_eq!(
+            draw_surface(Some(&ScreenCaptureTarget::CameraOnly)),
+            DrawSurface::Nothing
+        );
+        assert_eq!(
+            draw_surface(Some(&ScreenCaptureTarget::Window {
+                id: "1".parse().unwrap()
+            })),
+            DrawSurface::Window
+        );
+        assert_eq!(draw_surface(None), DrawSurface::Nothing);
+    }
+
+    #[gpui::test]
+    fn screen_ink_does_not_start_in_a_camera_only_recording(cx: &mut gpui::TestAppContext) {
+        let ink = recording(cx, Phase::Recording { paused: false });
+        cx.update(|cx| {
+            RecordingSession::global(cx).update(cx, |session, _| {
+                session.record_target_for_test(ScreenCaptureTarget::CameraOnly)
+            });
+            toggle(cx);
+        });
+        assert!(!cx.read(|cx| ink.read(cx).active()));
     }
 }

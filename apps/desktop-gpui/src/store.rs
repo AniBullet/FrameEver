@@ -417,6 +417,19 @@ pub fn chapter_mark_sound_enabled() -> bool {
         .unwrap_or(false)
 }
 
+pub const KEEP_DRAWINGS_KEY: &str = "keepDrawingsOnScreen";
+
+pub fn keep_drawings_on_screen() -> bool {
+    cached_store(&tauri_store_path())
+        .and_then(|store| {
+            store
+                .get(GENERAL_SETTINGS)
+                .and_then(Value::as_object)
+                .map(|settings| bool_at(settings, KEEP_DRAWINGS_KEY, true))
+        })
+        .unwrap_or(true)
+}
+
 pub const RECORDING_SOUNDS_KEY: &str = "recordingSounds";
 
 pub fn recording_sounds_enabled() -> bool {
@@ -1090,6 +1103,7 @@ pub struct GeneralSettings {
     pub keep_main_hidden_after_editor: bool,
     pub keep_main_hidden_on_cancel: bool,
     pub chapter_mark_sound: bool,
+    pub keep_drawings: bool,
     pub recording_sounds: bool,
     pub delete_instant_recordings_after_upload: bool,
     pub crash_recovery_recording: bool,
@@ -1568,6 +1582,7 @@ impl GeneralSettings {
             keep_main_hidden_after_editor: bool_at(general, "keepMainHiddenAfterEditor", false),
             keep_main_hidden_on_cancel: bool_at(general, "keepMainHiddenOnCancel", false),
             chapter_mark_sound: bool_at(general, CHAPTER_MARK_SOUND_KEY, false),
+            keep_drawings: bool_at(general, KEEP_DRAWINGS_KEY, true),
             recording_sounds: bool_at(general, RECORDING_SOUNDS_KEY, true),
             delete_instant_recordings_after_upload: bool_at(
                 general,
@@ -3091,6 +3106,21 @@ mod tests {
         );
         assert!(!recording_sounds_enabled());
         assert!(!GeneralSettings::load().recording_sounds);
+    }
+
+    #[test]
+    fn drawings_stay_on_screen_until_turned_off() {
+        let _store = TempStore::new("keep-drawings-default", Some("{}"));
+        assert!(keep_drawings_on_screen());
+        assert!(GeneralSettings::load().keep_drawings);
+        drop(_store);
+
+        let _store = TempStore::new(
+            "keep-drawings-off",
+            Some(r#"{"general_settings":{"keepDrawingsOnScreen":false}}"#),
+        );
+        assert!(!keep_drawings_on_screen());
+        assert!(!GeneralSettings::load().keep_drawings);
     }
 
     #[test]

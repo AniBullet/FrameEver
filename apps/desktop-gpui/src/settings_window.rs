@@ -1837,6 +1837,13 @@ impl SettingsWindow {
                     },
                 )
                 .into_any_element(),
+            Row::KeepDrawings => self
+                .toggle("keep-drawings", settings.keep_drawings, cx, |this, cx| {
+                    this.settings.keep_drawings = !this.settings.keep_drawings;
+                    let value = this.settings.keep_drawings;
+                    this.write_bool(crate::store::KEEP_DRAWINGS_KEY, value, cx);
+                })
+                .into_any_element(),
             Row::NotchOverlay => self
                 .toggle(
                     "notch-overlay",

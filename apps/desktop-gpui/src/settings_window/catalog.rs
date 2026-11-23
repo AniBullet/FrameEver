@@ -21,6 +21,7 @@ pub enum Row {
     Notifications,
     RecordingSounds,
     ChapterMarkSound,
+    KeepDrawings,
     DockIcon,
     MainWindowStart,
     AfterDelete,
@@ -173,7 +174,12 @@ const RECORDING: &[Group] = &[
     },
     Group {
         title: n!("While recording"),
-        rows: &[Row::MaxFps, Row::AutoStop, Row::NotchOverlay],
+        rows: &[
+            Row::KeepDrawings,
+            Row::MaxFps,
+            Row::AutoStop,
+            Row::NotchOverlay,
+        ],
     },
     Group {
         title: n!("Window recording"),
@@ -478,6 +484,7 @@ impl Row {
             Row::Notifications => n!("Notifications"),
             Row::RecordingSounds => n!("Recording sounds"),
             Row::ChapterMarkSound => n!("Chapter mark sound"),
+            Row::KeepDrawings => n!("Keep drawings on screen"),
             Row::DockIcon => n!("Always show dock icon"),
             Row::MainWindowStart => n!("When recording starts"),
             Row::AfterDelete => n!("After deleting a recording"),
@@ -543,6 +550,9 @@ impl Row {
                 n!(
                     "Plays when you add a chapter mark while recording. Your microphone can pick it up."
                 )
+            }
+            Row::KeepDrawings => {
+                n!("When off, each drawing fades a few seconds after you draw it.")
             }
             Row::DockIcon => n!("Keep FrameEver in the dock even when no windows are open."),
             Row::MainWindowStart => n!("What the main window does."),
@@ -693,6 +703,7 @@ mod tests {
                 &[
                     "Countdown",
                     "Confirm without microphone",
+                    "Keep drawings on screen",
                     "Maximum frame rate",
                     "Auto-stop",
                     "Record a window as",
@@ -946,6 +957,7 @@ mod tests {
             "enableNotifications" => Row::Notifications,
             "RECORDING_SOUNDS_KEY" => Row::RecordingSounds,
             "CHAPTER_MARK_SOUND_KEY" => Row::ChapterMarkSound,
+            "KEEP_DRAWINGS_KEY" => Row::KeepDrawings,
             "mainWindowRecordingStartBehaviour" => Row::MainWindowStart,
             "postDeletionBehaviour" => Row::AfterDelete,
             "keepMainHiddenAfterEditor" => Row::AfterEditorClose,

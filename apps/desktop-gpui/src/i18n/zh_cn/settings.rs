@@ -774,4 +774,9 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "Plays when you add a chapter mark while recording. Your microphone can pick it up.",
         "录制中添加章节标记时播放。麦克风可能会录进去。",
     ),
+    ("Keep drawings on screen", "保留屏幕上的画笔内容"),
+    (
+        "When off, each drawing fades a few seconds after you draw it.",
+        "关闭时，每一笔画完几秒后淡出。",
+    ),
 ];

@@ -176,7 +176,7 @@ fn follow_recording(cx: &mut App) {
     let session = RecordingSession::global(cx);
     cx.observe(&session, |session, cx| {
         let session = session.read(cx);
-        let recording = crate::screen_ink::can_draw(session.phase);
+        let recording = matches!(session.phase, Phase::Recording { .. });
         let mode = recording.then(|| session.mode()).flatten();
         let hotkeys = cx.global::<Hotkeys>();
         if hotkeys.recording == recording && hotkeys.recording_mode == mode {
