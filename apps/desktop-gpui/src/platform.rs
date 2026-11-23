@@ -162,7 +162,7 @@ pub fn copy_png_to_clipboard(png: Vec<u8>, cx: &gpui::App) -> gpui::Task<Result<
     })
 }
 
-fn read_image_into_clipboard(
+pub(crate) fn read_image_into_clipboard(
     path: std::path::PathBuf,
     cx: &gpui::App,
 ) -> gpui::Task<Result<(), String>> {

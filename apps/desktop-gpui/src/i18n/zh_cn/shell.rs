@@ -757,6 +757,17 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("The compressed copy stays.", "压缩副本会保留。"),
     ("Original and compressed copy.", "原始视频和压缩副本。"),
     ("Couldn't restore what you deleted", "无法恢复删除的内容"),
+    ("Couldn't delete it", "无法删除"),
+    (
+        "Close what has it open and try again.",
+        "关闭正在使用它的程序后重试。",
+    ),
+    ("Deleted", "已删除"),
+    ("Copying", "正在复制"),
+    ("Deleting", "正在删除"),
+    ("Restoring", "正在恢复"),
+    ("Couldn't copy", "无法复制"),
+    ("Drag to another app", "拖到其他应用"),
     (
         "Open the Recycle Bin and restore it from there.",
         "打开回收站，从那里还原。",

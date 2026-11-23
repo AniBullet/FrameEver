@@ -630,6 +630,24 @@ fn screenshot_entry(item: ScreenshotItem) -> view::Entry {
     }
 }
 
+pub fn entry_at(bundle: &Path) -> Option<view::Entry> {
+    let meta = RecordingMeta::load_for_project(bundle).ok()?;
+    let sort_time_millis = media_sort_time_millis(bundle);
+    Some(match screenshot_png(bundle) {
+        Some(png) => screenshot_entry(ScreenshotItem {
+            path: png.clone(),
+            pretty_name: meta.pretty_name,
+            sort_time_millis,
+            thumbnail: Some(png),
+            bundle: bundle.to_path_buf(),
+        }),
+        None => recording_entry(
+            recording_item(bundle.to_path_buf(), meta, sort_time_millis),
+            None,
+        ),
+    })
+}
+
 pub fn entries_in(recording_dirs: &[PathBuf], screenshot_dirs: &[PathBuf]) -> Vec<view::Entry> {
     entries_during(recording_dirs, screenshot_dirs, None)
 }
@@ -1111,6 +1129,25 @@ pub fn recycle_project(path: &Path) -> Result<Option<Deleted>, String> {
     let mut dirs = known_recordings_dirs();
     dirs.extend(storage().known_dirs(ProjectKind::Screenshot));
     recycle_project_in(&dirs, path)
+}
+
+const RECYCLE_RETRIES: u32 = 3;
+const RECYCLE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+
+pub async fn recycle_project_retrying(
+    path: &Path,
+    executor: &gpui::BackgroundExecutor,
+) -> Result<Option<Deleted>, String> {
+    let mut attempt = 0;
+    loop {
+        match recycle_project(path) {
+            Err(_) if attempt < RECYCLE_RETRIES => {
+                attempt += 1;
+                executor.timer(RECYCLE_RETRY_DELAY).await;
+            }
+            result => return result,
+        }
+    }
 }
 
 /// `delete_recording_directory` against the real library.
@@ -1988,6 +2025,24 @@ mod tests {
         assert_eq!(shot.kind, MediaKind::Screenshot);
         assert!(shot.screenshot.is_some());
         assert!(shot.opens_editor);
+    }
+
+    #[test]
+    fn one_bundle_reads_back_as_the_same_entry_the_library_scan_gives() {
+        let dir = tempfile::tempdir().unwrap();
+        let studio = write_studio_bundle(dir.path(), "Demo", 2);
+        let shot = write_studio_bundle(dir.path(), "Shot", 1);
+        std::fs::write(shot.join("Shot.png"), b"png").unwrap();
+
+        let demo = entry_at(&studio).unwrap();
+        assert_eq!(demo.kind, MediaKind::Studio);
+        assert_eq!(demo.name, "Demo");
+        assert_eq!(demo.clip_count, 2);
+
+        let shot_entry = entry_at(&shot).unwrap();
+        assert_eq!(shot_entry.kind, MediaKind::Screenshot);
+        assert_eq!(shot_entry.screenshot, Some(shot.join("Shot.png")));
+        assert_eq!(entry_at(&dir.path().join("Missing.ever")), None);
     }
 
     #[test]

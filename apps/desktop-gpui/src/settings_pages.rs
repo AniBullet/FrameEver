@@ -634,6 +634,7 @@ fn shortcut_owners(
 fn screenshot_outcome(behaviour: store::PostScreenshotBehaviour) -> &'static str {
     match behaviour {
         store::PostScreenshotBehaviour::OpenEditor => t!("open it in the editor"),
+        store::PostScreenshotBehaviour::ShowCard => t!("show it on a card in the corner"),
         store::PostScreenshotBehaviour::Copy => t!("copy it to your clipboard"),
         store::PostScreenshotBehaviour::CopyAndOpenEditor => t!("copy it and open the editor"),
         store::PostScreenshotBehaviour::Save => {
@@ -660,6 +661,7 @@ fn shortcut_effect(
     let screenshot = screenshot_outcome(settings.post_screenshot_behaviour);
     let studio_stop = match settings.post_studio_recording_behaviour {
         store::PostStudioBehaviour::OpenEditor => t!(", then open the editor when you stop"),
+        store::PostStudioBehaviour::ShowCard => t!(", then show it on a card when you stop"),
         store::PostStudioBehaviour::ShowOverlay | store::PostStudioBehaviour::DoNothing => "",
     };
     let instant_stop = match settings.post_instant_recording_behaviour {
@@ -667,6 +669,7 @@ fn shortcut_effect(
             t!(", then show it in the library when you stop")
         }
         store::PostInstantBehaviour::CopyFile => t!(", then copy the file when you stop"),
+        store::PostInstantBehaviour::ShowCard => t!(", then show it on a card when you stop"),
         store::PostInstantBehaviour::DoNothing => "",
     };
     match action {
@@ -4847,6 +4850,7 @@ impl SettingsWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::SettingsEnum as _;
 
     fn hotkey(code: &str, meta: bool, ctrl: bool, alt: bool, shift: bool) -> Hotkey {
         Hotkey {
@@ -5024,25 +5028,12 @@ mod tests {
     fn outcome_descriptions_fit_the_reserved_two_lines() {
         let mut settings = store::GeneralSettings::default();
         let mut longest = 0;
-        for screenshot in [
-            store::PostScreenshotBehaviour::OpenEditor,
-            store::PostScreenshotBehaviour::Copy,
-            store::PostScreenshotBehaviour::CopyAndOpenEditor,
-            store::PostScreenshotBehaviour::Save,
-        ] {
-            settings.post_screenshot_behaviour = screenshot;
-            for instant in [
-                store::PostInstantBehaviour::ShowLibrary,
-                store::PostInstantBehaviour::CopyFile,
-                store::PostInstantBehaviour::DoNothing,
-            ] {
-                settings.post_instant_recording_behaviour = instant;
-                for studio in [
-                    store::PostStudioBehaviour::OpenEditor,
-                    store::PostStudioBehaviour::ShowOverlay,
-                    store::PostStudioBehaviour::DoNothing,
-                ] {
-                    settings.post_studio_recording_behaviour = studio;
+        for screenshot in store::PostScreenshotBehaviour::ALL {
+            settings.post_screenshot_behaviour = *screenshot;
+            for instant in store::PostInstantBehaviour::ALL {
+                settings.post_instant_recording_behaviour = *instant;
+                for studio in store::PostStudioBehaviour::ALL {
+                    settings.post_studio_recording_behaviour = *studio;
                     for action in catalog::SCREENSHOT_SHORTCUTS
                         .iter()
                         .chain(catalog::RECORDING_SHORTCUTS.iter())
@@ -5087,6 +5078,16 @@ mod tests {
         assert!(
             shortcut_effect("startInstantRecording", &settings, studio)
                 .ends_with("copy the file when you stop")
+        );
+        settings.post_instant_recording_behaviour = store::PostInstantBehaviour::ShowCard;
+        assert!(
+            shortcut_effect("startInstantRecording", &settings, studio)
+                .ends_with("show it on a card when you stop")
+        );
+        settings.post_screenshot_behaviour = store::PostScreenshotBehaviour::ShowCard;
+        assert_eq!(
+            shortcut_effect("screenshotArea", &settings, studio),
+            "select an area and show it on a card in the corner"
         );
         settings.post_instant_recording_behaviour = store::PostInstantBehaviour::DoNothing;
         assert!(!shortcut_effect("startInstantRecording", &settings, studio).contains("stop"));

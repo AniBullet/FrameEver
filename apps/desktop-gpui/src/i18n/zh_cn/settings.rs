@@ -133,6 +133,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Copy", "复制"),
     ("Do nothing", "不做任何操作"),
     ("Show FrameEver", "显示帧刻"),
+    ("Show card", "显示卡片"),
     ("Screen region", "屏幕区域"),
     ("Focused window", "只录窗口"),
     ("Show in library", "显示资源库"),
@@ -154,6 +155,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Shortcut", "快捷键"),
     ("open it in the editor", "在编辑器中打开"),
     ("copy it to your clipboard", "复制到剪贴板"),
+    ("show it on a card in the corner", "在角落显示卡片"),
     ("copy it and open the editor", "复制并打开编辑器"),
     (
         "save it to your library without opening anything",
@@ -167,6 +169,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "，停止后在资源库中显示",
     ),
     (", then copy the file when you stop", "，停止后复制文件"),
+    (", then show it on a card when you stop", "，停止后显示卡片"),
     ("select an area and {screenshot}", "选择区域并{screenshot}"),
     (
         "capture the window under your pointer and {screenshot}",

@@ -42,6 +42,7 @@ pub static CONTEXTUAL: &[(&str, &str, &str)] = &[
     ("screenshot tool", "Spotlight", "聚光灯"),
     ("magnifier", "Zoom", "放大"),
     ("palette hint", "Show in library", "在资源库中显示"),
+    ("result card", "Show in library", "在资源库中显示"),
     ("input display style", "Outline", "线框"),
     ("gif size", "Size", "尺寸"),
     ("gif size", "Large", "大"),

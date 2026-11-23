@@ -339,6 +339,10 @@ struct SessionGlobal(Entity<RecordingSession>);
 impl Global for SessionGlobal {}
 
 impl RecordingSession {
+    pub fn last_display(&self) -> Option<scap_targets::Display> {
+        self.last_config.as_ref()?.target.display()
+    }
+
     pub fn init(cx: &mut App) -> Entity<Self> {
         let session = cx.new(|_| Self {
             phase: Phase::Idle,

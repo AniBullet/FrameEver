@@ -94,6 +94,7 @@ mod presets;
 mod project_save;
 mod recorded_time;
 mod recording;
+mod result_card;
 mod screen_ink;
 mod screenshot;
 mod screenshot_annotations;
@@ -648,6 +649,14 @@ fn main() {
         permissions_ui::auto_open_from_env(cx); // `FRAMEEVER_GPUI_AUTO_PERMISSIONS=1`: the permissions surface.
         #[cfg(debug_assertions)]
         snapshot::arm_from_env(cx);
+
+        if cfg!(debug_assertions)
+            && let Some(bundles) = std::env::var_os("FRAMEEVER_GPUI_AUTO_RESULT_CARD")
+        {
+            for bundle in std::env::split_paths(&bundles) {
+                result_card::show(bundle, None, cx);
+            }
+        }
 
         if cfg!(debug_assertions)
             && let Ok(spec) = std::env::var("FRAMEEVER_GPUI_AUTO_LIBRARY_PLAY")

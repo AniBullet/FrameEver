@@ -12,8 +12,6 @@ use crate::library::{
 };
 
 const UNDO_HOLD: Duration = Duration::from_secs(8);
-const RECYCLE_RETRIES: u32 = 3;
-const RECYCLE_RETRY_DELAY: Duration = Duration::from_millis(250);
 const DIALOG_WIDTH: f32 = 420.;
 const TOAST_WIDTH: f32 = 340.;
 const TOAST_BOTTOM: f32 = 44.;
@@ -159,18 +157,7 @@ async fn recycle_item(
 ) -> Result<Option<Deleted>, String> {
     match part {
         Some(version) => library::recycle::recycle_version(&item.path, version).map(Some),
-        None => {
-            let mut attempt = 0;
-            loop {
-                match library::recycle_project(&item.path) {
-                    Err(_) if attempt < RECYCLE_RETRIES => {
-                        attempt += 1;
-                        executor.timer(RECYCLE_RETRY_DELAY).await;
-                    }
-                    result => return result,
-                }
-            }
-        }
+        None => library::recycle_project_retrying(&item.path, executor).await,
     }
 }
 

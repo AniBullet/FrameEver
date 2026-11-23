@@ -106,7 +106,10 @@ fn platform_display_for_capture(
     Some(display)
 }
 
-fn gpui_display_id(target: Option<&scap_targets::Display>, cx: &App) -> Option<gpui::DisplayId> {
+pub(crate) fn gpui_display_id(
+    target: Option<&scap_targets::Display>,
+    cx: &App,
+) -> Option<gpui::DisplayId> {
     #[cfg(target_os = "windows")]
     {
         target
@@ -527,12 +530,20 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                 if let Some(project) = finished_instant.as_ref().filter(|_| finish.copy_instant) {
                     copy_instant_recording(project, cx);
                 }
-                if let Some(project) = finished_studio.clone().or_else(|| finished_instant.clone())
-                {
+                let finished = finished_studio.clone().or_else(|| finished_instant.clone());
+                if let Some(project) = finished.clone() {
                     note_new_recording(project, cx);
                 }
                 match (finish.next, finished_studio) {
                     (AfterRecording::OpenEditor, Some(project_dir)) => open_editor(project_dir, cx),
+                    (AfterRecording::ShowCard, _) => {
+                        park_idle_camera_preview(cx);
+                        crate::menus::schedule_dock_sync(cx);
+                        if let Some(project) = finished {
+                            let display = session.read(cx).last_display();
+                            crate::result_card::show(project, display, cx);
+                        }
+                    }
                     (AfterRecording::StayHidden, _) => {
                         park_idle_camera_preview(cx);
                         crate::menus::schedule_dock_sync(cx);
@@ -818,6 +829,14 @@ pub fn show_library(cx: &mut App) {
 }
 
 pub fn open_library(select: Option<PathBuf>, cx: &mut App) {
+    open_library_at(select, false, cx);
+}
+
+pub fn play_in_library(project: PathBuf, cx: &mut App) {
+    open_library_at(Some(project), true, cx);
+}
+
+fn open_library_at(select: Option<PathBuf>, play: bool, cx: &mut App) {
     if crate::store::should_show_onboarding() {
         show_main_window(cx);
         return;
@@ -828,7 +847,7 @@ pub fn open_library(select: Option<PathBuf>, cx: &mut App) {
     {
         library
             .update(cx, |view, window, cx| {
-                view.select_library_project(path, window, cx);
+                view.select_library_project(path, play, window, cx);
             })
             .ok();
     }
@@ -2523,6 +2542,7 @@ enum AfterRecording {
     StayHidden,
     ShowLibrary,
     ShowMain,
+    ShowCard,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2536,10 +2556,13 @@ fn recording_finish(
     instant: Option<crate::store::PostInstantBehaviour>,
     deleted: Option<crate::store::PostDeletionBehaviour>,
 ) -> RecordingFinish {
-    use crate::store::{PostDeletionBehaviour, PostStudioBehaviour};
+    use crate::store::{PostDeletionBehaviour, PostInstantBehaviour, PostStudioBehaviour};
     let copy_instant = instant.is_some_and(|instant| instant.finish().copy_file);
     let next = match (studio, instant) {
         (Some(PostStudioBehaviour::OpenEditor), _) => AfterRecording::OpenEditor,
+        (Some(PostStudioBehaviour::ShowCard), _) | (None, Some(PostInstantBehaviour::ShowCard)) => {
+            AfterRecording::ShowCard
+        }
         (Some(PostStudioBehaviour::DoNothing), _) => AfterRecording::StayHidden,
         (None, None) if deleted == Some(PostDeletionBehaviour::DoNothing) => {
             AfterRecording::StayHidden
@@ -6543,6 +6566,11 @@ pub fn screenshot_finished(captured: Option<PathBuf>, cx: &mut App) {
     screenshot_saved(cx);
 
     let behaviour = crate::store::GeneralSettings::load().post_screenshot_behaviour;
+    if behaviour == crate::store::PostScreenshotBehaviour::ShowCard
+        && let Some(bundle) = screenshot_editor::resolve_bundle(&png)
+    {
+        crate::result_card::show(bundle, None, cx);
+    }
     if behaviour.copies() {
         platform::copy_image_to_clipboard(png.clone(), None, cx);
     }
@@ -6831,6 +6859,22 @@ mod tests {
             AfterRecording::ShowMain
         );
         assert!(!recording_finish(Some(PostStudioBehaviour::OpenEditor), None, None).copy_instant);
+    }
+
+    #[test]
+    fn show_card_shows_the_result_card_and_nothing_else() {
+        use crate::store::{PostInstantBehaviour, PostStudioBehaviour};
+        assert_eq!(
+            recording_finish(Some(PostStudioBehaviour::ShowCard), None, None).next,
+            AfterRecording::ShowCard
+        );
+        assert_eq!(
+            recording_finish(None, Some(PostInstantBehaviour::ShowCard), None),
+            RecordingFinish {
+                copy_instant: false,
+                next: AfterRecording::ShowCard
+            }
+        );
     }
 
     #[test]

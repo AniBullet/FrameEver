@@ -727,6 +727,7 @@ impl Marquee {
 
 pub(super) struct LibraryPage {
     pending_selection: Option<PathBuf>,
+    pending_play: bool,
     entries: Option<Vec<Entry>>,
     state: ViewState,
     view: LibraryView,
@@ -777,6 +778,7 @@ impl LibraryPage {
     ) -> Self {
         Self {
             pending_selection: None,
+            pending_play: false,
             entries: None,
             state: crate::store::load().library,
             view: LibraryView::default(),
@@ -1038,10 +1040,14 @@ impl LibraryWindow {
         self.library.entries = Some(entries);
         self.library.detail.stale = true;
         self.rebuild_library(cx);
+        let play = std::mem::take(&mut self.library.pending_play);
         if let Some(path) = self.library.pending_selection.take() {
             if self.library.order.contains(&path) {
                 self.library.reveal_lead = true;
                 self.change_selection(cx, |selection, _| selection.click(&path));
+                if play && !self.library.detail.preview.playing {
+                    self.toggle_library_preview(window, cx);
+                }
             } else {
                 tracing::warn!(path = %path.display(), "the recent project is no longer in the library");
             }
@@ -1435,9 +1441,11 @@ impl LibraryWindow {
     pub(crate) fn select_library_project(
         &mut self,
         path: PathBuf,
+        play: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.library.pending_play = play;
         self.clear_search(cx);
         self.library.state.clear_filters();
         self.library.pending_selection = Some(path);

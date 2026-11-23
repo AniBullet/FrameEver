@@ -808,6 +808,7 @@ settings_enum! {
 settings_enum! {
     PostInstantBehaviour {
         ShowLibrary = "showLibrary", t!("Show in library");
+        ShowCard = "showCard", t!("Show card");
         CopyFile = "copyFile", t!("Copy file");
         DoNothing = "doNothing", t!("Do nothing");
     }
@@ -826,6 +827,7 @@ settings_enum! {
     /// `PostStudioRecordingBehaviour`.
     PostStudioBehaviour {
         OpenEditor = "openEditor", t!("Open editor");
+        ShowCard = "showCard", t!("Show card");
         ShowOverlay = "showOverlay", t!("Show FrameEver");
         DoNothing = "doNothing", t!("Do nothing");
     }
@@ -837,6 +839,7 @@ settings_enum! {
     /// opened the editor and never reads this key.
     PostScreenshotBehaviour {
         OpenEditor = "openEditor", t!("Open editor");
+        ShowCard = "showCard", t!("Show card");
         Copy = "copy", t!("Copy to clipboard");
         CopyAndOpenEditor = "copyAndOpenEditor", t!("Copy and open editor");
         Save = "save", t!("Do nothing");
