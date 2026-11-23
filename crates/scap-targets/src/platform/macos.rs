@@ -284,6 +284,10 @@ fn get_cursor_position() -> Option<LogicalPosition> {
 pub struct WindowImpl(CGWindowID);
 
 impl WindowImpl {
+    pub fn from_id_direct(id: &WindowIdImpl) -> Self {
+        Self(id.0)
+    }
+
     pub fn list() -> Vec<Self> {
         use core_graphics::window::{
             kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,

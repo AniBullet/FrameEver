@@ -27,6 +27,78 @@ use tracing::{debug, error, info, warn};
 
 const MAX_CAPTURE_RESTARTS: u32 = 3;
 const RESTART_DELAY: Duration = Duration::from_secs(2);
+const WINDOW_WATCH_INTERVAL: Duration = Duration::from_secs(1);
+const WINDOW_GONE_CHECKS: u32 = 2;
+
+fn recorded_window_exists(window: &WindowId) -> bool {
+    Window::from_id_direct(window).is_some_and(|window| window.owner_name().is_some())
+}
+
+fn capturable_window<'a>(
+    config: &'a Config,
+    excluded_windows: &[WindowId],
+    capture_phase: &'static str,
+) -> Option<&'a WindowId> {
+    let window_id = config.window.as_ref()?;
+    if excluded_windows.contains(window_id) {
+        warn!(
+            %window_id,
+            capture_phase,
+            "Capture window is excluded from recordings, using display crop with exclusions"
+        );
+        return None;
+    }
+    Some(window_id)
+}
+
+fn window_to_watch(config: &Config, excluded_windows: &[WindowId]) -> Option<WindowId> {
+    capturable_window(config, excluded_windows, "watch").cloned()
+}
+
+fn window_content_filter(
+    window_id: &WindowId,
+    content: &sc::ShareableContent,
+    capture_phase: &'static str,
+) -> Option<arc::R<sc::ContentFilter>> {
+    let Ok(native_id) = window_id.to_string().parse::<u32>() else {
+        warn!(%window_id, capture_phase, "Capture window has an invalid native id");
+        return None;
+    };
+    let windows = content.windows();
+    let Some(window) = windows.iter().find(|window| window.id() == native_id) else {
+        warn!(
+            %window_id,
+            capture_phase,
+            "Capture window missing from ScreenCaptureKit shareable content"
+        );
+        return None;
+    };
+    Some(sc::ContentFilter::with_desktop_independent_window(window))
+}
+
+fn configure_window_capture(settings: &mut sc::StreamCfg) {
+    settings.set_scales_to_fit(true);
+    if cidre::api::macos_available("14.0") {
+        unsafe {
+            settings.set_capture_resolution(sc::CaptureResolution::Best);
+            settings.set_preserves_aspect_ratio(true);
+        }
+    }
+}
+
+fn source_rect(captures_window: bool, crop_bounds: super::CropBounds) -> cg::Rect {
+    let (x, y) = if captures_window {
+        (0.0, 0.0)
+    } else {
+        (crop_bounds.position().x(), crop_bounds.position().y())
+    };
+    cg::Rect::new(
+        x,
+        y,
+        crop_bounds.size().width(),
+        crop_bounds.size().height(),
+    )
+}
 
 fn excluded_shareable_windows(
     excluded_windows: &[WindowId],
@@ -197,6 +269,8 @@ pub enum SourceError {
     NoDisplay(DisplayId),
     #[error("AsContentFilter")]
     AsContentFilter,
+    #[error("WindowGone: Id '{0}'")]
+    WindowGone(WindowId),
 }
 
 pub struct VideoFrame {
@@ -238,16 +312,31 @@ impl ScreenCaptureConfig<CMSampleBufferCapture> {
         let display = Display::from_id(&self.config.display)
             .ok_or_else(|| SourceError::NoDisplay(self.config.display.clone()))?;
 
-        let excluded_sc_windows =
-            excluded_shareable_windows(&self.excluded_windows, &self.shareable_content, "initial");
+        let window_filter = capturable_window(&self.config, &self.excluded_windows, "initial")
+            .map(|id| {
+                window_content_filter(id, &self.shareable_content, "initial")
+                    .ok_or_else(|| SourceError::WindowGone(id.clone()))
+            })
+            .transpose()?;
+        let captures_window = window_filter.is_some();
 
-        let content_filter = display
-            .raw_handle()
-            .as_content_filter_excluding_windows(
-                self.shareable_content.clone(),
-                excluded_sc_windows,
-            )
-            .ok_or(SourceError::AsContentFilter)?;
+        let content_filter = match window_filter {
+            Some(filter) => filter,
+            None => {
+                let excluded_sc_windows = excluded_shareable_windows(
+                    &self.excluded_windows,
+                    &self.shareable_content,
+                    "initial",
+                );
+                display
+                    .raw_handle()
+                    .as_content_filter_excluding_windows(
+                        self.shareable_content.clone(),
+                        excluded_sc_windows,
+                    )
+                    .ok_or(SourceError::AsContentFilter)?
+            }
+        };
 
         debug!("SCK content filter: {:?}", content_filter);
 
@@ -275,15 +364,13 @@ impl ScreenCaptureConfig<CMSampleBufferCapture> {
 
         settings.set_pixel_format(cv::PixelFormat::_420V);
         settings.set_color_space_name(cg::color_space::names::srgb());
+        if captures_window {
+            configure_window_capture(&mut settings);
+        }
 
         if let Some(crop_bounds) = self.config.crop_bounds {
             debug!("crop bounds: {:?}", crop_bounds);
-            settings.set_src_rect(cg::Rect::new(
-                crop_bounds.position().x(),
-                crop_bounds.position().y(),
-                crop_bounds.size().width(),
-                crop_bounds.size().height(),
-            ));
+            settings.set_src_rect(source_rect(captures_window, crop_bounds));
         }
         frameever_fail::fail_err!(
             "macos::ScreenCaptureActor::new",
@@ -684,10 +771,44 @@ impl output_pipeline::VideoSource for VideoSource {
         let original_capturer = capturer.clone();
         ctx.tasks().spawn("screen-capture-monitor", async move {
             let mut restart_count = 0u32;
+            let mut window_watch =
+                window_to_watch(&rebuild_params.config, &rebuild_params.excluded_windows)
+                    .map(|window| (window, tokio::time::interval(WINDOW_WATCH_INTERVAL), 0u32));
 
             loop {
                 select! {
                     _ = monitor_cancel.cancelled() => break Ok(()),
+                    _ = async {
+                        match window_watch.as_mut() {
+                            Some((_, interval, _)) => interval.tick().await,
+                            None => std::future::pending().await,
+                        }
+                    } => {
+                        let Some((window, _, missed)) = window_watch.as_mut() else {
+                            continue;
+                        };
+                        if recorded_window_exists(window) {
+                            *missed = 0;
+                            continue;
+                        }
+                        *missed += 1;
+                        if *missed < WINDOW_GONE_CHECKS {
+                            continue;
+                        }
+                        warn!(
+                            %window,
+                            "Screen capture source disappeared (recorded window closed); keeping what was recorded"
+                        );
+                        output_pipeline::emit_health(
+                            &health_tx,
+                            output_pipeline::PipelineHealthEvent::CaptureTargetLost {
+                                target: "window".to_string(),
+                            },
+                        );
+                        stop_signal.mark_user_stopped();
+                        pipeline_cancel.cancel();
+                        break Ok(());
+                    }
                     recv = error_rx.recv() => {
                         let err = match recv {
                             Ok(err) => err,
@@ -698,7 +819,8 @@ impl output_pipeline::VideoSource for VideoSource {
                             }
                         };
 
-                        if is_user_stop_error(err.as_ref()) {
+                        let user_stopped = is_user_stop_error(err.as_ref());
+                        if user_stopped || is_capture_source_gone_error(err.as_ref()) {
                             if let Ok(guard) = active_capturer.lock() {
                                 match guard.as_ref() {
                                     Some(c) => c.mark_stopped(),
@@ -708,9 +830,27 @@ impl output_pipeline::VideoSource for VideoSource {
                                 original_capturer.mark_stopped();
                             }
 
-                            info!(
-                                "Screen capture stream stopped from macOS sharing controls"
-                            );
+                            if user_stopped {
+                                info!(
+                                    "Screen capture stream stopped from macOS sharing controls"
+                                );
+                            } else {
+                                let target = if rebuild_params.config.window.is_some() {
+                                    "window"
+                                } else {
+                                    "display"
+                                };
+                                warn!(
+                                    target,
+                                    "Screen capture source disappeared; keeping what was recorded"
+                                );
+                                output_pipeline::emit_health(
+                                    &health_tx,
+                                    output_pipeline::PipelineHealthEvent::CaptureTargetLost {
+                                        target: target.to_string(),
+                                    },
+                                );
+                            }
                             stop_signal.mark_user_stopped();
                             pipeline_cancel.cancel();
                             break Ok(());
@@ -943,6 +1083,15 @@ fn is_user_stop_error(err: &ns::Error) -> bool {
         && err.domain().to_string() == sc::error::domain().to_string()
 }
 
+fn is_capture_source_gone_error(err: &ns::Error) -> bool {
+    is_capture_source_gone(err.domain().to_string(), err.code())
+}
+
+fn is_capture_source_gone(domain: String, code: ns::Integer) -> bool {
+    code == sc::error::code::NO_CAPTURE_SOURCE as ns::Integer
+        && domain == sc::error::domain().to_string()
+}
+
 fn system_stop_message() -> &'static str {
     "Screen capture stopped because macOS made the display unavailable. This commonly happens when the lid is closed or the display sleeps."
 }
@@ -977,13 +1126,26 @@ async fn rebuild_capturer(params: &CapturerRebuildParams) -> anyhow::Result<Capt
     let display = Display::from_id(&params.display_id)
         .ok_or_else(|| anyhow!("Display not found during restart: {:?}", params.display_id))?;
 
-    let excluded_sc_windows =
-        excluded_shareable_windows(&params.excluded_windows, &shareable_content, "restart");
+    let window_filter = capturable_window(&params.config, &params.excluded_windows, "restart")
+        .map(|id| {
+            window_content_filter(id, &shareable_content, "restart").ok_or_else(|| {
+                anyhow!("Capture window {id} is gone; not falling back to the display")
+            })
+        })
+        .transpose()?;
+    let captures_window = window_filter.is_some();
 
-    let content_filter = display
-        .raw_handle()
-        .as_content_filter_excluding_windows(shareable_content, excluded_sc_windows)
-        .ok_or_else(|| anyhow!("Failed to create content filter during restart"))?;
+    let content_filter = match window_filter {
+        Some(filter) => filter,
+        None => {
+            let excluded_sc_windows =
+                excluded_shareable_windows(&params.excluded_windows, &shareable_content, "restart");
+            display
+                .raw_handle()
+                .as_content_filter_excluding_windows(shareable_content, excluded_sc_windows)
+                .ok_or_else(|| anyhow!("Failed to create content filter during restart"))?
+        }
+    };
 
     let size = PhysicalSize::new(
         params.video_info.width as f64,
@@ -1005,14 +1167,12 @@ async fn rebuild_capturer(params: &CapturerRebuildParams) -> anyhow::Result<Capt
 
     settings.set_pixel_format(cv::PixelFormat::_420V);
     settings.set_color_space_name(cg::color_space::names::srgb());
+    if captures_window {
+        configure_window_capture(&mut settings);
+    }
 
     if let Some(crop_bounds) = params.config.crop_bounds {
-        settings.set_src_rect(cg::Rect::new(
-            crop_bounds.position().x(),
-            crop_bounds.position().y(),
-            crop_bounds.size().width(),
-            crop_bounds.size().height(),
-        ));
+        settings.set_src_rect(source_rect(captures_window, crop_bounds));
     }
 
     let expected_width = params.video_info.width as usize;
@@ -1263,11 +1423,18 @@ impl output_pipeline::AudioSource for SystemAudioSource {
                         result = error_rx.recv() => {
                             match result {
                                 Ok(err) => {
-                                    if is_user_stop_error(err.as_ref()) {
+                                    let user_stopped = is_user_stop_error(err.as_ref());
+                                    if user_stopped || is_capture_source_gone_error(err.as_ref()) {
                                         capturer_for_monitor.mark_stopped();
-                                        info!(
-                                            "Screen capture audio stream stopped from macOS sharing controls"
-                                        );
+                                        if user_stopped {
+                                            info!(
+                                                "Screen capture audio stream stopped from macOS sharing controls"
+                                            );
+                                        } else {
+                                            warn!(
+                                                "Screen capture audio stream ended because its capture source disappeared"
+                                            );
+                                        }
                                         stop_signal.mark_user_stopped();
                                         pipeline_cancel.cancel();
                                         break;
@@ -1369,5 +1536,88 @@ impl output_pipeline::AudioSource for SystemAudioSource {
 
     fn audio_info(&self) -> AudioInfo {
         self.inner.audio_info()
+    }
+}
+
+#[cfg(test)]
+mod window_capture_tests {
+    use super::*;
+
+    fn window_id(id: &str) -> WindowId {
+        id.parse().unwrap()
+    }
+
+    fn window_config(window: Option<WindowId>) -> Config {
+        Config {
+            display: "1".parse().unwrap(),
+            window,
+            crop_bounds: None,
+            fps: 60,
+            show_cursor: true,
+        }
+    }
+
+    fn rect(rect: cg::Rect) -> (f64, f64, f64, f64) {
+        (
+            rect.origin.x,
+            rect.origin.y,
+            rect.size.width,
+            rect.size.height,
+        )
+    }
+
+    #[test]
+    fn a_window_capture_reads_the_whole_window_from_its_top_left() {
+        let crop = LogicalBounds::new(
+            LogicalPosition::new(100., 50.),
+            LogicalSize::new(920., 436.),
+        );
+        assert_eq!(rect(source_rect(true, crop)), (0., 0., 920., 436.));
+        assert_eq!(rect(source_rect(false, crop)), (100., 50., 920., 436.));
+    }
+
+    #[test]
+    fn a_window_is_captured_by_itself_unless_it_is_excluded() {
+        let config = window_config(Some(window_id("247")));
+        assert_eq!(
+            capturable_window(&config, &[window_id("12")], "initial"),
+            Some(&window_id("247"))
+        );
+        assert_eq!(
+            capturable_window(&config, &[window_id("12"), window_id("247")], "restart"),
+            None
+        );
+        assert_eq!(
+            capturable_window(&window_config(None), &[], "initial"),
+            None
+        );
+    }
+
+    #[test]
+    fn only_a_window_filter_is_watched_for_its_window_closing() {
+        let config = window_config(Some(window_id("247")));
+        assert_eq!(
+            window_to_watch(&config, &[window_id("12")]),
+            Some(window_id("247"))
+        );
+        assert_eq!(window_to_watch(&config, &[window_id("247")]), None);
+        assert_eq!(window_to_watch(&window_config(None), &[]), None);
+    }
+
+    #[test]
+    fn a_window_the_window_server_does_not_list_counts_as_closed() {
+        assert!(!recorded_window_exists(&window_id("4294967294")));
+    }
+
+    #[test]
+    fn only_no_capture_source_counts_as_the_source_disappearing() {
+        let sc_domain = || sc::error::domain().to_string();
+        assert!(is_capture_source_gone(sc_domain(), -3815));
+        assert!(!is_capture_source_gone(sc_domain(), -3817));
+        assert!(!is_capture_source_gone(sc_domain(), -3821));
+        assert!(!is_capture_source_gone(
+            "NSCocoaErrorDomain".to_string(),
+            -3815
+        ));
     }
 }

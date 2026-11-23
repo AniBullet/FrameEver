@@ -893,7 +893,7 @@ async fn build_instant_recording_actor(
                 max_capture_size,
                 timestamps.system_time(),
                 inputs.capture_system_audio,
-                #[cfg(windows)]
+                #[cfg(any(windows, target_os = "macos"))]
                 instant_capture_window(
                     &inputs.capture_target,
                     inputs.window_only,
@@ -1085,7 +1085,7 @@ fn click_highlights(
     ))
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn instant_capture_window(
     target: &ScreenCaptureTarget,
     window_only: bool,
@@ -1096,7 +1096,7 @@ fn instant_capture_window(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn instant_captures_the_window_only_when_asked_and_without_a_camera() {
         use super::*;

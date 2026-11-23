@@ -2911,7 +2911,7 @@ async fn create_segment_pipeline(
             max_capture_size,
             start_time.system_time(),
             base_inputs.capture_system_audio,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             crate::window_only_target(&capture_target, base_inputs.window_only),
             #[cfg(windows)]
             d3d_device,
