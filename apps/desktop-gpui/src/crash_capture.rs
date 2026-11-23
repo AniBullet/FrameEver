@@ -246,6 +246,10 @@ fn record(text: &str) {
     }
 }
 
+pub fn record_startup_failure(error: &str) {
+    record(&format!("{} startup failed: {error}\n", now()));
+}
+
 const PREVIOUS_SESSION_ENDED: &str = "previous session ended without a clean quit";
 
 fn report_previous_session(logs_dir: &Path) -> Option<(String, String)> {
@@ -301,6 +305,7 @@ fn install_panic_hook() {
             now()
         ));
         tracing::error!(%thread, %location, %message, "panic");
+        crate::startup::report_panic(&message, &location);
         previous(info);
     }));
 }

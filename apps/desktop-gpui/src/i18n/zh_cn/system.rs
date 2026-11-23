@@ -1,4 +1,26 @@
 pub static ENTRIES: &[(&str, &str)] = &[
+    ("Couldn't start FrameEver", "无法启动帧刻"),
+    (
+        "Details were saved in {folder}.",
+        "详细信息已保存在 {folder}。",
+    ),
+    (
+        "Quit the FrameEver that isn't responding?",
+        "要退出没有响应的帧刻吗？",
+    ),
+    (
+        "FrameEver is already running but isn't responding. Quitting it closes that copy, and anything it hasn't saved is lost.",
+        "帧刻已在运行，但没有响应。退出会关闭它，未保存的内容会丢失。",
+    ),
+    ("Quit and reopen", "退出并重新打开"),
+    (
+        "Another copy of FrameEver is running but couldn't be reached. End FrameEver in Task Manager, then open it again.",
+        "另一个帧刻正在运行，但无法连接。请在任务管理器中结束帧刻，然后重新打开。",
+    ),
+    (
+        "Couldn't quit the FrameEver that isn't responding (process {pid}). Restart your computer, then open FrameEver again.",
+        "无法退出没有响应的帧刻（进程 {pid}）。请重启电脑，然后重新打开帧刻。",
+    ),
     ("Project from an older app", "旧版应用的项目"),
     (
         "This is a Cap or Cap-aniBullet project. FrameEver opens only .ever projects. Bring it in with FrameEver Converter, available on the FrameEver Releases page.",

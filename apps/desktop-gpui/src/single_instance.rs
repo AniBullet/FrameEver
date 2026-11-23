@@ -43,23 +43,22 @@ pub fn acquire() {
             activate_macos_instance,
         ) {
             Ok(Some(lock)) => lock,
-            Ok(None) => std::process::exit(0),
-            Err(error) => {
-                tracing::error!(%error, "Could not acquire the FrameEver instance lock");
-                std::process::exit(1);
-            }
+            Ok(None) => crate::startup::exit(0),
+            Err(error) => crate::startup::fail(format!(
+                "Could not acquire the FrameEver instance lock: {error}"
+            )),
         };
         if INSTANCE_LOCK.set(lock).is_err() {
-            tracing::error!("The FrameEver instance lock was initialized twice");
-            std::process::exit(1);
+            crate::startup::fail("The FrameEver instance lock was initialized twice.");
         }
         if let Err(error) = publish_macos_pidfile(&path) {
-            tracing::error!(%error, "Could not publish the FrameEver instance pidfile");
-            std::process::exit(1);
+            crate::startup::fail(format!(
+                "Could not publish the FrameEver instance pidfile: {error}"
+            ));
         }
     }
     #[cfg(windows)]
-    acquire_windows_instance(&path);
+    let _launch_lock = acquire_windows_instance(&path);
     #[cfg(not(target_os = "macos"))]
     {
         if let Some(parent) = path.parent() {
@@ -72,8 +71,9 @@ pub fn acquire() {
 
     #[cfg(target_os = "macos")]
     if let Err(error) = start_deep_link_forwarding(&path) {
-        tracing::error!(%error, "could not start FrameEver deep-link forwarding");
-        std::process::exit(1);
+        crate::startup::fail(format!(
+            "Could not start FrameEver deep-link forwarding: {error}"
+        ));
     }
 }
 
@@ -460,7 +460,7 @@ fn activate_macos_instance(pid: u32) {
 }
 
 #[cfg(windows)]
-fn acquire_windows_instance(path: &Path) {
+fn acquire_windows_instance(path: &Path) -> WindowsLaunchLock {
     use std::hash::{Hash, Hasher};
     use windows_sys::Win32::{
         Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError},
@@ -469,50 +469,224 @@ fn acquire_windows_instance(path: &Path) {
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     path.hash(&mut hasher);
-    let name = format!("Local\\FrameEver-{:016x}", hasher.finish())
+    let profile = format!("{:016x}", hasher.finish());
+    let launch_lock = match lock_windows_launch(&format!("Local\\FrameEverLaunch-{profile}")) {
+        Ok(lock) => lock,
+        Err(error) => crate::startup::fail(format!(
+            "Could not acquire the FrameEver launch lock: {error}"
+        )),
+    };
+    let name = format!("Local\\FrameEver-{profile}")
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+
+    let mut confirmed = None;
+    let mut ended = None;
+    let mutex = loop {
+        let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+        let last_error = unsafe { GetLastError() };
+        if mutex.is_null() {
+            crate::startup::fail(format!(
+                "Could not create the FrameEver instance mutex (Windows error {last_error})."
+            ));
+        }
+        if last_error != ERROR_ALREADY_EXISTS {
+            break mutex;
+        }
+
+        let handed_off = hand_off_to_windows_instance(path);
+        let _ = unsafe { CloseHandle(mutex) };
+        let pid = match handed_off {
+            Ok(()) => crate::startup::exit(0),
+            Err(Some(pid)) => pid,
+            Err(None) => crate::startup::fail(crate::i18n::t!(
+                "Another copy of FrameEver is running but couldn't be reached. End FrameEver in Task Manager, then open it again."
+            )),
+        };
+        match takeover_step(pid, confirmed, ended) {
+            TakeoverStep::Ask => {
+                tracing::warn!(pid, "the running FrameEver is not responding");
+                if !crate::startup::confirm_quit_unresponsive() {
+                    crate::startup::exit(0);
+                }
+                confirmed = Some(pid);
+            }
+            TakeoverStep::End => {
+                match end_windows_process(pid) {
+                    Ok(()) => tracing::info!(pid, "ended the unresponsive FrameEver"),
+                    Err(error) => {
+                        tracing::warn!(pid, %error, "could not end the unresponsive FrameEver")
+                    }
+                }
+                ended = Some(pid);
+            }
+            TakeoverStep::GiveUp => crate::startup::fail(crate::i18n::t!(
+                "Couldn't quit the FrameEver that isn't responding (process {pid}). Restart your computer, then open FrameEver again.",
+                pid = pid
+            )),
+        }
+    };
+
+    if INSTANCE_MUTEX.set(mutex as usize).is_err() {
+        let _ = unsafe { CloseHandle(mutex) };
+        crate::startup::fail("The FrameEver instance mutex was initialized twice.");
+    }
+
+    if let Err(error) = start_deep_link_forwarding(path) {
+        crate::startup::fail(format!(
+            "Could not start FrameEver deep-link forwarding: {error}"
+        ));
+    }
+    launch_lock
+}
+
+#[cfg(windows)]
+struct WindowsLaunchLock(windows_sys::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+impl Drop for WindowsLaunchLock {
+    fn drop(&mut self) {
+        use windows_sys::Win32::{Foundation::CloseHandle, System::Threading::ReleaseMutex};
+
+        unsafe {
+            ReleaseMutex(self.0);
+            CloseHandle(self.0);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn lock_windows_launch(name: &str) -> std::io::Result<WindowsLaunchLock> {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, WAIT_ABANDONED, WAIT_OBJECT_0},
+        System::Threading::{CreateMutexW, INFINITE, WaitForSingleObject},
+    };
+
+    let name = name
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect::<Vec<_>>();
     let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
-    let last_error = unsafe { GetLastError() };
-
     if mutex.is_null() {
-        tracing::error!(
-            error = last_error,
-            "could not acquire the FrameEver instance mutex"
-        );
-        std::process::exit(1);
+        return Err(std::io::Error::last_os_error());
     }
-
-    if last_error == ERROR_ALREADY_EXISTS {
-        for _ in 0..40 {
-            if let Some(pid) = windows_instance_pid(path) {
-                tracing::info!(pid, "FrameEver is already running; bringing it forward");
-                if forward_windows_deep_links(path, pid) {
-                    activate_windows_instance(pid);
-                } else if let Err(error) = reopen_windows_instance(path, pid) {
-                    tracing::warn!(%error, "could not reopen the running FrameEver");
-                    activate_windows_instance(pid);
-                }
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
+    match unsafe { WaitForSingleObject(mutex, INFINITE) } {
+        WAIT_OBJECT_0 | WAIT_ABANDONED => Ok(WindowsLaunchLock(mutex)),
+        _ => {
+            let error = std::io::Error::last_os_error();
+            let _ = unsafe { CloseHandle(mutex) };
+            Err(error)
         }
-
-        let _ = unsafe { CloseHandle(mutex) };
-        std::process::exit(0);
     }
+}
 
-    if INSTANCE_MUTEX.set(mutex as usize).is_err() {
-        let _ = unsafe { CloseHandle(mutex) };
-        tracing::error!("the FrameEver instance mutex was initialized twice");
-        std::process::exit(1);
-    }
+#[cfg(any(windows, test))]
+#[derive(Debug, PartialEq, Eq)]
+enum TakeoverStep {
+    Ask,
+    End,
+    GiveUp,
+}
 
-    if let Err(error) = start_deep_link_forwarding(path) {
-        tracing::error!(%error, "could not start FrameEver deep-link forwarding");
-        std::process::exit(1);
+#[cfg(any(windows, test))]
+fn takeover_step(pid: u32, confirmed: Option<u32>, ended: Option<u32>) -> TakeoverStep {
+    if ended == Some(pid) {
+        TakeoverStep::GiveUp
+    } else if confirmed == Some(pid) {
+        TakeoverStep::End
+    } else {
+        TakeoverStep::Ask
     }
+}
+
+#[cfg(windows)]
+const WINDOW_RESPONSE_TIMEOUT_MS: u32 = 5000;
+
+#[cfg(windows)]
+fn hand_off_to_windows_instance(path: &Path) -> Result<(), Option<u32>> {
+    let mut identified = None;
+    for _ in 0..40 {
+        identified = windows_instance_pid(path);
+        if identified.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let Some(pid) = identified else {
+        return Err(None);
+    };
+    tracing::info!(pid, "FrameEver is already running; bringing it forward");
+    if forward_windows_deep_links(path, pid) {
+        activate_windows_instance(pid);
+        return Ok(());
+    }
+    let reopened = reopen_windows_instance(path, pid)
+        .inspect_err(|error| tracing::warn!(%error, "could not reopen the running FrameEver"))
+        .is_ok();
+    match windows_instance_window(pid) {
+        Some(window) if windows_window_responds(window) => {
+            if !reopened {
+                activate_windows_window(window);
+            }
+            Ok(())
+        }
+        Some(_) => Err(Some(pid)),
+        None if reopened => Ok(()),
+        None => Err(Some(pid)),
+    }
+}
+
+#[cfg(windows)]
+fn windows_window_responds(window: windows_sys::Win32::Foundation::HWND) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_NULL,
+    };
+
+    let mut result = 0;
+    unsafe {
+        SendMessageTimeoutW(
+            window,
+            WM_NULL,
+            0,
+            0,
+            SMTO_ABORTIFHUNG,
+            WINDOW_RESPONSE_TIMEOUT_MS,
+            &mut result,
+        ) != 0
+    }
+}
+
+#[cfg(windows)]
+fn end_windows_process(pid: u32) -> std::io::Result<()> {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, WAIT_OBJECT_0},
+        System::Threading::{
+            OpenProcess, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, TerminateProcess,
+            WaitForSingleObject,
+        },
+    };
+
+    let process = unsafe { OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, 0, pid) };
+    if process.is_null() {
+        return Err(std::io::Error::last_os_error());
+    }
+    if !windows_process_is_frameever(pid) {
+        let _ = unsafe { CloseHandle(process) };
+        return Ok(());
+    }
+    let result = if unsafe { TerminateProcess(process, 1) } == 0 {
+        Err(std::io::Error::last_os_error())
+    } else if unsafe { WaitForSingleObject(process, 5000) } != WAIT_OBJECT_0 {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "the process did not exit after being ended",
+        ))
+    } else {
+        Ok(())
+    };
+    let _ = unsafe { CloseHandle(process) };
+    result
 }
 
 #[cfg(any(windows, target_os = "macos"))]
@@ -770,6 +944,22 @@ fn read_forwarded_request(
 
 #[cfg(windows)]
 fn windows_instance_pid(path: &Path) -> Option<u32> {
+    let from_pidfile = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| contents.trim().parse().ok());
+    let from_endpoint = || {
+        std::fs::read_to_string(path.with_extension("ipc"))
+            .ok()
+            .and_then(|contents| parse_forwarding_endpoint(&contents))
+            .map(|endpoint| endpoint.pid)
+    };
+    from_pidfile
+        .filter(|pid| windows_process_is_frameever(*pid))
+        .or_else(|| from_endpoint().filter(|pid| windows_process_is_frameever(*pid)))
+}
+
+#[cfg(windows)]
+fn windows_process_is_frameever(pid: u32) -> bool {
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::{
         Foundation::CloseHandle,
@@ -778,10 +968,9 @@ fn windows_instance_pid(path: &Path) -> Option<u32> {
         },
     };
 
-    let pid = std::fs::read_to_string(path).ok()?.trim().parse().ok()?;
     let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if process.is_null() {
-        return None;
+        return false;
     }
 
     let mut image = [0_u16; 1024];
@@ -789,22 +978,36 @@ fn windows_instance_pid(path: &Path) -> Option<u32> {
     let found =
         unsafe { QueryFullProcessImageNameW(process, 0, image.as_mut_ptr(), &mut len) } != 0;
     let _ = unsafe { CloseHandle(process) };
-    if !found {
-        return None;
-    }
-
-    let image = PathBuf::from(std::ffi::OsString::from_wide(&image[..len as usize]));
-    is_cap_gpui_image(&image).then_some(pid)
+    found
+        && is_cap_gpui_image(&PathBuf::from(std::ffi::OsString::from_wide(
+            &image[..len as usize],
+        )))
 }
 
 #[cfg(windows)]
 fn activate_windows_instance(pid: u32) {
+    if let Some(window) = windows_instance_window(pid) {
+        activate_windows_window(window);
+    }
+}
+
+#[cfg(windows)]
+fn activate_windows_window(window: windows_sys::Win32::Foundation::HWND) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SW_RESTORE, SetForegroundWindow, ShowWindow,
+    };
+
+    unsafe {
+        ShowWindow(window, SW_RESTORE);
+        SetForegroundWindow(window);
+    }
+}
+
+#[cfg(windows)]
+fn windows_instance_window(pid: u32) -> Option<windows_sys::Win32::Foundation::HWND> {
     use windows_sys::Win32::{
         Foundation::{HWND, LPARAM, TRUE},
-        UI::WindowsAndMessaging::{
-            EnumWindows, GetWindowThreadProcessId, IsWindowVisible, SW_RESTORE,
-            SetForegroundWindow, ShowWindow,
-        },
+        UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsWindowVisible},
     };
     use windows_sys::core::BOOL;
 
@@ -841,12 +1044,7 @@ fn activate_windows_instance(pid: u32) {
         );
     }
 
-    if let Some(window) = activation.visible.or(activation.fallback) {
-        unsafe {
-            ShowWindow(window, SW_RESTORE);
-            SetForegroundWindow(window);
-        }
-    }
+    activation.visible.or(activation.fallback)
 }
 
 #[cfg(test)]
@@ -1055,6 +1253,257 @@ mod tests {
                 .kind(),
             std::io::ErrorKind::InvalidData
         );
+    }
+}
+
+#[cfg(test)]
+mod takeover_step_tests {
+    use super::{TakeoverStep, takeover_step};
+
+    #[test]
+    fn only_the_confirmed_process_is_ended_and_only_once() {
+        assert_eq!(takeover_step(7, None, None), TakeoverStep::Ask);
+        assert_eq!(takeover_step(7, Some(7), None), TakeoverStep::End);
+        assert_eq!(takeover_step(7, Some(7), Some(7)), TakeoverStep::GiveUp);
+        assert_eq!(takeover_step(8, Some(7), Some(7)), TakeoverStep::Ask);
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_takeover_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    struct FakeFrameEver {
+        directory: tempfile::TempDir,
+        child: std::process::Child,
+    }
+
+    impl FakeFrameEver {
+        fn start() -> Self {
+            let directory = tempfile::tempdir().unwrap();
+            let system = std::env::var_os("SystemRoot").unwrap();
+            let image = directory.path().join("frameever-gpui.exe");
+            std::fs::copy(
+                PathBuf::from(system).join("System32").join("PING.EXE"),
+                &image,
+            )
+            .unwrap();
+            let child = std::process::Command::new(&image)
+                .args(["-n", "60", "127.0.0.1"])
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
+            Self { directory, child }
+        }
+
+        fn pid(&self) -> u32 {
+            self.child.id()
+        }
+
+        fn pidfile(&self) -> PathBuf {
+            let path = self.directory.path().join("frameever-gpui.pid");
+            std::fs::write(&path, self.pid().to_string()).unwrap();
+            path
+        }
+    }
+
+    impl Drop for FakeFrameEver {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    fn exited(child: &mut std::process::Child) -> bool {
+        child.try_wait().unwrap().is_some()
+    }
+
+    #[test]
+    fn a_pidfile_naming_a_process_that_is_not_frameever_identifies_no_instance() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("frameever-gpui.pid");
+        std::fs::write(&path, std::process::id().to_string()).unwrap();
+        assert_eq!(windows_instance_pid(&path), None);
+
+        let mut gone = std::process::Command::new("cmd")
+            .args(["/C", "exit"])
+            .spawn()
+            .unwrap();
+        let gone_pid = gone.id();
+        gone.wait().unwrap();
+        std::fs::write(&path, gone_pid.to_string()).unwrap();
+        assert_eq!(windows_instance_pid(&path), None);
+
+        std::fs::write(&path, "not a pid").unwrap();
+        assert_eq!(windows_instance_pid(&path), None);
+    }
+
+    #[test]
+    fn a_held_lock_with_no_identifiable_instance_is_reported() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("frameever-gpui.pid");
+        std::fs::write(&path, std::process::id().to_string()).unwrap();
+        let started = Instant::now();
+        assert_eq!(hand_off_to_windows_instance(&path), Err(None));
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn an_instance_that_never_answers_reopen_is_reported_instead_of_silently_activated() {
+        let fake = FakeFrameEver::start();
+        let path = fake.pidfile();
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        write_forwarding_endpoint(
+            &path.with_extension("ipc"),
+            ForwardingEndpoint {
+                pid: fake.pid(),
+                port: listener.local_addr().unwrap().port(),
+                secret: 7,
+            },
+        )
+        .unwrap();
+        let started = Instant::now();
+        assert_eq!(hand_off_to_windows_instance(&path), Err(Some(fake.pid())));
+        assert!(started.elapsed() < Duration::from_secs(8));
+        drop(listener);
+    }
+
+    #[test]
+    fn an_instance_without_a_reopen_endpoint_or_window_is_reported() {
+        let fake = FakeFrameEver::start();
+        let path = fake.pidfile();
+        assert_eq!(hand_off_to_windows_instance(&path), Err(Some(fake.pid())));
+    }
+
+    #[test]
+    fn an_instance_that_acknowledges_reopen_is_handed_off() {
+        use std::io::{Read, Write};
+
+        let fake = FakeFrameEver::start();
+        let path = fake.pidfile();
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let secret = 0x5eed;
+        write_forwarding_endpoint(
+            &path.with_extension("ipc"),
+            ForwardingEndpoint {
+                pid: fake.pid(),
+                port: listener.local_addr().unwrap().port(),
+                secret,
+            },
+        )
+        .unwrap();
+        let responder = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut header = [0_u8; 12];
+            stream.read_exact(&mut header).unwrap();
+            assert_eq!(&header[..8], &u64::to_be_bytes(secret));
+            assert_eq!(&header[8..], &0_u32.to_be_bytes());
+            stream.write_all(&[REOPEN_ACK]).unwrap();
+        });
+        assert_eq!(hand_off_to_windows_instance(&path), Ok(()));
+        responder.join().unwrap();
+    }
+
+    #[test]
+    fn the_endpoint_identifies_an_instance_whose_pidfile_is_missing() {
+        let fake = FakeFrameEver::start();
+        let path = fake.directory.path().join("frameever-gpui.pid");
+        assert_eq!(windows_instance_pid(&path), None);
+        write_forwarding_endpoint(
+            &path.with_extension("ipc"),
+            ForwardingEndpoint {
+                pid: fake.pid(),
+                port: 1,
+                secret: 1,
+            },
+        )
+        .unwrap();
+        assert_eq!(windows_instance_pid(&path), Some(fake.pid()));
+        std::fs::write(&path, std::process::id().to_string()).unwrap();
+        assert_eq!(windows_instance_pid(&path), Some(fake.pid()));
+    }
+
+    #[test]
+    fn ending_an_unresponsive_instance_waits_for_it_to_exit() {
+        let mut fake = FakeFrameEver::start();
+        assert!(windows_process_is_frameever(fake.pid()));
+        end_windows_process(fake.pid()).unwrap();
+        assert!(exited(&mut fake.child));
+        assert!(!windows_process_is_frameever(fake.pid()));
+    }
+
+    fn launch_lock_name() -> String {
+        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        format!(
+            "Local\\FrameEverLaunchTest-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )
+    }
+
+    #[test]
+    fn a_second_launch_waits_until_the_first_releases_the_lock() {
+        let name = launch_lock_name();
+        let first = lock_windows_launch(&name).unwrap();
+        let (acquired, waiting) = std::sync::mpsc::channel();
+        let second = std::thread::spawn({
+            let name = name.clone();
+            move || {
+                let lock = lock_windows_launch(&name).unwrap();
+                acquired.send(()).unwrap();
+                drop(lock);
+            }
+        });
+        assert!(waiting.recv_timeout(Duration::from_millis(300)).is_err());
+        drop(first);
+        waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+        second.join().unwrap();
+    }
+
+    #[test]
+    fn a_launch_that_died_holding_the_lock_does_not_block_the_next() {
+        let name = launch_lock_name();
+        std::thread::spawn({
+            let name = name.clone();
+            move || std::mem::forget(lock_windows_launch(&name).unwrap())
+        })
+        .join()
+        .unwrap();
+        let (acquired, waiting) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let lock = lock_windows_launch(&name).unwrap();
+            acquired.send(()).unwrap();
+            drop(lock);
+        });
+        waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    #[test]
+    fn a_launch_of_another_profile_never_waits() {
+        let held = lock_windows_launch(&launch_lock_name()).unwrap();
+        let other = launch_lock_name();
+        let (acquired, waiting) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let lock = lock_windows_launch(&other).unwrap();
+            acquired.send(()).unwrap();
+            drop(lock);
+        });
+        waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+        drop(held);
+    }
+
+    #[test]
+    fn ending_never_touches_a_process_that_is_not_frameever() {
+        let mut other = std::process::Command::new("ping")
+            .args(["-n", "60", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        end_windows_process(other.id()).unwrap();
+        assert!(!exited(&mut other));
+        other.kill().unwrap();
+        other.wait().unwrap();
     }
 }
 

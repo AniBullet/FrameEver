@@ -111,6 +111,7 @@ mod settings_window;
 mod single_instance;
 #[cfg(debug_assertions)]
 mod snapshot;
+mod startup;
 mod store;
 mod style_presets;
 mod target_overlay;
@@ -297,14 +298,14 @@ fn app_runtime() -> tokio::runtime::Runtime {
 fn main() {
     frameever_enc_ffmpeg::isolated_self_test::run_child_or_register_host();
 
-    let _log_guard = init_logging();
+    startup::begin(init_logging());
     crash_capture::install(&diagnostics::logs_dir());
+    i18n::init(store::GeneralSettings::load().language.as_deref());
 
     single_instance::acquire();
     let previous_session = crash_capture::begin_session(&diagnostics::logs_dir());
     encoder_recovery::configure(previous_session.as_ref());
     blur_recovery::configure(previous_session.as_ref());
-    i18n::init(store::GeneralSettings::load().language.as_deref());
     frameever_rendering::input_presets::use_presets_dir(
         frameever_utils::storage::input_presets_dir(),
     );
@@ -417,11 +418,10 @@ fn main() {
                     move |window, cx| cx.new(|cx| MainWindow::new(session, window, cx))
                 },
             )
-            .inspect_err(|error| tracing::error!("failed to open the main window: {error:#}"));
-        let Ok(window_handle) = window_handle else {
-            cx.quit();
-            return;
-        };
+            .unwrap_or_else(|error| {
+                startup::fail(format!("The main window could not be opened: {error:#}"))
+            });
+        startup::finished();
 
         cx.on_app_quit(|_| async {
             crash_capture::mark_clean_exit();
@@ -798,6 +798,7 @@ fn main() {
         }
     });
     runtime.shutdown_background();
+    startup::flush_log();
 }
 
 #[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
