@@ -42,11 +42,20 @@ mod magnifier;
 use attached_bar::{BAR_EDGE, BAR_HEIGHT, BarSpot, BarTarget, place_bar, work_area_on_display};
 
 use area_math::{
-    AREA_RATIOS, area_between, area_exact_size, area_fill, area_from_anchor_with_ratio,
+    AREA_RATIOS, AreaScreen, area_between, area_exact_size, area_fill, area_from_anchor_with_ratio,
     area_resize_with_ratio, area_resized_by, area_snap_rects, area_with_ratio, drag_ratio,
-    fit_candidate, locked_area_for, ratio_value, snap_area_point, snap_area_rect,
-    snap_resize_point, store_area_ratio, store_locked_area, stored_area_ratio, stored_locked_area,
+    exact_common_ratio, fit_candidate, locked_area_for, ratio_value, snap_area_point,
+    snap_area_rect, snap_area_to_ratio, snap_resize_point, store_area_ratio,
+    store_area_snap_to_ratio, store_locked_area, stored_area_ratio, stored_area_snap_to_ratio,
+    stored_locked_area,
 };
+
+fn area_screen(display: &scap_targets::Display, cx: &App) -> AreaScreen {
+    AreaScreen {
+        id: display.id().to_string(),
+        uuid: app_windows::display_uuid(display, cx),
+    }
+}
 
 const AREA_SELECTION_STORE: &str = "area_selection";
 
@@ -75,13 +84,17 @@ fn usable_last_area(
     })
 }
 
-pub(crate) fn last_locked_target(purpose: PickerPurpose) -> Option<ScreenCaptureTarget> {
-    let (screen_id, bounds) = stored_locked_area()?;
+pub(crate) fn last_locked_target(purpose: PickerPurpose, cx: &App) -> Option<ScreenCaptureTarget> {
+    let locked = stored_locked_area()?;
     let display = scap_targets::Display::list()
         .into_iter()
-        .find(|display| display.id().to_string() == screen_id)?;
+        .find(|display| area_screen(display, cx).owns(&locked))?;
     let size = display.logical_size()?;
-    let bounds = usable_last_area(bounds, (size.width() as f32, size.height() as f32), purpose)?;
+    let bounds = usable_last_area(
+        locked.bounds,
+        (size.width() as f32, size.height() as f32),
+        purpose,
+    )?;
     Some(ScreenCaptureTarget::Area {
         screen: display.id(),
         bounds: bounds.to_bounds(),
@@ -702,6 +715,8 @@ pub struct OverlayWindow {
     snap_guides: Vec<SnapGuide>,
     area_ratio: Option<(u32, u32)>,
     area_locked: bool,
+    area_screen: AreaScreen,
+    area_snap_to_ratio: bool,
     area_snap: Vec<NormRect>,
     area_windows: Vec<AreaRect>,
     fit_hover: Option<AreaRect>,
@@ -816,8 +831,9 @@ impl OverlayWindow {
                 height: logical.1,
             });
 
+        let area_screen = area_screen(display, cx);
         let locked_area = locked_area_for(
-            &display.id(),
+            &area_screen,
             logical,
             area_min_size(select.read(cx).purpose),
         );
@@ -845,6 +861,8 @@ impl OverlayWindow {
             snap_guides: Vec::new(),
             area_ratio: stored_area_ratio(),
             area_locked: locked_area.is_some(),
+            area_screen,
+            area_snap_to_ratio: stored_area_snap_to_ratio(),
             area_snap: area_snap_rects(controls_work_area, &[], logical),
             area_windows: Vec::new(),
             fit_hover: None,
@@ -2602,6 +2620,7 @@ impl OverlayWindow {
         if self.recording_area {
             return;
         }
+        self.area_snap_to_ratio = stored_area_snap_to_ratio();
         if self.area_locked {
             self.aspect_menu = None;
             cx.notify();
@@ -2683,6 +2702,7 @@ impl OverlayWindow {
             _ => None,
         };
         let ratio = drag_ratio(self.area_ratio.map(ratio_value), keep, start);
+        let snap_to_ratio = self.area_snap_to_ratio && !free && !keep;
         let (next, guides) = match (drag, ratio) {
             (AreaDrag::Draw { anchor, .. }, Some(ratio)) => (
                 area_from_anchor_with_ratio(*anchor, (x, y), ratio, self.display_size),
@@ -2698,15 +2718,13 @@ impl OverlayWindow {
                 } else {
                     snap_area_point((x, y), self.display_size, &self.area_snap)
                 };
-                (
-                    AreaRect {
-                        x: anchor.0.min(x),
-                        y: anchor.1.min(y),
-                        width: (x - anchor.0).abs(),
-                        height: (y - anchor.1).abs(),
-                    },
-                    guides,
-                )
+                let drawn = AreaRect {
+                    x: anchor.0.min(x),
+                    y: anchor.1.min(y),
+                    width: (x - anchor.0).abs(),
+                    height: (y - anchor.1).abs(),
+                };
+                self.snap_free_area_to_ratio(drawn, *anchor, guides, snap_to_ratio)
             }
             (AreaDrag::Move { grab, start }, _) => {
                 let moved = AreaRect {
@@ -2748,15 +2766,30 @@ impl OverlayWindow {
                 if handle.south() {
                     bottom = y;
                 }
-                (
-                    AreaRect {
-                        x: left.min(right),
-                        y: top.min(bottom),
-                        width: (right - left).abs(),
-                        height: (bottom - top).abs(),
-                    },
-                    guides,
-                )
+                let resized = AreaRect {
+                    x: left.min(right),
+                    y: top.min(bottom),
+                    width: (right - left).abs(),
+                    height: (bottom - top).abs(),
+                };
+                let corner = handle.east() != handle.west() && handle.north() != handle.south();
+                if corner {
+                    let anchor = (
+                        if handle.west() {
+                            start.right()
+                        } else {
+                            start.x
+                        },
+                        if handle.north() {
+                            start.bottom()
+                        } else {
+                            start.y
+                        },
+                    );
+                    self.snap_free_area_to_ratio(resized, anchor, guides, snap_to_ratio)
+                } else {
+                    (resized, guides)
+                }
             }
         };
 
@@ -2764,6 +2797,27 @@ impl OverlayWindow {
         self.snap_guides = guides;
         self.sync_area_camera(cx);
         cx.notify();
+    }
+
+    fn snap_free_area_to_ratio(
+        &self,
+        area: AreaRect,
+        anchor: (f32, f32),
+        guides: Vec<SnapGuide>,
+        enabled: bool,
+    ) -> (AreaRect, Vec<SnapGuide>) {
+        if !enabled {
+            return (area, guides);
+        }
+        let held_x = guides
+            .iter()
+            .any(|guide| matches!(guide.axis, GuideAxis::V));
+        let held_y = guides
+            .iter()
+            .any(|guide| matches!(guide.axis, GuideAxis::H));
+        let area =
+            snap_area_to_ratio(area, anchor, self.display_size, held_x, held_y).unwrap_or(area);
+        (area, guides)
     }
 
     fn area_mouse_up(
@@ -2825,7 +2879,7 @@ impl OverlayWindow {
 
     fn unlock_area(&mut self) {
         self.area_locked = false;
-        if stored_locked_area().is_some_and(|(display, _)| display == self.display_id.to_string()) {
+        if stored_locked_area().is_some_and(|locked| self.area_screen.owns(&locked)) {
             store_locked_area(None);
         }
     }
@@ -2841,7 +2895,7 @@ impl OverlayWindow {
             self.area_locked = true;
             self.drag = None;
             self.snap_guides.clear();
-            store_locked_area(Some((&self.display_id, crop)));
+            store_locked_area(Some((&self.area_screen, crop)));
             let display = self.display_id.clone();
             cx.defer(move |cx| app_windows::release_other_area_locks(&display, cx));
         }
@@ -2859,8 +2913,8 @@ impl OverlayWindow {
         let Some(crop) = self.crop.filter(|_| self.area_locked) else {
             return;
         };
-        if stored_locked_area().is_some_and(|(display, _)| display == self.display_id.to_string()) {
-            store_locked_area(Some((&self.display_id, crop)));
+        if stored_locked_area().is_some_and(|locked| self.area_screen.owns(&locked)) {
+            store_locked_area(Some((&self.area_screen, crop)));
         }
     }
 
@@ -2993,6 +3047,7 @@ impl OverlayWindow {
     }
 
     fn open_aspect_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        self.area_snap_to_ratio = stored_area_snap_to_ratio();
         let items = self.aspect_menu_items();
         self.mode_menu = None;
         self.countdown_menu = None;
@@ -3022,7 +3077,8 @@ impl OverlayWindow {
                 recorded == Some((width, height)),
             )
         });
-        ratios.chain(sizes).collect()
+        let snap = crate::ui::MenuItem::new(t!("Snap to ratios"), self.area_snap_to_ratio);
+        ratios.chain(std::iter::once(snap)).chain(sizes).collect()
     }
 
     fn area_sizes(&self) -> impl Iterator<Item = (&'static str, u32, u32, AreaRect)> + '_ {
@@ -3061,7 +3117,13 @@ impl OverlayWindow {
             self.set_area_ratio(*ratio, cx);
             return;
         }
-        let size = self.area_sizes().nth(index - AREA_RATIOS.len());
+        if index == AREA_RATIOS.len() {
+            self.area_snap_to_ratio = !self.area_snap_to_ratio;
+            store_area_snap_to_ratio(self.area_snap_to_ratio);
+            cx.notify();
+            return;
+        }
+        let size = self.area_sizes().nth(index - AREA_RATIOS.len() - 1);
         match size.filter(|_| !self.area_locked) {
             Some((_, _, _, area)) => {
                 self.area_ratio = None;
@@ -3179,7 +3241,7 @@ impl OverlayWindow {
     fn render_size_tag(&self, crop: AreaRect, valid: bool, min: f32) -> impl IntoElement {
         let label = if valid {
             let mut label = self.area_readout(crop);
-            if let Some((width, height)) = self.area_ratio {
+            if let Some((width, height)) = self.area_ratio.or_else(|| exact_common_ratio(crop)) {
                 label.push_str(&format!(" · {width}:{height}"));
             }
             label

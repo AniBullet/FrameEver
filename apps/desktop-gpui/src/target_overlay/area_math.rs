@@ -1,5 +1,3 @@
-use scap_targets::DisplayId;
-
 use super::{AREA_SELECTION_STORE, AreaHandle, AreaRect};
 use crate::editor_canvas::{
     GuideAxis, NormRect, SNAP_PX, SnapGuide, build_snap_targets, snap_moving_rect,
@@ -43,10 +41,105 @@ pub(super) fn store_area_ratio(ratio: Option<(u32, u32)>) {
     );
 }
 
-pub(super) fn stored_locked_area() -> Option<(String, AreaRect)> {
+pub(super) fn stored_area_snap_to_ratio() -> bool {
+    crate::store::store_section(AREA_SELECTION_STORE)
+        .get("snapToRatio")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true)
+}
+
+pub(super) fn store_area_snap_to_ratio(enabled: bool) {
+    crate::store::set_store_setting(AREA_SELECTION_STORE, "snapToRatio", enabled.into());
+}
+
+const RATIO_SNAP_MIN: f32 = 30.;
+
+pub(super) fn snap_area_to_ratio(
+    rect: AreaRect,
+    anchor: (f32, f32),
+    display_size: (f32, f32),
+    held_x: bool,
+    held_y: bool,
+) -> Option<AreaRect> {
+    if rect.width <= RATIO_SNAP_MIN || rect.height <= RATIO_SNAP_MIN || (held_x && held_y) {
+        return None;
+    }
+    let ratio = crate::editor_crop::find_closest_ratio(
+        f64::from(rect.width),
+        f64::from(rect.height),
+        crate::editor_crop::RATIO_SNAP_THRESHOLD,
+    )?;
+    let value = ratio_value(ratio);
+    let (width, height) = if held_x {
+        (rect.width.round(), (rect.width / value).round())
+    } else {
+        ((rect.height * value).round(), rect.height.round())
+    };
+    let snapped = AreaRect {
+        x: if rect.x < anchor.0 {
+            anchor.0 - width
+        } else {
+            anchor.0
+        },
+        y: if rect.y < anchor.1 {
+            anchor.1 - height
+        } else {
+            anchor.1
+        },
+        width,
+        height,
+    };
+    const EPSILON: f32 = 0.01;
+    (snapped.x >= -EPSILON
+        && snapped.y >= -EPSILON
+        && snapped.right() <= display_size.0 + EPSILON
+        && snapped.bottom() <= display_size.1 + EPSILON)
+        .then_some(snapped)
+}
+
+pub(super) fn exact_common_ratio(area: AreaRect) -> Option<(u32, u32)> {
+    if area.width <= 0. || area.height <= 0. {
+        return None;
+    }
+    crate::editor_crop::COMMON_RATIOS
+        .into_iter()
+        .flat_map(|(a, b)| [(a, b), (b, a)])
+        .find(|ratio| {
+            let value = ratio_value(*ratio);
+            (area.width / area.height - value).abs() <= 0.5 * value.max(1.) / area.height
+        })
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct AreaScreen {
+    pub(super) id: String,
+    pub(super) uuid: Option<String>,
+}
+
+impl AreaScreen {
+    pub(super) fn owns(&self, locked: &LockedArea) -> bool {
+        match (locked.screen_uuid.as_deref(), self.uuid.as_deref()) {
+            (Some(saved), Some(current)) => saved == current,
+            _ => locked.screen_id == self.id,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct LockedArea {
+    pub(super) screen_id: String,
+    pub(super) screen_uuid: Option<String>,
+    pub(super) bounds: AreaRect,
+}
+
+pub(super) fn stored_locked_area() -> Option<LockedArea> {
     let section = crate::store::store_section(AREA_SELECTION_STORE);
     let locked = section.get("locked")?;
-    let display = locked.get("screenId")?.as_str()?.to_string();
+    let screen_id = locked.get("screenId")?.as_str()?.to_string();
+    let screen_uuid = locked
+        .get("screenUuid")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
     let bounds = locked.get("bounds")?;
     let value = |key: &str| bounds.get(key)?.as_f64().map(|value| value as f32);
     let bounds = AreaRect {
@@ -58,13 +151,18 @@ pub(super) fn stored_locked_area() -> Option<(String, AreaRect)> {
     [bounds.x, bounds.y, bounds.width, bounds.height]
         .iter()
         .all(|value| value.is_finite())
-        .then_some((display, bounds))
+        .then_some(LockedArea {
+            screen_id,
+            screen_uuid,
+            bounds,
+        })
 }
 
-pub(super) fn store_locked_area(locked: Option<(&DisplayId, AreaRect)>) {
+pub(super) fn store_locked_area(locked: Option<(&AreaScreen, AreaRect)>) {
     let value = match locked {
-        Some((display, bounds)) => serde_json::json!({
-            "screenId": display.to_string(),
+        Some((screen, bounds)) => serde_json::json!({
+            "screenId": screen.id,
+            "screenUuid": screen.uuid,
             "bounds": {
                 "x": bounds.x,
                 "y": bounds.y,
@@ -78,13 +176,14 @@ pub(super) fn store_locked_area(locked: Option<(&DisplayId, AreaRect)>) {
 }
 
 pub(super) fn locked_area_for(
-    display: &DisplayId,
+    screen: &AreaScreen,
     display_size: (f32, f32),
     min: f32,
 ) -> Option<AreaRect> {
-    let (locked_display, bounds) = stored_locked_area()?;
-    (locked_display == display.to_string())
-        .then(|| bounds.clamped(display_size))
+    let locked = stored_locked_area()?;
+    screen
+        .owns(&locked)
+        .then(|| locked.bounds.clamped(display_size))
         .filter(|bounds| bounds.is_valid_for(min))
 }
 
@@ -649,5 +748,141 @@ mod tests {
             fit_candidate(&windows, (300., 300.), Some(area)),
             Some(front)
         );
+    }
+
+    fn drawn_from(anchor: (f32, f32), direction: (f32, f32), width: f32, height: f32) -> AreaRect {
+        rect(
+            if direction.0 < 0. {
+                anchor.0 - width
+            } else {
+                anchor.0
+            },
+            if direction.1 < 0. {
+                anchor.1 - height
+            } else {
+                anchor.1
+            },
+            width,
+            height,
+        )
+    }
+
+    fn pinned_corner(area: AreaRect, direction: (f32, f32)) -> (f32, f32) {
+        (
+            if direction.0 < 0. {
+                area.right()
+            } else {
+                area.x
+            },
+            if direction.1 < 0. {
+                area.bottom()
+            } else {
+                area.y
+            },
+        )
+    }
+
+    #[test]
+    fn a_free_area_near_every_ratio_snaps_onto_it_from_every_corner() {
+        let directions = [(1., 1.), (-1., 1.), (1., -1.), (-1., -1.)];
+        for display in [(1512., 982.), (2560., 1440.), (1080., 1920.)] {
+            let anchor = (display.0 / 2., display.1 / 2.);
+            for (a, b) in crate::editor_crop::COMMON_RATIOS {
+                for ratio in [(a, b), (b, a)] {
+                    let value = ratio_value(ratio);
+                    let height = 200.;
+                    for offset in [-0.008, 0.005] {
+                        let width = height * (value + offset);
+                        for direction in directions {
+                            let drawn = drawn_from(anchor, direction, width, height);
+                            let snapped = snap_area_to_ratio(drawn, anchor, display, false, false)
+                                .unwrap_or_else(|| panic!("{ratio:?} {direction:?}"));
+                            assert_eq!(exact_common_ratio(snapped), Some(ratio));
+                            assert_eq!(snapped.height, height);
+                            assert!(
+                                (ratio_of(snapped) - value).abs() <= 0.5 / snapped.height,
+                                "{ratio:?} {snapped:?}"
+                            );
+                            assert_eq!(pinned_corner(snapped, direction), anchor);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_free_area_far_from_any_ratio_or_too_small_stays_as_drawn() {
+        let display = (1920., 1080.);
+        let anchor = (100., 100.);
+        assert_eq!(
+            snap_area_to_ratio(rect(100., 100., 612., 600.), anchor, display, false, false),
+            None
+        );
+        assert_eq!(
+            snap_area_to_ratio(rect(100., 100., 30., 30.), anchor, display, false, false),
+            None
+        );
+    }
+
+    #[test]
+    fn a_held_vertical_edge_lets_the_width_lead_and_holding_both_does_not_snap() {
+        let display = (1920., 1080.);
+        let anchor = (100., 100.);
+        let drawn = rect(100., 100., 800., 451.);
+        let snapped = snap_area_to_ratio(drawn, anchor, display, true, false).expect("snaps");
+        assert_eq!((snapped.width, snapped.height), (800., 450.));
+        assert_eq!(snap_area_to_ratio(drawn, anchor, display, true, true), None);
+    }
+
+    #[test]
+    fn a_snap_that_would_leave_the_display_does_not_happen() {
+        let display = (1920., 1080.);
+        let anchor = (1798., 100.);
+        let drawn = rect(1798., 100., 122., 69.);
+        assert_eq!(
+            snap_area_to_ratio(drawn, anchor, display, false, false),
+            None
+        );
+    }
+
+    #[test]
+    fn the_size_tag_names_a_common_ratio_only_when_the_area_lands_on_it() {
+        assert_eq!(
+            exact_common_ratio(rect(0., 0., 1920., 1080.)),
+            Some((16, 9))
+        );
+        assert_eq!(exact_common_ratio(rect(0., 0., 356., 200.)), Some((16, 9)));
+        assert_eq!(
+            exact_common_ratio(rect(0., 0., 1080., 1920.)),
+            Some((9, 16))
+        );
+        assert_eq!(exact_common_ratio(rect(0., 0., 801., 401.)), Some((2, 1)));
+        assert_eq!(exact_common_ratio(rect(0., 0., 612., 600.)), None);
+        assert_eq!(exact_common_ratio(rect(0., 0., 0., 600.)), None);
+    }
+
+    #[test]
+    fn a_lock_follows_its_display_by_uuid_and_falls_back_to_the_id() {
+        let bounds = rect(560., 315., 800., 450.);
+        let screen = |id: &str, uuid: Option<&str>| AreaScreen {
+            id: id.into(),
+            uuid: uuid.map(str::to_string),
+        };
+        let locked = |id: &str, uuid: Option<&str>| LockedArea {
+            screen_id: id.into(),
+            screen_uuid: uuid.map(str::to_string),
+            bounds,
+        };
+        let saved = locked("34", Some("UUID-A"));
+        assert!(screen("34", Some("UUID-A")).owns(&saved));
+        assert!(screen("46", Some("UUID-A")).owns(&saved));
+        assert!(!screen("46", Some("UUID-B")).owns(&saved));
+        assert!(!screen("34", Some("UUID-B")).owns(&saved));
+        assert!(!screen("46", None).owns(&saved));
+        assert!(screen("34", None).owns(&saved));
+        let without_uuid = locked("34", None);
+        assert!(screen("34", Some("UUID-A")).owns(&without_uuid));
+        assert!(!screen("46", Some("UUID-A")).owns(&without_uuid));
     }
 }

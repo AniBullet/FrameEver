@@ -54,6 +54,7 @@ const s = {
 	mode: "studio",
 	crop: { x: 300, y: 130, w: 640, h: 360 },
 	ratio: null,
+	snap: true,
 	locked: false,
 	drag: null,
 	pointer: null,
@@ -308,7 +309,7 @@ const menuRow = (a, v, label, on, extra = "") =>
 const menuBody = (st) => {
 	const id = st.menu?.id;
 	if (id === "ratio") {
-		return `${ratios.map((r, i) => menuRow("ratio", i, L(r[0], r[1]), st.ratio === r[2])).join("")}<hr><div class="pop-sub">${L("Exact size", "精确尺寸")}</div>${sizes.map(([n, w, h]) => menuRow("preset", `${w}x${h}`, `${n} · ${w} × ${h}`, st.crop?.w * PX === w && st.crop?.h * PX === h)).join("")}`;
+		return `${ratios.map((r, i) => menuRow("ratio", i, L(r[0], r[1]), st.ratio === r[2])).join("")}<hr>${menuRow("snap", 0, L("Snap to ratios", "吸附到比例"), st.snap)}<hr><div class="pop-sub">${L("Exact size", "精确尺寸")}</div>${sizes.map(([n, w, h]) => menuRow("preset", `${w}x${h}`, `${n} · ${w} × ${h}`, st.crop?.w * PX === w && st.crop?.h * PX === h)).join("")}`;
 	}
 	if (id === "mode")
 		return [
@@ -804,6 +805,7 @@ const act = (a, v, el) => {
 	if (a === "countdown") s.countdown = Number(v);
 	if (a === "focus") s.focusWin = !s.focusWin;
 	if (a === "center") s.center = !s.center;
+	if (a === "snap") s.snap = !s.snap;
 	if (a === "ratio") {
 		s.ratio = ratios[Number(v)][2];
 		s.menu = null;

@@ -86,6 +86,19 @@ pub(crate) fn display_work_area(
     Some(available)
 }
 
+pub(crate) fn display_uuid(target: &scap_targets::Display, cx: &App) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    let display = target
+        .id()
+        .to_string()
+        .parse::<u64>()
+        .ok()
+        .and_then(|id| cx.find_display(gpui::DisplayId::new(id)));
+    #[cfg(not(target_os = "macos"))]
+    let display = platform_display_for_capture(target, cx);
+    display?.uuid().ok().map(|uuid| uuid.to_string())
+}
+
 #[cfg(not(target_os = "macos"))]
 fn platform_display_for_capture(
     target: &scap_targets::Display,

@@ -244,8 +244,8 @@ fn live_entries(
         previous,
         state,
         LastArea {
-            record: app_windows::tray_last_area_available(PickerPurpose::Record),
-            screenshot: app_windows::tray_last_area_available(PickerPurpose::Screenshot),
+            record: app_windows::tray_last_area_available(PickerPurpose::Record, cx),
+            screenshot: app_windows::tray_last_area_available(PickerPurpose::Screenshot, cx),
         },
     );
     decorate_accelerators(&mut entries, &|action| {

@@ -42,8 +42,8 @@ pub(crate) fn tray_open_library_item(path: PathBuf, cx: &mut App) {
     cx.activate(true);
 }
 
-pub(crate) fn tray_last_area_available(purpose: PickerPurpose) -> bool {
-    crate::target_overlay::last_locked_target(purpose).is_some()
+pub(crate) fn tray_last_area_available(purpose: PickerPurpose, cx: &App) -> bool {
+    crate::target_overlay::last_locked_target(purpose, cx).is_some()
 }
 
 pub(crate) fn tray_capture_last_area(screenshot: bool, cx: &mut App) {
@@ -55,7 +55,7 @@ pub(crate) fn tray_capture_last_area(screenshot: bool, cx: &mut App) {
     } else {
         PickerPurpose::Record
     };
-    let Some(target) = crate::target_overlay::last_locked_target(purpose) else {
+    let Some(target) = crate::target_overlay::last_locked_target(purpose, cx) else {
         tracing::warn!("the locked recording area is no longer available");
         return;
     };
