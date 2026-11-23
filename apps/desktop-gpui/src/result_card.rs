@@ -1463,42 +1463,18 @@ mod tests {
         assert_eq!(names(&stack), ["Failed"]);
     }
 
-    fn ffmpeg(arguments: &[&str], output: &Path) {
-        let result = std::process::Command::new("ffmpeg")
-            .args(["-v", "error", "-y"])
-            .args(arguments)
-            .arg(output)
-            .output()
-            .unwrap();
-        assert!(
-            result.status.success(),
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-    }
-
     fn studio_recording(bundle: &Path) {
         std::fs::create_dir_all(bundle).unwrap();
-        ffmpeg(
-            &[
-                "-f",
-                "lavfi",
-                "-i",
-                "testsrc2=size=320x180:rate=30:duration=1",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "ultrafast",
-                "-pix_fmt",
-                "yuv420p",
-            ],
-            &bundle.join("display.mp4"),
-        );
+        std::fs::write(
+            bundle.join("display.mp4"),
+            include_bytes!("../tests/fixtures/test-no-audio.mp4"),
+        )
+        .unwrap();
         std::fs::write(
             bundle.join("recording-meta.json"),
             serde_json::to_vec(&serde_json::json!({
                 "pretty_name": "Product demo",
-                "display": { "path": "display.mp4", "fps": 30 }
+                "display": { "path": "display.mp4", "fps": 25 }
             }))
             .unwrap(),
         )

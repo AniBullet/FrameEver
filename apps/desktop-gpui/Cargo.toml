@@ -151,6 +151,7 @@ futures-util = "0.3"
 dirs = "7"
 dunce = "1"
 whisper-rs = "0.16.0"
+trash = { version = "5.2.9", default-features = false, features = ["coinit_apartmentthreaded"] }
 
 [build-dependencies]
 cc = "1.10"
@@ -179,7 +180,6 @@ clipboard-rs = "0.3.5"
 raw-window-handle = "0.6"
 tray-icon = { version = "0.26.1", default-features = false }
 tauri-winrt-notification = "0.8.1"
-trash = { version = "5.2.9", default-features = false, features = ["coinit_apartmentthreaded"] }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Globalization",
