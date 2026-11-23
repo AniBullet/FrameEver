@@ -1030,6 +1030,7 @@ const nativeDeps = {
 		["target/ffmpeg/bin", ".dll"],
 		["target/native-deps/dxc", ".dll"],
 		["target/native-deps/onnxruntime/lib", ".dll"],
+		["target/native-deps/vcruntime", ".dll"],
 	],
 	darwin: [
 		["target/native-deps/Spacedrive.framework", ""],
@@ -1701,7 +1702,7 @@ function doctor() {
 		process.platform === "darwin" ? "darwin" : "win32",
 	);
 	add(
-		"FFmpeg / ONNX Runtime / DXC",
+		"FFmpeg / ONNX Runtime / DXC / Visual C++ runtime",
 		missing.length === 0,
 		missing.join(", "),
 		"pnpm fe setup",

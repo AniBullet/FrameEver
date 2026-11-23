@@ -164,7 +164,9 @@ test("the Windows installer compresses with a window large enough to span both b
 		path.join(gpuiDirectory, gpuiConfig.bundle.windows.nsis.installerHooks),
 		"utf8",
 	);
+	assert.ok(hooks.startsWith("\uFEFF"));
 	const directives = hooks
+		.replace(/^\uFEFF/, "")
 		.split(/\r?\n/)
 		.filter((line) => line.trim() && !line.trim().startsWith(";"));
 	assert.equal(directives[0], "SetCompressorDictSize 128");
@@ -219,6 +221,66 @@ test("platform resources point at the shared native dependencies", () => {
 	);
 	assert.equal(windows["../../target/ffmpeg/bin/*.dll"], "./");
 	assert.equal(windows["../../target/native-deps/onnxruntime/lib/*.dll"], "./");
+	assert.equal(windows["../../target/native-deps/vcruntime/*.dll"], "./");
+});
+
+test("the Windows installer copies nothing while a CLI from this install runs", () => {
+	const hooks = readFileSync(
+		path.join(gpuiDirectory, gpuiConfig.bundle.windows.nsis.installerHooks),
+		"utf8",
+	);
+	const macro = (name) =>
+		hooks.match(
+			new RegExp(`!macro ${name}(?: [A-Z_]+)?\\r?\\n([\\s\\S]*?)!macroend`),
+		)?.[1] ?? "";
+	for (const hook of ["NSIS_HOOK_PREINSTALL", "NSIS_HOOK_PREUNINSTALL"]) {
+		const body = macro(hook);
+		assert.match(body, /!insertmacro WaitForFrameEverCommandLineTools "/, hook);
+		assert.ok(
+			body.indexOf("EndFrameEverMcpServers") <
+				body.indexOf("WaitForFrameEverCommandLineTools"),
+			hook,
+		);
+	}
+	const wait = macro("WaitForFrameEverCommandLineTools");
+	assert.match(
+		wait,
+		/\$\$_\.Name -eq 'frameever-cli\.exe' -or \$\$_\.Name -eq 'frameever-muxer\.exe'/,
+	);
+	assert.match(wait, /GetDirectoryName\(\$\$_\.ExecutablePath\) -eq \$\$dir/);
+	assert.match(wait, /exit 2 \} catch \{ exit 0 \}/);
+	assert.match(wait, /\$\{If\} \$0 == 2/);
+	const probe = wait.indexOf('FindProcessCurrentUser "frameever-cli.exe"');
+	assert.ok(probe >= 0 && probe < wait.indexOf("nsExec::ExecToStack"));
+	assert.match(wait, /FindProcessCurrentUser "frameever-muxer\.exe"/);
+	assert.match(
+		wait,
+		/MB_RETRYCANCEL[^\n]*\/SD IDCANCEL IDRETRY \$\{FrameEverToolsCheck\}/,
+	);
+	assert.match(wait, /Abort "\$\{ABORT_TEXT\}"/);
+	for (const name of [
+		"FrameEverToolsRunning",
+		"FrameEverNotUpdated",
+		"FrameEverNotUninstalled",
+	]) {
+		for (const language of ["1033", "2052"]) {
+			assert.match(
+				hooks,
+				new RegExp(`^LangString ${name} ${language} "`, "m"),
+				`${name} ${language}`,
+			);
+		}
+	}
+	const lines = wait
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter(Boolean);
+	assert.deepEqual(lines.slice(1, 3), ["Push $0", "Push $1"]);
+	assert.deepEqual(lines.slice(-3), [
+		"Pop $1",
+		"Pop $0",
+		"!undef FrameEverToolsCheck",
+	]);
 });
 
 test("tauri bundle runs against the GPUI crate with its pinned toolchain", () => {

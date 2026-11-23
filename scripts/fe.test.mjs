@@ -204,10 +204,11 @@ test("packaging names each missing native dependency folder", () => {
 		"target/ffmpeg/bin",
 		"target/native-deps/dxc",
 		"target/native-deps/onnxruntime/lib",
+		"target/native-deps/vcruntime",
 	]);
 	mkdirSync(path.join(dir, "target/ffmpeg/bin"), { recursive: true });
 	writeFileSync(path.join(dir, "target/ffmpeg/bin/avcodec-61.dll"), "");
-	assert.equal(missingNativeDeps(dir).length, 2);
+	assert.equal(missingNativeDeps(dir).length, 3);
 	rmSync(dir, { recursive: true });
 });
 

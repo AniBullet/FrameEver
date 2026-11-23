@@ -231,6 +231,8 @@ async function main() {
 			"/",
 		)}"\n`;
 
+		await setupWindowsVcRuntime(vcInstallDir.trim());
+
 		const cmakePath = path.join(
 			vcInstallDir.trim(),
 			"Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
@@ -379,6 +381,54 @@ async function setupWindowsOnnxRuntime() {
 	console.log("Copied ONNX Runtime DLLs to target/debug and target/release");
 
 	return path.join(outputDir, "onnxruntime.dll");
+}
+
+const WINDOWS_VC_RUNTIME_DLLS = [
+	"msvcp140.dll",
+	"msvcp140_1.dll",
+	"vcruntime140.dll",
+	"vcruntime140_1.dll",
+];
+
+async function setupWindowsVcRuntime(vcInstallDir) {
+	const redistArch = { x86_64: "x64", aarch64: "arm64" }[arch];
+	if (!redistArch)
+		throw new Error(
+			`Unsupported Windows architecture for the VC runtime: ${arch}`,
+		);
+	const version = (
+		await fs.readFile(
+			path.join(
+				vcInstallDir,
+				"VC/Auxiliary/Build/Microsoft.VCRedistVersion.default.txt",
+			),
+			"utf-8",
+		)
+	).trim();
+	const archDir = path.join(
+		vcInstallDir,
+		"VC/Redist/MSVC",
+		version,
+		redistArch,
+	);
+	const crtDir = (await fs.readdir(archDir))
+		.filter((name) => /^Microsoft\.VC\d+\.CRT$/.test(name))
+		.sort()
+		.pop();
+	if (!crtDir)
+		throw new Error(
+			`No Visual C++ runtime redistributable found in ${archDir}`,
+		);
+
+	const outputDir = path.join(targetDir, "native-deps", "vcruntime");
+	await fs.rm(outputDir, { recursive: true, force: true });
+	await fs.mkdir(outputDir, { recursive: true });
+	for (const name of WINDOWS_VC_RUNTIME_DLLS)
+		await fs.copyFile(
+			path.join(archDir, crtDir, name),
+			path.join(outputDir, name),
+		);
+	console.log(`Prepared the Visual C++ runtime ${version} for ${redistArch}`);
 }
 
 async function setupWindowsDxc() {
