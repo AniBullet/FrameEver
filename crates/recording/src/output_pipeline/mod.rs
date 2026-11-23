@@ -33,6 +33,11 @@ mod win;
 pub use win::*;
 
 #[cfg(windows)]
+mod win_camera_conform;
+#[cfg(windows)]
+pub use win_camera_conform::*;
+
+#[cfg(windows)]
 mod win_segmented;
 #[cfg(windows)]
 pub use win_segmented::*;

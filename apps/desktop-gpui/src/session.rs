@@ -1176,21 +1176,44 @@ impl RecordingSession {
             self.change_instant_input(choice, previous, ticket, cx);
             return;
         }
-        let Some(handle) = self.begin_input_change(ticket, cx) else {
+        let in_place = kind == InputKind::Camera && !self.is_paused() && !self.pause_pending();
+        let Some(handle) = self.begin_input_change(ticket, !in_place, cx) else {
             return;
         };
         cx.spawn(async move |this, cx| {
-            let switched = if wait_until_paused(&this, cx).await {
+            let mut switched = None;
+            if in_place {
                 let mut steps = StudioSwitch {
                     session: &this,
                     cx: &mut *cx,
-                    handle,
+                    handle: handle.clone(),
                     kind,
                     ticket,
+                    in_place: true,
                 };
-                switch_or_restore(&mut steps, &choice, &previous).await
-            } else {
-                Switched::Abandoned
+                match switch_or_restore(&mut steps, &choice, &previous).await {
+                    Switched::Unchanged { cause } => {
+                        tracing::info!("switching the camera at a segment boundary: {cause:#}");
+                        this.update(cx, |this, cx| this.pause_for_input_change(cx))
+                            .ok();
+                    }
+                    other => switched = Some(other),
+                }
+            }
+            let switched = match switched {
+                Some(switched) => switched,
+                None if wait_until_paused(&this, cx).await => {
+                    let mut steps = StudioSwitch {
+                        session: &this,
+                        cx: &mut *cx,
+                        handle,
+                        kind,
+                        ticket,
+                        in_place: false,
+                    };
+                    switch_or_restore(&mut steps, &choice, &previous).await
+                }
+                None => Switched::Abandoned,
             };
             this.update(cx, |this, cx| {
                 let end = ticket.finish(this.input_change, this.phase);
@@ -1307,19 +1330,28 @@ impl RecordingSession {
     fn begin_input_change(
         &mut self,
         ticket: InputChangeTicket,
+        pause: bool,
         cx: &mut Context<Self>,
     ) -> Option<frameever_recording::studio_recording::ActorHandle> {
         if self.changing_input || !matches!(self.phase, Phase::Recording { .. }) {
             return None;
         }
         let handle = self.active.as_ref()?.studio_handle()?;
-        if !self.is_paused() {
-            self.toggle_pause(cx);
+        if pause {
+            self.pause_for_input_change(cx);
         }
         self.changing_input = true;
         self.input_change = ticket.change;
         cx.notify();
         Some(handle)
+    }
+
+    fn pause_for_input_change(&mut self, cx: &mut Context<Self>) {
+        let changing_input = std::mem::replace(&mut self.changing_input, false);
+        if !self.is_paused() {
+            self.toggle_pause(cx);
+        }
+        self.changing_input = changing_input;
     }
 
     fn settle_input_change(
@@ -2030,6 +2062,7 @@ struct StudioSwitch<'a> {
     handle: frameever_recording::studio_recording::ActorHandle,
     kind: InputKind,
     ticket: InputChangeTicket,
+    in_place: bool,
 }
 
 impl SwitchSteps for StudioSwitch<'_> {
@@ -2039,9 +2072,11 @@ impl SwitchSteps for StudioSwitch<'_> {
     async fn detach(&mut self) -> anyhow::Result<()> {
         let handle = self.handle.clone();
         let kind = self.kind;
+        let in_place = self.in_place;
         tokio_spawn(self.cx, async move {
             match kind {
                 InputKind::Microphone => handle.set_mic_feed(None).await,
+                InputKind::Camera if in_place => handle.release_camera_for_switch().await,
                 InputKind::Camera => handle.set_camera_feed(None).await,
             }
         })
