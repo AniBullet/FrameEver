@@ -767,6 +767,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Deleting", "正在删除"),
     ("Restoring", "正在恢复"),
     ("Couldn't copy", "无法复制"),
+    ("Couldn't save the video", "无法保存视频"),
     ("Drag to another app", "拖到其他应用"),
     (
         "Open the Recycle Bin and restore it from there.",

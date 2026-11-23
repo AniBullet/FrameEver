@@ -128,6 +128,14 @@ pub fn export_record(path: PathBuf, format: &str, codec: Option<String>) -> Expo
     }
 }
 
+pub fn unique_export_path(exports: &Path, name: &str, extension: &str) -> Result<PathBuf, String> {
+    let name = sanitize_filename::sanitize(name);
+    let name = name.trim();
+    let name = if name.is_empty() { "Recording" } else { name };
+    frameever_utils::ensure_unique_filename(&format!("{name}.{extension}"), exports)
+        .map(|file| exports.join(file))
+}
+
 pub fn record_export(project: &Path, record: &ExportRecord, remember_folder: bool) {
     if let Err(error) = frameever_utils::storage::record_export(project, record) {
         tracing::warn!(%error, project = %project.display(), "Could not record the export");

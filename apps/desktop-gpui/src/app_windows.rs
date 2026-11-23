@@ -384,7 +384,7 @@ pub(crate) fn export_in_flight(cx: &App) -> bool {
         handle
             .read(cx)
             .is_ok_and(ScreenshotEditorWindow::export_in_flight)
-    })
+    }) || crate::result_card::export_in_flight(cx)
 }
 
 pub(crate) fn flush_pending_editor_saves(cx: &mut App) -> Result<(), String> {

@@ -1,9 +1,14 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
+
+use frameever_utils::export_resources::{DiskBudget, ExportResources, is_resource_stop};
 
 use gpui::{
     App, AppContext as _, Bounds, Context, Empty, FocusHandle, FontWeight, Global,
@@ -14,10 +19,10 @@ use gpui::{
 };
 
 use crate::{
-    app_windows,
+    app_windows, editor_export, editor_window,
     i18n::{t, tc},
     library::{self, Deleted, MediaKind, view::Entry},
-    platform,
+    platform, store,
     theme::{CONTROL_HEIGHT, Theme},
     ui,
 };
@@ -44,13 +49,53 @@ enum Act {
     Edit,
     Open,
     Copy,
+    Export,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Job {
     Copy,
+    Export,
     Delete,
     Restore,
+}
+
+impl Job {
+    fn retry(self) -> Option<Act> {
+        match self {
+            Self::Copy => Some(Act::Copy),
+            Self::Export => Some(Act::Export),
+            Self::Delete | Self::Restore => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExportEnd {
+    Cancelled,
+    Failed,
+}
+
+struct ExportRun {
+    cancel: Arc<AtomicBool>,
+    fraction: f32,
+    saved: Option<PathBuf>,
+}
+
+impl Default for ExportRun {
+    fn default() -> Self {
+        Self {
+            cancel: Arc::new(AtomicBool::new(false)),
+            fraction: 0.,
+            saved: None,
+        }
+    }
+}
+
+impl Drop for ExportRun {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Release);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -73,7 +118,7 @@ impl CardKind {
 
     fn acts(self) -> &'static [Act] {
         match self {
-            Self::Studio => &[Act::Edit],
+            Self::Studio => &[Act::Edit, Act::Export],
             Self::Instant => &[Act::Open, Act::Copy],
             Self::Screenshot => &[Act::Edit, Act::Copy],
         }
@@ -160,6 +205,7 @@ struct Card {
     state: CardState,
     since: Instant,
     hovered: bool,
+    export: ExportRun,
 }
 
 impl Card {
@@ -189,9 +235,15 @@ impl Stack {
             state: CardState::Ready,
             since: now,
             hovered: false,
+            export: ExportRun::default(),
         });
         if self.cards.len() > MAX_CARDS {
-            self.cards.remove(0);
+            let oldest_idle = self
+                .cards
+                .iter()
+                .position(|card| card.state != CardState::Working(Job::Export))
+                .unwrap_or(0);
+            self.cards.remove(oldest_idle);
         }
         id
     }
@@ -230,6 +282,47 @@ impl Stack {
         self.cards.retain(|card| card.id != id);
     }
 
+    fn start_export(&mut self, id: u64, now: Instant) -> Option<Arc<AtomicBool>> {
+        let card = self.card_mut(id)?;
+        card.export = ExportRun::default();
+        card.state = CardState::Working(Job::Export);
+        card.since = now;
+        Some(card.export.cancel.clone())
+    }
+
+    fn set_progress(&mut self, id: u64, rendered: u32, total: u32) {
+        if let Some(card) = self.card_mut(id) {
+            card.export.fraction = (rendered as f32 / total.max(1) as f32).clamp(0., 1.);
+        }
+    }
+
+    fn cancel_export(&mut self, id: u64) {
+        if let Some(card) = self.card_mut(id) {
+            card.export.cancel.store(true, Ordering::Release);
+        }
+    }
+
+    fn finish_export(&mut self, id: u64, result: Result<PathBuf, ExportEnd>, now: Instant) {
+        let Some(card) = self.card_mut(id) else {
+            return;
+        };
+        card.state = match result {
+            Ok(path) => {
+                card.export.saved = Some(path);
+                CardState::Done(Job::Export)
+            }
+            Err(ExportEnd::Cancelled) => CardState::Ready,
+            Err(ExportEnd::Failed) => CardState::Failed(Job::Export),
+        };
+        card.since = now;
+    }
+
+    fn exporting(&self) -> bool {
+        self.cards
+            .iter()
+            .any(|card| card.state == CardState::Working(Job::Export))
+    }
+
     fn prune(&mut self, now: Instant) {
         self.cards
             .retain(|card| card.left(now).is_none_or(|left| !left.is_zero()));
@@ -264,6 +357,61 @@ fn stack_bounds(work_area: Bounds<Pixels>, cards: usize) -> Bounds<Pixels> {
 struct Cards(WindowHandle<ResultCardView>);
 
 impl Global for Cards {}
+
+pub(crate) fn export_in_flight(cx: &App) -> bool {
+    cx.try_global::<Cards>()
+        .is_some_and(|Cards(handle)| handle.read(cx).is_ok_and(|view| view.stack.exporting()))
+}
+
+async fn export_with_last_settings(
+    bundle: PathBuf,
+    prefs: Option<store::ExportPrefs>,
+    exports: PathBuf,
+    progress: flume::Sender<(u32, u32)>,
+    cancel: Arc<AtomicBool>,
+) -> Result<PathBuf, String> {
+    let summary = editor_window::preflight(&bundle)?;
+    let project = frameever_project::RecordingMeta::load_for_project(&bundle)
+        .map_err(|error| error.to_string())?
+        .project_config();
+    let settings = editor_export::last_video_settings(
+        prefs,
+        editor_export::recording_source(&summary, &project),
+        editor_export::has_transparent_background(&project),
+    );
+    std::fs::create_dir_all(&exports).map_err(|error| error.to_string())?;
+    let output = library::unique_export_path(&exports, &summary.pretty_name, settings.extension())?;
+    let resources = ExportResources::new(vec![DiskBudget {
+        path: exports,
+        description: "your export drive",
+        estimated_bytes: 0,
+    }]);
+    let stop = cancel.clone();
+    let saved = resources
+        .supervise(
+            editor_export::render_video(
+                bundle.clone(),
+                project,
+                settings,
+                None,
+                Some(output),
+                progress,
+                cancel,
+            ),
+            move || stop.store(true, Ordering::Release),
+        )
+        .await?;
+    library::record_export(
+        &bundle,
+        &library::export_record(
+            saved.clone(),
+            settings.extension(),
+            settings.recorded_codec(),
+        ),
+        false,
+    );
+    Ok(saved)
+}
 
 pub fn show(bundle: PathBuf, display: Option<scap_targets::Display>, cx: &mut App) {
     cx.spawn(async move |cx| {
@@ -464,6 +612,7 @@ impl ResultCardView {
         };
         match act {
             Act::Copy => return self.copy(id, item, window, cx),
+            Act::Export => return self.export(id, item, window, cx),
             Act::Edit => {
                 let path = match item.kind {
                     CardKind::Screenshot => item.file.unwrap_or(item.bundle),
@@ -516,6 +665,86 @@ impl ResultCardView {
             .ok();
         })
         .detach();
+    }
+
+    fn export(&mut self, id: u64, item: Item, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(cancel) = self.stack.start_export(id, Instant::now()) else {
+            return;
+        };
+        self.settle(window, cx);
+        let (progress_tx, progress_rx) = flume::unbounded::<(u32, u32)>();
+        cx.spawn_in(window, async move |this, cx| {
+            let job_cancel = cancel.clone();
+            let job = gpui_tokio::Tokio::spawn(cx, async move {
+                export_with_last_settings(
+                    item.bundle,
+                    store::load().export,
+                    library::storage().exports_dir(),
+                    progress_tx,
+                    job_cancel,
+                )
+                .await
+            });
+            while let Ok((rendered, total)) = progress_rx.recv_async().await {
+                let open = this.update(cx, |this, cx| {
+                    this.stack.set_progress(id, rendered, total);
+                    cx.notify();
+                });
+                if open.is_err() {
+                    cancel.store(true, Ordering::Release);
+                    break;
+                }
+            }
+            let result = match job.await {
+                Ok(Ok(path)) => {
+                    tracing::info!(path = %path.display(), "result card export completed");
+                    crate::app_sounds::play_notification();
+                    Ok(path)
+                }
+                Ok(Err(error))
+                    if !is_resource_stop(&error)
+                        && (error == "Export cancelled" || cancel.load(Ordering::Acquire)) =>
+                {
+                    Err(ExportEnd::Cancelled)
+                }
+                Ok(Err(error)) => {
+                    tracing::error!(error, "result card export failed");
+                    Err(ExportEnd::Failed)
+                }
+                Err(error) => {
+                    tracing::error!(%error, "result card export task failed");
+                    Err(ExportEnd::Failed)
+                }
+            };
+            let saved = result.is_ok();
+            this.update_in(cx, |this, window, cx| {
+                this.stack.finish_export(id, result, Instant::now());
+                this.settle(window, cx);
+                if saved {
+                    cx.defer(app_windows::refresh_library_everywhere);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn cancel_export(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.stack.cancel_export(id);
+        cx.notify();
+    }
+
+    fn show_export(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let saved = self
+            .stack
+            .cards
+            .iter()
+            .find(|card| card.id == id)
+            .and_then(|card| card.export.saved.clone());
+        if let Some(saved) = saved {
+            library::reveal_in_folder(&saved);
+        }
+        self.close(id, window, cx);
     }
 
     fn reveal(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
@@ -709,21 +938,35 @@ fn act_icon(act: Act) -> (&'static str, &'static str) {
         Act::Edit => ("icons/pencil.svg", t!("Edit")),
         Act::Open => ("icons/play.svg", t!("Open")),
         Act::Copy => ("icons/copy.svg", t!("Copy")),
+        Act::Export => ("icons/download.svg", t!("Export")),
     }
 }
 
-fn status_text(state: &CardState) -> Option<&'static str> {
-    match state {
-        CardState::Working(Job::Copy) => Some(t!("Copying")),
-        CardState::Working(Job::Delete) => Some(t!("Deleting")),
-        CardState::Working(Job::Restore) => Some(t!("Restoring")),
-        CardState::Done(Job::Copy) => Some(t!("Copied")),
-        CardState::Failed(Job::Copy) => Some(t!("Couldn't copy")),
-        CardState::Deleted(_) => Some(t!("Deleted")),
+fn status_text(card: &Card) -> Option<SharedString> {
+    let text = match &card.state {
+        CardState::Working(Job::Copy) => t!("Copying"),
+        CardState::Working(Job::Export) => t!("Rendering video"),
+        CardState::Working(Job::Delete) => t!("Deleting"),
+        CardState::Working(Job::Restore) => t!("Restoring"),
+        CardState::Done(Job::Copy) => t!("Copied"),
+        CardState::Done(Job::Export) => {
+            let file = card
+                .export
+                .saved
+                .as_deref()
+                .and_then(Path::file_name)
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            return Some(t!("Saved {file}", file = file).into());
+        }
+        CardState::Failed(Job::Copy) => t!("Couldn't copy"),
+        CardState::Failed(Job::Export) => t!("Couldn't save the video"),
+        CardState::Deleted(_) => t!("Deleted"),
         CardState::Ready
         | CardState::Done(Job::Delete | Job::Restore)
-        | CardState::Failed(Job::Delete | Job::Restore) => None,
-    }
+        | CardState::Failed(Job::Delete | Job::Restore) => return None,
+    };
+    Some(text.into())
 }
 
 impl ResultCardView {
@@ -739,6 +982,8 @@ impl ResultCardView {
         let item = card.item.clone();
         let state = card.state.clone();
         let image = card.image.clone();
+        let status = status_text(card);
+        let progress = (state == CardState::Working(Job::Export)).then_some(card.export.fraction);
         let focus = self
             .focus
             .entry(id)
@@ -878,8 +1123,16 @@ impl ResultCardView {
                     _ => (theme.muted_foreground, None),
                 };
                 let action = match other {
+                    CardState::Working(Job::Export) => {
+                        Some((StatusAction::CancelExport, t!("Cancel")))
+                    }
+                    CardState::Done(Job::Export) => {
+                        Some((StatusAction::ShowExport, t!("Show in folder")))
+                    }
                     CardState::Done(_) => Some((StatusAction::Reveal, item.kind.reveal_label())),
-                    CardState::Failed(_) => Some((StatusAction::Retry, t!("Try again"))),
+                    CardState::Failed(job) => job
+                        .retry()
+                        .map(|act| (StatusAction::Retry(act), t!("Try again"))),
                     CardState::Deleted(_) => Some((StatusAction::Undo, t!("Undo"))),
                     _ => None,
                 };
@@ -892,18 +1145,15 @@ impl ResultCardView {
                     .when_some(icon, |this, icon| {
                         this.child(svg().path(icon).size(px(14.)).text_color(color))
                     })
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(status_text(other).unwrap_or_default()),
-                    )
+                    .child(div().flex_1().min_w_0().child(status.unwrap_or_default()))
                     .when_some(action, |this, (action, label)| {
                         this.child(
                             text_button(theme, ("status", id), None, label, false).on_click(
                                 cx.listener(move |this, _, window, cx| match action {
                                     StatusAction::Reveal => this.reveal(id, window, cx),
-                                    StatusAction::Retry => this.act(id, Act::Copy, window, cx),
+                                    StatusAction::ShowExport => this.show_export(id, window, cx),
+                                    StatusAction::CancelExport => this.cancel_export(id, cx),
+                                    StatusAction::Retry(act) => this.act(id, act, window, cx),
                                     StatusAction::Undo => this.undo(id, window, cx),
                                 }),
                             ),
@@ -941,13 +1191,33 @@ impl ResultCardView {
             .children(thumbnail)
             .child(
                 div()
+                    .relative()
                     .flex()
                     .flex_col()
                     .gap(px(8.))
                     .h(px(BODY_HEIGHT))
                     .p(px(10.))
                     .child(name)
-                    .child(row),
+                    .child(row)
+                    .when_some(progress, |this, fraction| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .left(px(10.))
+                                .right(px(10.))
+                                .bottom(px(6.))
+                                .h(px(4.))
+                                .rounded(px(2.))
+                                .bg(theme.component.slider_bar)
+                                .child(
+                                    div()
+                                        .h_full()
+                                        .w(gpui::relative(fraction))
+                                        .rounded(px(2.))
+                                        .bg(theme.component.progress_bar),
+                                ),
+                        )
+                    }),
             )
     }
 }
@@ -955,7 +1225,9 @@ impl ResultCardView {
 #[derive(Clone, Copy)]
 enum StatusAction {
     Reveal,
-    Retry,
+    ShowExport,
+    CancelExport,
+    Retry(Act),
     Undo,
 }
 
@@ -1008,7 +1280,175 @@ mod tests {
     fn each_kind_offers_its_two_likeliest_next_steps() {
         assert_eq!(CardKind::Instant.acts(), &[Act::Open, Act::Copy]);
         assert_eq!(CardKind::Screenshot.acts(), &[Act::Edit, Act::Copy]);
-        assert_eq!(CardKind::Studio.acts(), &[Act::Edit]);
+        assert_eq!(CardKind::Studio.acts(), &[Act::Edit, Act::Export]);
+    }
+
+    #[test]
+    fn exporting_holds_the_card_shows_progress_and_then_names_the_saved_file() {
+        let start = Instant::now();
+        let mut stack = Stack::default();
+        let id = stack.push(item(CardKind::Studio, "Product demo"), start);
+        stack.start_export(id, start);
+        stack.set_progress(id, 42, 100);
+        stack.prune(start + Duration::from_secs(600));
+        let card = &stack.cards[0];
+        assert_eq!(card.state, CardState::Working(Job::Export));
+        assert_eq!(card.export.fraction, 0.42);
+        assert_eq!(status_text(card).as_deref(), Some("Rendering video"));
+
+        let done = start + Duration::from_secs(600);
+        stack.finish_export(id, Ok(PathBuf::from("exports/Product demo.mp4")), done);
+        let card = &stack.cards[0];
+        assert_eq!(card.state, CardState::Done(Job::Export));
+        assert_eq!(status_text(card).as_deref(), Some("Saved Product demo.mp4"));
+        stack.prune(done + HOLD);
+        assert!(stack.cards.is_empty());
+    }
+
+    #[test]
+    fn a_failed_export_stays_with_try_again_and_a_cancelled_one_goes_back_to_ready() {
+        let start = Instant::now();
+        let mut stack = Stack::default();
+        let failed = stack.push(item(CardKind::Studio, "Failed"), start);
+        let cancelled = stack.push(item(CardKind::Studio, "Cancelled"), start);
+        for id in [failed, cancelled] {
+            stack.start_export(id, start);
+        }
+        stack.finish_export(failed, Err(ExportEnd::Failed), start);
+        stack.cancel_export(cancelled);
+        assert!(stack.cards[1].export.cancel.load(Ordering::Acquire));
+        stack.finish_export(cancelled, Err(ExportEnd::Cancelled), start);
+
+        assert_eq!(stack.cards[0].state, CardState::Failed(Job::Export));
+        assert_eq!(Job::Export.retry(), Some(Act::Export));
+        assert_eq!(Job::Copy.retry(), Some(Act::Copy));
+        assert_eq!(
+            status_text(&stack.cards[0]).as_deref(),
+            Some("Couldn't save the video")
+        );
+        assert_eq!(stack.cards[1].state, CardState::Ready);
+        stack.prune(start + Duration::from_secs(600));
+        assert_eq!(names(&stack), ["Failed"]);
+    }
+
+    fn ffmpeg(arguments: &[&str], output: &Path) {
+        let result = std::process::Command::new("ffmpeg")
+            .args(["-v", "error", "-y"])
+            .args(arguments)
+            .arg(output)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+
+    fn studio_recording(bundle: &Path) {
+        std::fs::create_dir_all(bundle).unwrap();
+        ffmpeg(
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=320x180:rate=30:duration=1",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+            ],
+            &bundle.join("display.mp4"),
+        );
+        std::fs::write(
+            bundle.join("recording-meta.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "pretty_name": "Product demo",
+                "display": { "path": "display.mp4", "fps": 30 }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn run_export(
+        bundle: &Path,
+        exports: PathBuf,
+        cancelled: bool,
+    ) -> (Result<PathBuf, String>, Vec<(u32, u32)>) {
+        let (progress_tx, progress_rx) = flume::unbounded();
+        let runtime = crate::app_runtime();
+        let job = runtime.spawn(export_with_last_settings(
+            bundle.to_path_buf(),
+            None,
+            exports,
+            progress_tx,
+            Arc::new(AtomicBool::new(cancelled)),
+        ));
+        let result = runtime.block_on(job).unwrap();
+        (result, progress_rx.drain().collect())
+    }
+
+    #[test]
+    fn export_renders_the_recording_into_the_exports_folder_and_records_it() {
+        let root = tempfile::tempdir().unwrap();
+        let bundle = root.path().join("Product demo.ever");
+        studio_recording(&bundle);
+        let exports = root.path().join("Exports");
+        std::fs::create_dir_all(&exports).unwrap();
+        std::fs::write(exports.join("Product demo.mp4"), b"taken").unwrap();
+        let (saved, progress) = run_export(&bundle, exports.clone(), false);
+        let saved = saved.unwrap();
+
+        assert_eq!(saved.parent(), Some(exports.as_path()));
+        assert_ne!(saved, exports.join("Product demo.mp4"));
+        assert!(saved.extension().is_some_and(|ext| ext == "mp4"));
+        assert!(std::fs::metadata(&saved).unwrap().len() > 1000);
+        let last = progress.last().unwrap();
+        assert_eq!(last.0, last.1);
+        let records = frameever_utils::storage::exports(&bundle);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].path, saved);
+        assert_eq!(records[0].format, "mp4");
+    }
+
+    #[test]
+    fn a_cancelled_export_leaves_nothing_recorded() {
+        let root = tempfile::tempdir().unwrap();
+        let bundle = root.path().join("Product demo.ever");
+        studio_recording(&bundle);
+        let (result, _) = run_export(&bundle, root.path().join("Exports"), true);
+
+        assert!(result.is_err());
+        assert!(frameever_utils::storage::exports(&bundle).is_empty());
+    }
+
+    #[test]
+    fn a_fourth_card_never_pushes_out_a_running_export() {
+        let start = Instant::now();
+        let mut stack = Stack::default();
+        let exporting = stack.push(item(CardKind::Studio, "Product demo"), start);
+        stack.start_export(exporting, start);
+        for name in ["One", "Two", "Three"] {
+            stack.push(item(CardKind::Screenshot, name), start);
+        }
+        assert_eq!(names(&stack), ["Product demo", "Two", "Three"]);
+        assert!(stack.exporting());
+    }
+
+    #[test]
+    fn closing_a_card_stops_its_export() {
+        let start = Instant::now();
+        let mut stack = Stack::default();
+        let id = stack.push(item(CardKind::Studio, "Product demo"), start);
+        stack.start_export(id, start);
+        let cancel = stack.cards[0].export.cancel.clone();
+        assert!(stack.exporting());
+        stack.remove(id);
+        assert!(cancel.load(Ordering::Acquire));
+        assert!(!stack.exporting());
     }
 
     #[test]

@@ -6,8 +6,6 @@ pub use frameever_export::instant_gif::{FPS, GifFailure, GifSize, estimated_byte
 
 use crate::i18n::tc;
 
-const UNNAMED: &str = "Recording";
-
 pub fn quality_label(quality: GifQualityPreset) -> &'static str {
     match quality {
         GifQualityPreset::Low => tc!("gif quality", "Low"),
@@ -42,14 +40,6 @@ pub fn source(project: &Path) -> Result<GifSource, GifFailure> {
     Ok(GifSource { pixels, seconds })
 }
 
-fn gif_path(exports: &Path, name: &str) -> Result<PathBuf, String> {
-    let name = sanitize_filename::sanitize(name);
-    let name = name.trim();
-    let name = if name.is_empty() { UNNAMED } else { name };
-    frameever_utils::ensure_unique_filename(&format!("{name}.gif"), exports)
-        .map(|file| exports.join(file))
-}
-
 pub fn save_as_gif(
     project: &Path,
     name: &str,
@@ -59,7 +49,8 @@ pub fn save_as_gif(
     quality: GifQualityPreset,
     progress: impl FnMut(u32, u32) -> bool,
 ) -> Result<PathBuf, GifFailure> {
-    let output = gif_path(exports, name).map_err(GifFailure::FolderNotWritable)?;
+    let output =
+        super::unique_export_path(exports, name, "gif").map_err(GifFailure::FolderNotWritable)?;
     frameever_export::instant_gif::save_gif(
         &super::instant_output_path(project),
         &output,
@@ -294,11 +285,11 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
 
         assert_eq!(
-            gif_path(directory.path(), "Demo: take 2?"),
+            super::super::unique_export_path(directory.path(), "Demo: take 2?", "gif"),
             Ok(directory.path().join("Demo take 2.gif"))
         );
         assert_eq!(
-            gif_path(directory.path(), "///"),
+            super::super::unique_export_path(directory.path(), "///", "gif"),
             Ok(directory.path().join("Recording.gif"))
         );
     }

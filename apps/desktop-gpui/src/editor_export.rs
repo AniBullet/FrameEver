@@ -408,25 +408,22 @@ const BPP_STEP: f32 = 0.01;
 
 impl ExportUi {
     pub fn load() -> Self {
-        let prefs = store::load().export.unwrap_or(ExportPrefs {
-            format: "Mp4".into(),
-            fps: 60,
-            export_to: "file".into(),
-            resolution: "1080p".into(),
-            compression: "Maximum".into(),
-            codec: None,
-            optimize_filesize: false,
-            cursor_only: false,
-            custom_bpp: None,
-            force_ffmpeg_decoder: false,
-            advanced_open: false,
-            organization_id: None,
-            gif_quality: None,
-            resolution_from_source: true,
-            fps_from_source: true,
-            excluded_tracks: None,
-        });
-        Self::from_preferences(prefs)
+        Self::from_preferences(store::load().export.unwrap_or_else(first_export_prefs))
+    }
+
+    pub(crate) fn video_settings(&self) -> VideoSettings {
+        VideoSettings {
+            format: self.format,
+            cursor_only: self.cursor_only,
+            fps: self.fps,
+            size: self.resolution.size(),
+            compression: self.compression,
+            codec: self.codec,
+            custom_bpp: self.custom_bpp,
+            gif_quality: self.gif_quality,
+            optimize: self.optimize_filesize,
+            force_ffmpeg: self.force_ffmpeg,
+        }
     }
 
     fn from_preferences(prefs: ExportPrefs) -> Self {
@@ -693,7 +690,110 @@ impl ExportUi {
     }
 }
 
-fn has_transparent_background(project: &frameever_project::ProjectConfiguration) -> bool {
+fn first_export_prefs() -> ExportPrefs {
+    ExportPrefs {
+        format: "Mp4".into(),
+        fps: 60,
+        export_to: "file".into(),
+        resolution: "1080p".into(),
+        compression: "Maximum".into(),
+        codec: None,
+        optimize_filesize: false,
+        cursor_only: false,
+        custom_bpp: None,
+        force_ffmpeg_decoder: false,
+        advanced_open: false,
+        organization_id: None,
+        gif_quality: None,
+        resolution_from_source: true,
+        fps_from_source: true,
+        excluded_tracks: None,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct VideoSettings {
+    pub format: ExportFormatKind,
+    pub cursor_only: bool,
+    pub fps: u32,
+    pub size: (u32, u32),
+    pub compression: ExportCompression,
+    pub codec: ExportCodec,
+    pub custom_bpp: Option<f32>,
+    pub gif_quality: GifQualityPreset,
+    pub optimize: bool,
+    pub force_ffmpeg: bool,
+}
+
+impl VideoSettings {
+    pub(crate) fn extension(&self) -> &'static str {
+        if self.cursor_only {
+            "mov"
+        } else if self.format == ExportFormatKind::Gif {
+            "gif"
+        } else {
+            "mp4"
+        }
+    }
+
+    pub(crate) fn recorded_codec(&self) -> Option<String> {
+        (self.extension() == "mp4").then(|| format!("{:?}", self.codec))
+    }
+}
+
+pub(crate) fn last_video_settings(
+    prefs: Option<ExportPrefs>,
+    source: ExportSource,
+    transparent: bool,
+) -> VideoSettings {
+    let mut ui = ExportUi::from_preferences(prefs.unwrap_or_else(first_export_prefs));
+    ui.format = match ui.format {
+        _ if transparent => ExportFormatKind::Gif,
+        ExportFormatKind::Tracks => ExportFormatKind::Mp4,
+        format => format,
+    };
+    ui.cursor_only = false;
+    ui.source = source;
+    normalize_export_options(&mut ui, transparent);
+    ui.video_settings()
+}
+
+pub(crate) fn recording_source(
+    summary: &crate::editor_window::ProjectSummary,
+    project: &frameever_project::ProjectConfiguration,
+) -> ExportSource {
+    let segments = &summary.recordings.segments;
+    let size = segments.first().map(|segment| {
+        let options = frameever_rendering::RenderOptions {
+            camera_size: segment
+                .camera
+                .as_ref()
+                .map(|camera| XY::new(camera.width, camera.height)),
+            screen_size: XY::new(segment.display.width, segment.display.height),
+            preserve_screen_alpha: false,
+        };
+        let (width, height) =
+            frameever_rendering::ProjectUniforms::get_base_size(&options, project);
+        XY::new(width, height)
+    });
+    let fps = highest_recorded_fps(
+        segments.iter().enumerate().map(|(index, segment)| {
+            let recorded = summary.recorded_fps.get(index);
+            (
+                capture_fps(segment.display.fps, recorded.map(|(display, _)| *display)),
+                segment.camera.as_ref().map(|camera| {
+                    capture_fps(camera.fps, recorded.and_then(|(_, camera)| *camera))
+                }),
+            )
+        }),
+        !project.camera.hide,
+    );
+    ExportSource { size, fps }
+}
+
+pub(crate) fn has_transparent_background(
+    project: &frameever_project::ProjectConfiguration,
+) -> bool {
     matches!(
         project.background.source,
         BackgroundSource::Color { alpha, .. } if alpha < 255
@@ -830,36 +930,9 @@ impl EditorWindow {
     }
 
     fn export_source(&self) -> ExportSource {
-        let Some(summary) = self.summary() else {
-            return ExportSource::default();
-        };
-        let segments = &summary.recordings.segments;
-        let size = segments.first().map(|segment| {
-            let options = frameever_rendering::RenderOptions {
-                camera_size: segment
-                    .camera
-                    .as_ref()
-                    .map(|camera| XY::new(camera.width, camera.height)),
-                screen_size: XY::new(segment.display.width, segment.display.height),
-                preserve_screen_alpha: false,
-            };
-            let (width, height) =
-                frameever_rendering::ProjectUniforms::get_base_size(&options, &self.project);
-            XY::new(width, height)
-        });
-        let fps = highest_recorded_fps(
-            segments.iter().enumerate().map(|(index, segment)| {
-                let recorded = summary.recorded_fps.get(index);
-                (
-                    capture_fps(segment.display.fps, recorded.map(|(display, _)| *display)),
-                    segment.camera.as_ref().map(|camera| {
-                        capture_fps(camera.fps, recorded.and_then(|(_, camera)| *camera))
-                    }),
-                )
-            }),
-            !self.project.camera.hide,
-        );
-        ExportSource { size, fps }
+        self.summary()
+            .map(|summary| recording_source(summary, &self.project))
+            .unwrap_or_default()
     }
 
     fn normalize_loaded_export_options(&mut self) {
@@ -1044,16 +1117,7 @@ impl EditorWindow {
             .map(estimated_working_bytes)
             .unwrap_or(0);
         let destination = ui.destination;
-        let format = ui.format;
-        let cursor_only = ui.cursor_only;
-        let fps = ui.fps;
-        let (width, height) = ui.resolution.size();
-        let compression = ui.compression;
-        let codec = ui.codec;
-        let custom_bpp = ui.custom_bpp;
-        let gif_quality = ui.gif_quality.quality();
-        let optimize = ui.optimize_filesize;
-        let force = ui.force_ffmpeg;
+        let settings = ui.video_settings();
         let range = ui.range();
         let project_path = self.project_path.clone();
         let project = self.project.clone();
@@ -1070,14 +1134,8 @@ impl EditorWindow {
         ui.output_path = None;
         cx.notify();
 
-        let ext = if cursor_only {
-            "mov"
-        } else if format == ExportFormatKind::Gif {
-            "gif"
-        } else {
-            "mp4"
-        };
-        let recorded_codec = (ext == "mp4").then(|| format!("{codec:?}"));
+        let ext = settings.extension();
+        let recorded_codec = settings.recorded_codec();
         let record_project = project_path.clone();
 
         ui.export_task = Some(cx.spawn_in(window, async move |this, cx| {
@@ -1161,20 +1219,10 @@ impl EditorWindow {
             let export_cancel = cancel.clone();
             let export = gpui_tokio::Tokio::spawn(cx, async move {
                 let stopped = export_cancel.clone();
-                resources.supervise(run_export(
+                resources.supervise(render_video(
                     project_path,
                     project,
-                    format,
-                    cursor_only,
-                    fps,
-                    width,
-                    height,
-                    compression,
-                    codec,
-                    custom_bpp,
-                    gif_quality,
-                    optimize,
-                    force,
+                    settings,
                     range,
                     save_path.clone(),
                     progress_tx,
@@ -3205,26 +3253,28 @@ fn matches_compression(current: ExportCompression, expected: ExportCompression) 
     std::mem::discriminant(&current) == std::mem::discriminant(&expected)
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn run_export(
+pub(crate) async fn render_video(
     project_path: PathBuf,
     project: frameever_project::ProjectConfiguration,
-    format: ExportFormatKind,
-    cursor_only: bool,
-    fps: u32,
-    width: u32,
-    height: u32,
-    compression: ExportCompression,
-    codec: ExportCodec,
-    custom_bpp: Option<f32>,
-    gif_quality: GifQuality,
-    optimize: bool,
-    force: bool,
+    settings: VideoSettings,
     range: Option<ExportRange>,
     save_path: Option<PathBuf>,
     progress_tx: flume::Sender<(u32, u32)>,
     cancel: Arc<AtomicBool>,
 ) -> Result<PathBuf, String> {
+    let VideoSettings {
+        format,
+        cursor_only,
+        fps,
+        size: (width, height),
+        compression,
+        codec,
+        custom_bpp,
+        gif_quality,
+        optimize,
+        force_ffmpeg: force,
+    } = settings;
+    let gif_quality = gif_quality.quality();
     if cancel.load(Ordering::Relaxed) {
         return Err("Export cancelled".into());
     }
@@ -3322,14 +3372,15 @@ mod tests {
         ExportClip, ExportDestination, ExportFormatKind, ExportPhase, ExportResolution,
         ExportSource, ExportTrack, ExportUi, TrackOption, cancel_matching_export, capture_fps,
         estimated_tracks_bytes, export_fps_options, export_resolutions, format_disabled,
-        highest_recorded_fps, normalize_export_options, preview_time_in_range, selected_clip,
-        selected_tracks,
+        highest_recorded_fps, last_video_settings, normalize_export_options, preview_time_in_range,
+        selected_clip, selected_tracks,
     };
     use crate::editor_edits::Selection;
     use crate::editor_timeline::TrackKind;
     use crate::store::ExportPrefs;
     use frameever_export::ExportRange;
     use frameever_export::gif::{GifExportSettings, GifQualityPreset};
+    use frameever_export::mp4::{ExportCodec, ExportCompression};
     use frameever_export::settings::ExportSettings;
     use frameever_project::XY;
     use std::path::PathBuf;
@@ -3417,6 +3468,87 @@ mod tests {
                 size: kind.is_video().then_some((1920, 1080)),
             })
             .collect()
+    }
+
+    #[test]
+    fn the_card_export_renders_with_the_last_video_settings() {
+        let settings = last_video_settings(
+            Some(ExportPrefs {
+                codec: Some("Hevc".into()),
+                compression: "Social".into(),
+                optimize_filesize: true,
+                force_ffmpeg_decoder: true,
+                ..prefs()
+            }),
+            ExportSource::default(),
+            false,
+        );
+        assert_eq!(settings.format, ExportFormatKind::Mp4);
+        assert_eq!(settings.codec, ExportCodec::Hevc);
+        assert!(matches!(settings.compression, ExportCompression::Social));
+        assert_eq!((settings.fps, settings.size), (30, (1280, 720)));
+        assert!(settings.optimize && settings.force_ffmpeg);
+        assert_eq!(settings.extension(), "mp4");
+        assert_eq!(settings.recorded_codec().as_deref(), Some("Hevc"));
+    }
+
+    #[test]
+    fn the_card_export_keeps_a_gif_and_saves_everything_else_as_one_video_file() {
+        let gif = last_video_settings(
+            Some(ExportPrefs {
+                format: "Gif".into(),
+                fps: 15,
+                gif_quality: Some("Low".into()),
+                ..prefs()
+            }),
+            ExportSource::default(),
+            false,
+        );
+        assert_eq!(gif.format, ExportFormatKind::Gif);
+        assert_eq!(gif.gif_quality, GifQualityPreset::Low);
+        assert_eq!(gif.extension(), "gif");
+        assert_eq!(gif.recorded_codec(), None);
+
+        let tracks = last_video_settings(
+            Some(ExportPrefs {
+                format: "Tracks".into(),
+                cursor_only: true,
+                ..prefs()
+            }),
+            ExportSource::default(),
+            false,
+        );
+        assert_eq!(tracks.format, ExportFormatKind::Mp4);
+        assert!(!tracks.cursor_only);
+        assert_eq!(tracks.extension(), "mp4");
+    }
+
+    #[test]
+    fn the_card_export_follows_the_recording_when_the_last_export_did() {
+        let source = ExportSource {
+            size: Some(XY::new(1280, 720)),
+            fps: Some(30),
+        };
+        let followed = last_video_settings(
+            Some(ExportPrefs {
+                fps: 60,
+                resolution: "1080p".into(),
+                resolution_from_source: true,
+                fps_from_source: true,
+                ..prefs()
+            }),
+            source,
+            false,
+        );
+        assert_eq!((followed.fps, followed.size), (30, (1280, 720)));
+
+        let transparent = last_video_settings(Some(prefs()), source, true);
+        assert_eq!(transparent.format, ExportFormatKind::Gif);
+        assert_eq!(transparent.extension(), "gif");
+
+        let first_export = last_video_settings(None, source, false);
+        assert_eq!(first_export.format, ExportFormatKind::Mp4);
+        assert_eq!((first_export.fps, first_export.size), (30, (1280, 720)));
     }
 
     #[test]
