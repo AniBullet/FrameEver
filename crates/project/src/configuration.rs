@@ -3126,6 +3126,8 @@ pub struct ProjectConfiguration {
     pub auto_zoom_version: u32,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auto_zoom_pending: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_visuals: Option<Box<crate::AudioVisualsConfiguration>>,
 }
 
 fn is_zero(value: &u32) -> bool {
@@ -3188,6 +3190,7 @@ impl Default for ProjectConfiguration {
             text_anim_version: TEXT_ANIM_VERSION,
             auto_zoom_version: 0,
             auto_zoom_pending: false,
+            audio_visuals: None,
         }
     }
 }

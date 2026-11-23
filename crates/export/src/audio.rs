@@ -781,4 +781,75 @@ mod tests {
         .unwrap_err();
         assert!(error.to_string().contains("no sound"), "{error}");
     }
+
+    fn mark_audio_only(project: &Path, visuals: bool) {
+        let meta = project.join("recording-meta.json");
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&meta).unwrap()).unwrap();
+        json["audioOnly"] = serde_json::Value::Bool(true);
+        std::fs::write(&meta, serde_json::to_vec(&json).unwrap()).unwrap();
+        let mut config = ProjectConfiguration::default();
+        config.background.source = frameever_project::BackgroundSource::Color {
+            value: [20, 20, 140],
+            alpha: 255,
+        };
+        config.audio_visuals = Some(Box::new(frameever_project::AudioVisualsConfiguration {
+            enabled: visuals,
+            size: 1.0,
+            ..Default::default()
+        }));
+        config.write(project).unwrap();
+    }
+
+    async fn middle_gif_frame(project: &Path) -> image::RgbaImage {
+        use image::AnimationDecoder;
+        let out = tempfile::tempdir().unwrap();
+        let base = Box::pin(
+            crate::ExporterBase::builder(project.to_path_buf())
+                .with_output_path(out.path().join("visuals.gif"))
+                .build_video_only(),
+        )
+        .await
+        .unwrap();
+        let path = Box::pin(
+            crate::gif::GifExportSettings {
+                fps: 10,
+                resolution_base: frameever_project::XY::new(256, 144),
+                quality: None,
+            }
+            .export(base, |_| true),
+        )
+        .await
+        .unwrap();
+        let frames =
+            image::codecs::gif::GifDecoder::new(std::io::BufReader::new(File::open(path).unwrap()))
+                .unwrap()
+                .into_frames()
+                .collect_frames()
+                .unwrap();
+        frames[frames.len() / 2].buffer().clone()
+    }
+
+    fn count(frame: &image::RgbaImage, test: impl Fn(&image::Rgba<u8>) -> bool) -> usize {
+        frame.pixels().filter(|pixel| test(pixel)).count()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires a wgpu adapter"]
+    async fn audio_only_exports_draw_the_visualiser_over_the_background_and_hide_the_stand_in() {
+        let white = |pixel: &image::Rgba<u8>| pixel.0[..3].iter().all(|channel| *channel > 200);
+        let black = |pixel: &image::Rgba<u8>| pixel.0[..3].iter().all(|channel| *channel < 10);
+
+        let with = project_with_two_seconds_of_tone();
+        mark_audio_only(with.path(), true);
+        let frame = middle_gif_frame(with.path()).await;
+        assert!(count(&frame, white) > 200, "the bars show");
+        assert_eq!(count(&frame, black), 0, "the black stand-in is hidden");
+
+        let without = project_with_two_seconds_of_tone();
+        mark_audio_only(without.path(), false);
+        let frame = middle_gif_frame(without.path()).await;
+        assert_eq!(count(&frame, white), 0, "no bars without visuals");
+        assert_eq!(count(&frame, black), 0, "the black stand-in is hidden");
+    }
 }

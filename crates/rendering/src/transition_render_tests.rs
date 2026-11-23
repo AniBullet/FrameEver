@@ -71,6 +71,7 @@ async fn fixture_with(with_overlay: bool, with_mask: bool) -> Fixture {
             .clone(),
         recording_meta,
         frozen_recorded_cursors: None,
+        audio_levels: Default::default(),
         background_textures: Arc::new(BackgroundTextureCache::default()),
         is_software_adapter: false,
     };

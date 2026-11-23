@@ -239,6 +239,20 @@ impl ExporterBuilder {
             .await
             .map_err(Error::RendererSetup)?,
         );
+        if studio_meta.is_audio_only()
+            && project_config
+                .audio_visuals
+                .as_ref()
+                .is_some_and(|visuals| visuals.enabled)
+        {
+            let levels = Box::pin(load_audio_levels(
+                recording_meta.clone(),
+                studio_meta.clone(),
+                cancellation.clone().unwrap_or_default(),
+            ))
+            .await?;
+            render_constants.set_audio_levels(Some(Arc::new(levels)));
+        }
 
         let audio_cancellation = if stream_audio {
             cancellation.map(ExportAudioCancellation::new)
@@ -315,6 +329,19 @@ impl ExporterBuilder {
             _media_activity: media_activity,
         })
     }
+}
+
+async fn load_audio_levels(
+    recording: RecordingMeta,
+    studio: StudioRecordingMeta,
+    cancel: Arc<AtomicBool>,
+) -> Result<frameever_rendering::AudioLevels, ExporterBuildError> {
+    tokio::task::spawn_blocking(move || {
+        frameever_editor::compute_audio_levels(&recording, &studio, &cancel)
+    })
+    .await
+    .map_err(|error| ExporterBuildError::MediaLoad(error.to_string()))?
+    .map_err(ExporterBuildError::MediaLoad)
 }
 
 async fn finish_audio_preparation(
