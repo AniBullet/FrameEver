@@ -1061,6 +1061,9 @@ fn write_studio_stop_thumbnail(project_path: &std::path::Path) {
 /// recorded here would show the icon fallback forever, including in the
 /// shipping app.
 fn write_bundle_thumbnail(project_dir: &std::path::Path, source_video: &std::path::Path) {
+    if crate::library::is_audio_only(project_dir) {
+        return;
+    }
     let output = crate::library::bundle_thumbnail_path(project_dir);
     match crate::library::create_screenshot(source_video, &output, None) {
         Ok(()) => tracing::info!(path = %output.display(), "wrote recording thumbnail"),
@@ -1548,7 +1551,14 @@ fn persist_in_progress_instant_meta(
     })
 }
 
-pub async fn start(config: StartConfig) -> anyhow::Result<ActiveRecording> {
+pub async fn start(mut config: StartConfig) -> anyhow::Result<ActiveRecording> {
+    if config.target.is_audio_only() {
+        if config.microphone.is_none() && !config.system_audio {
+            return Err(anyhow!(t!("Audio needs a microphone or system audio")));
+        }
+        config.mode = RecordingMode::Studio;
+        config.camera = None;
+    }
     if matches!(config.target, ScreenCaptureTarget::CameraOnly) && config.camera.is_none() {
         return Err(anyhow!(t!(
             "Camera-only recording requires a selected camera."
@@ -1721,6 +1731,7 @@ async fn start_attempt(
     #[cfg(target_os = "macos")]
     let shareable_content = match config.target {
         ScreenCaptureTarget::CameraOnly => None,
+        ScreenCaptureTarget::AudioOnly if !config.system_audio => None,
         _ => Some(read_shareable_content().await?),
     };
 

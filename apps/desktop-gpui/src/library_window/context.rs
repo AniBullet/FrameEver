@@ -562,6 +562,7 @@ mod tests {
             thumbnail_version: None,
             screenshot: None,
             opens_editor: false,
+            audio_only: false,
         }
     }
 

@@ -218,6 +218,7 @@ pub struct Entry {
     pub thumbnail_version: Option<u128>,
     pub screenshot: Option<PathBuf>,
     pub opens_editor: bool,
+    pub audio_only: bool,
 }
 
 impl Entry {
@@ -720,6 +721,7 @@ mod tests {
             thumbnail_version: None,
             screenshot: None,
             opens_editor: false,
+            audio_only: false,
         }
     }
 

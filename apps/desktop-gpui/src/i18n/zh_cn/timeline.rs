@@ -411,6 +411,17 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Rendering video", "正在渲染视频"),
     ("Exporting tracks", "正在导出分轨"),
     ("Export tracks", "导出分轨"),
+    ("File type", "文件类型"),
+    (
+        "Small and plays everywhere. 192 kb/s stereo.",
+        "文件小，到处都能播放。192 kb/s 立体声。",
+    ),
+    (
+        "Lossless 16-bit, 48 kHz. Best for more editing.",
+        "无损 16 位，48 kHz。适合继续编辑。",
+    ),
+    ("Exporting audio", "正在导出音频"),
+    ("Export audio", "导出音频"),
     ("Choose at least one track.", "至少选一条轨道。"),
     (
         "Each track follows your cuts and speed, without background or effects.",

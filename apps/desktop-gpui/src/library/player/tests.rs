@@ -52,6 +52,7 @@ impl Fixture {
             thumbnail_version: None,
             screenshot: None,
             opens_editor: true,
+            audio_only: false,
         }
     }
 }

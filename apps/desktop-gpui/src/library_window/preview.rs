@@ -606,7 +606,7 @@ impl LibraryWindow {
                 .justify_center()
                 .child(
                     svg()
-                        .path(super::kind_icon(entry.kind))
+                        .path(super::entry_icon(entry))
                         .size(px(24.))
                         .text_color(theme.muted_foreground),
                 )

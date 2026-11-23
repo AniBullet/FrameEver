@@ -411,6 +411,7 @@ pub struct ProjectSummary {
     /// fields and the sync-offset block are gated on.
     pub has_microphone: bool,
     pub has_system_audio: bool,
+    pub audio_only: bool,
     /// `recordings.segments[0].mic?.channels` -- the stereo-mode row appears
     /// only for a two-channel microphone (`ConfigSidebar.tsx:712`).
     pub mic_channels: Option<u16>,
@@ -572,6 +573,7 @@ pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
         multiple_clips: multiple_recording_segments,
         has_microphone,
         has_system_audio,
+        audio_only: studio.is_audio_only(),
         mic_channels: recordings
             .segments
             .first()

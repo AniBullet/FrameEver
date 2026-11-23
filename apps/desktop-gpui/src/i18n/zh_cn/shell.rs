@@ -159,6 +159,12 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Window", "窗口"),
     ("Area", "区域"),
     ("Camera Only", "仅摄像头"),
+    ("Audio Only", "仅音频"),
+    ("Not recorded", "不录制"),
+    (
+        "Audio needs a microphone or system audio",
+        "录音频需要麦克风或系统声音",
+    ),
     ("Default", "默认"),
     ("Mono", "单声道"),
     ("Stereo", "立体声"),
@@ -772,6 +778,9 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Restoring", "正在恢复"),
     ("Couldn't copy", "无法复制"),
     ("Couldn't save the video", "无法保存视频"),
+    ("Couldn't save the audio", "无法保存音频"),
+    ("Exporting audio", "正在导出音频"),
+    ("Export audio", "导出音频"),
     ("Drag to another app", "拖到其他应用"),
     (
         "Open the Recycle Bin and restore it from there.",

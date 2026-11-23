@@ -124,6 +124,22 @@ fn recording_mode_for(mode: Mode) -> recording::RecordingMode {
     }
 }
 
+pub(crate) fn audio_start_blocked(
+    target: TargetType,
+    microphone: bool,
+    system_audio: bool,
+) -> bool {
+    target == TargetType::AudioOnly && !microphone && !system_audio
+}
+
+fn recording_mode_for_target(preferred: Mode, target: &ScreenCaptureTarget) -> Mode {
+    if target.is_audio_only() {
+        Mode::Studio
+    } else {
+        preferred
+    }
+}
+
 fn effective_recording_mode(preferred: Mode, editor_recording: bool) -> Mode {
     if editor_recording {
         Mode::Studio
@@ -402,6 +418,7 @@ pub enum TargetType {
     Window,
     Area,
     CameraOnly,
+    AudioOnly,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -416,7 +433,7 @@ impl ScreenshotButton {
         match target {
             TargetType::Display => Self::Capture,
             TargetType::Window | TargetType::Area => Self::Pick,
-            TargetType::CameraOnly => Self::Unavailable,
+            TargetType::CameraOnly | TargetType::AudioOnly => Self::Unavailable,
         }
     }
 
@@ -425,7 +442,9 @@ impl ScreenshotButton {
             TargetType::Display => t!("Screenshot this display"),
             TargetType::Window => t!("Screenshot this window"),
             TargetType::Area => t!("Screenshot an area"),
-            TargetType::CameraOnly => t!("Screenshots need a display, window or area"),
+            TargetType::CameraOnly | TargetType::AudioOnly => {
+                t!("Screenshots need a display, window or area")
+            }
         }
     }
 }
@@ -437,6 +456,7 @@ impl TargetType {
             Self::Window => t!("Window"),
             Self::Area => t!("Area"),
             Self::CameraOnly => t!("Camera Only"),
+            Self::AudioOnly => t!("Audio Only"),
         }
     }
 
@@ -446,12 +466,14 @@ impl TargetType {
             Self::Window => "target-window",
             Self::Area => "target-area",
             Self::CameraOnly => "target-camera",
+            Self::AudioOnly => "target-audio",
         }
     }
 
     fn tile_label(self) -> &'static str {
         match self {
             Self::CameraOnly => t!("Camera"),
+            Self::AudioOnly => t!("Audio"),
             _ => self.label(),
         }
     }
@@ -462,6 +484,7 @@ impl TargetType {
             Self::Window => "icons/app-window.svg",
             Self::Area => "icons/scan.svg",
             Self::CameraOnly => "icons/webcam.svg",
+            Self::AudioOnly => "icons/mic.svg",
         }
     }
 }
@@ -1410,7 +1433,7 @@ impl MainWindow {
                 }))
             }
             // Area and Camera Only have no cards to fill.
-            TargetType::Area | TargetType::CameraOnly => None,
+            TargetType::Area | TargetType::CameraOnly | TargetType::AudioOnly => None,
         }
     }
 
@@ -1428,7 +1451,10 @@ impl MainWindow {
     /// Nothing here runs while no target panel is open: `close_panel` drops the
     /// task, which is the `enabled:` on every one of those queries.
     fn start_target_poll(&mut self, kind: TargetType, window: &mut Window, cx: &mut Context<Self>) {
-        if matches!(kind, TargetType::Area | TargetType::CameraOnly) {
+        if matches!(
+            kind,
+            TargetType::Area | TargetType::CameraOnly | TargetType::AudioOnly
+        ) {
             self.target_poll_task = None;
             return;
         }
@@ -1896,6 +1922,7 @@ impl MainWindow {
             }
             TargetType::Area => None,
             TargetType::CameraOnly => Some(ScreenCaptureTarget::CameraOnly),
+            TargetType::AudioOnly => Some(ScreenCaptureTarget::AudioOnly),
         }
     }
 
@@ -2231,9 +2258,19 @@ impl MainWindow {
         }
         let editor_flow = self.session.read(cx).editor_recording_target().is_some();
         let mode = recording_mode_for(effective_recording_mode(
-            requested.unwrap_or(self.mode),
+            recording_mode_for_target(requested.unwrap_or(self.mode), &target),
             editor_flow,
         ));
+        if target.is_audio_only() && self.microphone.is_none() && !self.system_audio {
+            self.session.update(cx, |session, cx| {
+                session.error = Some(t!("Audio needs a microphone or system audio").into());
+                cx.notify();
+            });
+            if editor_flow {
+                cx.defer(app_windows::abort_editor_recording_flow);
+            }
+            return;
+        }
         if matches!(target, ScreenCaptureTarget::CameraOnly) && self.camera.is_none() {
             self.session.update(cx, |session, cx| {
                 session.error =
@@ -4478,7 +4515,7 @@ impl MainWindow {
                 }
             }
             // Area and Camera Only have nothing to pick between.
-            TargetType::Area | TargetType::CameraOnly => {}
+            TargetType::Area | TargetType::CameraOnly | TargetType::AudioOnly => {}
         }
 
         if cards.is_empty() {
@@ -4942,10 +4979,14 @@ impl MainWindow {
                     self.render_device_row(
                         "camera-row",
                         "icons/webcam.svg",
-                        self.camera
-                            .as_ref()
-                            .map(|camera| camera_label(&camera.label))
-                            .unwrap_or_else(|| t!("No Camera").into()),
+                        if self.start_target == Some(TargetType::AudioOnly) {
+                            t!("Not recorded").into()
+                        } else {
+                            self.camera
+                                .as_ref()
+                                .map(|camera| camera_label(&camera.label))
+                                .unwrap_or_else(|| t!("No Camera").into())
+                        },
                         if self.camera.is_some()
                             && let Some(pill) = self.access_pill(OSPermission::Camera, cx)
                         {
@@ -5176,6 +5217,7 @@ pub fn auto_overlay_kind() -> Option<TargetType> {
         "window" => Some(TargetType::Window),
         "area" => Some(TargetType::Area),
         "camera" => Some(TargetType::CameraOnly),
+        "audio" => Some(TargetType::AudioOnly),
         _ => None,
     }
 }
@@ -5624,6 +5666,26 @@ mod recording_start_permit_tests {
         assert_eq!(Mode::from_slug("studio"), Some(Mode::Studio));
         assert_eq!(Mode::from_slug("instant"), Some(Mode::Instant));
         assert_eq!(Mode::from_slug("gif"), None);
+    }
+
+    #[test]
+    fn audio_records_a_studio_project_and_needs_a_source() {
+        assert!(audio_start_blocked(TargetType::AudioOnly, false, false));
+        assert!(!audio_start_blocked(TargetType::AudioOnly, true, false));
+        assert!(!audio_start_blocked(TargetType::AudioOnly, false, true));
+        assert!(!audio_start_blocked(TargetType::Display, false, false));
+        assert_eq!(
+            recording_mode_for_target(Mode::Instant, &ScreenCaptureTarget::AudioOnly),
+            Mode::Studio
+        );
+        assert_eq!(
+            recording_mode_for_target(Mode::Instant, &ScreenCaptureTarget::CameraOnly),
+            Mode::Instant
+        );
+        assert_eq!(
+            ScreenshotButton::for_target(TargetType::AudioOnly),
+            ScreenshotButton::Unavailable
+        );
     }
 
     #[test]

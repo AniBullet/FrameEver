@@ -947,6 +947,7 @@ impl OverlayWindow {
                 }
             }),
             TargetType::CameraOnly => Some(ScreenCaptureTarget::CameraOnly),
+            TargetType::AudioOnly => Some(ScreenCaptureTarget::AudioOnly),
         }
     }
 
@@ -1126,7 +1127,7 @@ impl Render for OverlayWindow {
                 Some(TargetType::Window) => root.child(self.render_window_variant(window, cx)),
                 Some(TargetType::Area) => root.child(self.render_area_variant(window, cx)),
                 Some(TargetType::CameraOnly) => root.child(self.render_camera_variant(cx)),
-                None => root,
+                Some(TargetType::AudioOnly) | None => root,
             }
         };
         // Painted after the variant so the dropdown sits above the start
@@ -1204,7 +1205,10 @@ impl BarControls {
                 screenshot: (!editor_recording).then(|| BarScreenshot {
                     tooltip: match target {
                         TargetType::Area => t!("Screenshot this area"),
-                        TargetType::Display | TargetType::Window | TargetType::CameraOnly => {
+                        TargetType::Display
+                        | TargetType::Window
+                        | TargetType::CameraOnly
+                        | TargetType::AudioOnly => {
                             crate::main_window::ScreenshotButton::tooltip(target)
                         }
                     },

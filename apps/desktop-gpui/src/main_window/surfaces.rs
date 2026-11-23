@@ -268,6 +268,7 @@ impl MainWindow {
             .child(self.render_target_tile(TargetType::Window, cx))
             .child(self.render_target_tile(TargetType::Area, cx))
             .child(self.render_target_tile(TargetType::CameraOnly, cx))
+            .child(self.render_target_tile(TargetType::AudioOnly, cx))
     }
 
     fn render_target_tile(&self, target: TargetType, cx: &mut Context<Self>) -> impl IntoElement {
@@ -363,6 +364,13 @@ impl MainWindow {
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.start_target = Some(target);
                 this.purpose = PickerPurpose::Record;
+                if target == TargetType::AudioOnly {
+                    if this.target.take().is_some() {
+                        cx.defer(app_windows::dismiss_target_overlays);
+                    }
+                    cx.notify();
+                    return;
+                }
                 this.target = if this.target == Some(target) {
                     None
                 } else {
@@ -375,10 +383,15 @@ impl MainWindow {
 
     fn render_start_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
+        let blocked = super::audio_start_blocked(
+            self.chosen_target(),
+            self.microphone.is_some(),
+            self.system_audio,
+        );
         let start = focus_ring(
             div()
                 .id("start")
-                .tab_index(0)
+                .when(!blocked, |start| start.tab_index(0))
                 .flex()
                 .flex_1()
                 .min_w_0()
@@ -391,12 +404,25 @@ impl MainWindow {
                 .text_size(px(13.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme.primary_foreground)
-                .hover(move |style| style.bg(theme.primary_hover))
                 .child(ui::record_mark(&theme))
                 .child(t!("Start recording")),
             theme,
         )
-        .on_click(cx.listener(|this, _, _, cx| this.start_from_chosen_target(cx)));
+        .map(|start| {
+            if blocked {
+                start
+                    .opacity(0.5)
+                    .tooltip(move |_, cx| {
+                        ui::Tooltip::new(&theme, t!("Audio needs a microphone or system audio"))
+                            .view(cx)
+                    })
+                    .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+            } else {
+                start
+                    .hover(move |style| style.bg(theme.primary_hover))
+                    .on_click(cx.listener(|this, _, _, cx| this.start_from_chosen_target(cx)))
+            }
+        });
         div()
             .flex()
             .gap(px(6.))
@@ -452,6 +478,12 @@ impl MainWindow {
 
     pub(crate) fn start_from_chosen_target(&mut self, cx: &mut Context<Self>) {
         self.purpose = PickerPurpose::Record;
+        if self.chosen_target() == TargetType::AudioOnly {
+            cx.defer(|cx| {
+                app_windows::start_recording_from_overlay(ScreenCaptureTarget::AudioOnly, cx)
+            });
+            return;
+        }
         self.target = Some(self.chosen_target());
         self.sync_overlays(cx);
         cx.notify();

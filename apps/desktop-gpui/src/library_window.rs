@@ -979,6 +979,14 @@ fn kind_icon(kind: MediaKind) -> &'static str {
     }
 }
 
+fn entry_icon(entry: &view::Entry) -> &'static str {
+    if entry.audio_only {
+        "icons/mic.svg"
+    } else {
+        kind_icon(entry.kind)
+    }
+}
+
 fn kind_label(kind: MediaKind) -> &'static str {
     match kind {
         MediaKind::Studio => t!("Studio"),
@@ -2658,7 +2666,7 @@ impl LibraryWindow {
                             .justify_center()
                             .child(
                                 svg()
-                                    .path(kind_icon(entry.kind))
+                                    .path(entry_icon(entry))
                                     .size(px(24.))
                                     .text_color(theme.muted_foreground),
                             )

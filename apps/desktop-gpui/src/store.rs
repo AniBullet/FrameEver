@@ -162,6 +162,8 @@ pub struct ExportPrefs {
     pub fps_from_source: bool,
     #[serde(default)]
     pub excluded_tracks: Option<Vec<String>>,
+    #[serde(default)]
+    pub audio_format: Option<String>,
 }
 
 pub fn app_data_dir() -> PathBuf {

@@ -236,6 +236,7 @@ pub struct RecordingItem {
     pub thumbnail_version: Option<u128>,
     pub versions: Option<VideoVersions>,
     pub media: Vec<PathBuf>,
+    pub audio_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -309,6 +310,9 @@ fn recording_item(path: PathBuf, meta: RecordingMeta, sort_time_millis: f64) -> 
         RecordingMetaInner::Instant(_) => 1,
     };
     let status = recording_status(&meta);
+    let audio_only = meta
+        .studio_meta()
+        .is_some_and(StudioRecordingMeta::is_audio_only);
 
     let media = project_media(&path, &meta);
     let preview = path.join("screenshots/preview.jpg");
@@ -330,6 +334,7 @@ fn recording_item(path: PathBuf, meta: RecordingMeta, sort_time_millis: f64) -> 
         sort_time_millis,
         thumbnail_version: source_mtime_nanos(&thumbnail),
         thumbnail: thumbnail.is_file().then_some(thumbnail),
+        audio_only,
         path,
     }
 }
@@ -611,6 +616,7 @@ fn recording_entry(item: RecordingItem, active_recording: Option<&Path>) -> view
         compression,
         clip_count: item.clip_count,
         opens_editor: item.opens_editor(active_recording),
+        audio_only: item.audio_only,
         screenshot: None,
         name: item.pretty_name,
         thumbnail: item.thumbnail,
@@ -630,6 +636,7 @@ fn screenshot_entry(item: ScreenshotItem) -> view::Entry {
         compressible: false,
         clip_count: 1,
         opens_editor: true,
+        audio_only: false,
         thumbnail_version: item.thumbnail.as_deref().and_then(source_mtime_nanos),
         thumbnail: item.thumbnail,
         screenshot: Some(item.path),
@@ -1955,6 +1962,13 @@ fn encode_rgb_jpeg(
         .map_err(|e| e.to_string())
 }
 
+pub fn is_audio_only(project_dir: &Path) -> bool {
+    RecordingMeta::load_for_project(project_dir)
+        .ok()
+        .and_then(|meta| meta.studio_meta().map(StudioRecordingMeta::is_audio_only))
+        .unwrap_or(false)
+}
+
 pub fn bundle_thumbnail_path(project_dir: &Path) -> PathBuf {
     project_dir.join("screenshots").join("display.jpg")
 }
@@ -2504,6 +2518,33 @@ mod tests {
             items[2].thumbnail.is_none(),
             "no display.jpg on disk means the icon fallback, not a broken path"
         );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn an_audio_only_recording_is_listed_as_audio_only() {
+        let root = temp_dir("audio-only");
+        let bundle = root.join("voice.ever");
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(
+            bundle.join("recording-meta.json"),
+            r#"{"pretty_name":"voice","sharing":null,"segments":[{"display":{"path":"content/segments/segment-0/display.mp4","fps":30},"mic":{"path":"content/segments/segment-0/audio-input.ogg"}}],"audioOnly":true}"#,
+        )
+        .unwrap();
+        write_studio_bundle(&root, "video", 1);
+
+        let items = list_recordings_in(std::slice::from_ref(&root));
+        let audio = |name: &str| {
+            items
+                .iter()
+                .find(|item| item.pretty_name == name)
+                .unwrap()
+                .audio_only
+        };
+        assert!(audio("voice"));
+        assert!(!audio("video"));
+        assert!(is_audio_only(&bundle));
 
         std::fs::remove_dir_all(&root).ok();
     }

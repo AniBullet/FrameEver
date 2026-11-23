@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use frameever_export::audio::AudioExportFormat;
 use frameever_utils::export_resources::{DiskBudget, ExportResources, is_resource_stop};
 
 use gpui::{
@@ -40,6 +41,7 @@ const THUMB_DECODE: (u32, u32) = (600, 338);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CardKind {
     Studio,
+    Audio,
     Instant,
     Screenshot,
 }
@@ -108,8 +110,9 @@ enum CardState {
 }
 
 impl CardKind {
-    fn from_media(kind: MediaKind) -> Self {
-        match kind {
+    fn of(entry: &Entry) -> Self {
+        match entry.kind {
+            MediaKind::Studio if entry.audio_only => Self::Audio,
             MediaKind::Studio => Self::Studio,
             MediaKind::Instant => Self::Instant,
             MediaKind::Screenshot => Self::Screenshot,
@@ -118,19 +121,23 @@ impl CardKind {
 
     fn acts(self) -> &'static [Act] {
         match self {
-            Self::Studio => &[Act::Edit, Act::Export],
+            Self::Studio | Self::Audio => &[Act::Edit, Act::Export],
             Self::Instant => &[Act::Open, Act::Copy],
             Self::Screenshot => &[Act::Edit, Act::Copy],
         }
     }
 
     fn drags(self) -> bool {
-        self != Self::Studio
+        matches!(self, Self::Instant | Self::Screenshot)
+    }
+
+    fn opens_project(self) -> bool {
+        matches!(self, Self::Studio | Self::Audio | Self::Instant)
     }
 
     fn reveal_label(self) -> &'static str {
         match self {
-            Self::Studio => tc!("result card", "Show in library"),
+            Self::Studio | Self::Audio => tc!("result card", "Show in library"),
             Self::Instant | Self::Screenshot => t!("Show in folder"),
         }
     }
@@ -144,7 +151,7 @@ fn meta_line(
 ) -> String {
     let clock = seconds.map(library::view::format_clock);
     match kind {
-        CardKind::Studio => clock.unwrap_or_default(),
+        CardKind::Studio | CardKind::Audio => clock.unwrap_or_default(),
         CardKind::Instant => [clock, bytes.map(library::view::format_size)]
             .into_iter()
             .flatten()
@@ -169,9 +176,9 @@ struct Item {
 
 impl Item {
     fn read(entry: &Entry) -> Self {
-        let kind = CardKind::from_media(entry.kind);
+        let kind = CardKind::of(entry);
         let file = match kind {
-            CardKind::Studio => None,
+            CardKind::Studio | CardKind::Audio => None,
             CardKind::Instant => Some(library::instant_output_path(&entry.path)),
             CardKind::Screenshot => entry.screenshot.clone(),
         };
@@ -413,6 +420,57 @@ async fn export_with_last_settings(
     Ok(saved)
 }
 
+fn last_audio_format(prefs: Option<&store::ExportPrefs>) -> AudioExportFormat {
+    prefs
+        .and_then(|prefs| prefs.audio_format.as_deref())
+        .and_then(AudioExportFormat::from_extension)
+        .unwrap_or(AudioExportFormat::Mp3)
+}
+
+async fn export_audio_with_last_settings(
+    bundle: PathBuf,
+    prefs: Option<store::ExportPrefs>,
+    exports: PathBuf,
+    progress: flume::Sender<(u32, u32)>,
+    cancel: Arc<AtomicBool>,
+) -> Result<PathBuf, String> {
+    let format = last_audio_format(prefs.as_ref());
+    let name = frameever_project::RecordingMeta::load_for_project(&bundle)
+        .map_err(|error| error.to_string())?
+        .pretty_name;
+    std::fs::create_dir_all(&exports).map_err(|error| error.to_string())?;
+    let output = library::unique_export_path(&exports, &name, format.extension())?;
+    let resources = ExportResources::new(vec![DiskBudget {
+        path: exports,
+        description: "your export drive",
+        estimated_bytes: 0,
+    }]);
+    let stop = cancel.clone();
+    let saved = resources
+        .supervise(
+            async move {
+                frameever_export::audio::export_audio(
+                    bundle,
+                    None,
+                    format,
+                    output,
+                    cancel,
+                    move |step| {
+                        let _ = progress.send((
+                            step.done.min(u64::from(u32::MAX)) as u32,
+                            step.total.min(u64::from(u32::MAX)) as u32,
+                        ));
+                    },
+                )
+                .await
+                .map_err(|error| error.to_string())
+            },
+            move || stop.store(true, Ordering::Release),
+        )
+        .await?;
+    Ok(saved)
+}
+
 pub fn show(bundle: PathBuf, display: Option<scap_targets::Display>, cx: &mut App) {
     cx.spawn(async move |cx| {
         let read = cx
@@ -422,6 +480,7 @@ pub fn show(bundle: PathBuf, display: Option<scap_targets::Display>, cx: &mut Ap
                 let item = Item::read(&entry);
                 let image = item.thumbnail.as_deref().and_then(|path| match item.kind {
                     CardKind::Screenshot => library::decode_still(path, THUMB_DECODE),
+                    CardKind::Audio => None,
                     CardKind::Studio | CardKind::Instant => library::decode_thumbnail(path),
                 });
                 Some((item, image))
@@ -616,11 +675,15 @@ impl ResultCardView {
             Act::Edit => {
                 let path = match item.kind {
                     CardKind::Screenshot => item.file.unwrap_or(item.bundle),
-                    CardKind::Studio | CardKind::Instant => item.bundle,
+                    _ => item.bundle,
                 };
-                cx.defer(move |cx| match item.kind {
-                    CardKind::Screenshot => app_windows::open_screenshot_editor(path, cx),
-                    CardKind::Studio | CardKind::Instant => app_windows::open_editor(path, cx),
+                let project = item.kind.opens_project();
+                cx.defer(move |cx| {
+                    if project {
+                        app_windows::open_editor(path, cx)
+                    } else {
+                        app_windows::open_screenshot_editor(path, cx)
+                    }
                 });
             }
             Act::Open => {
@@ -676,14 +739,21 @@ impl ResultCardView {
         cx.spawn_in(window, async move |this, cx| {
             let job_cancel = cancel.clone();
             let job = gpui_tokio::Tokio::spawn(cx, async move {
-                export_with_last_settings(
-                    item.bundle,
-                    store::load().export,
-                    library::storage().exports_dir(),
-                    progress_tx,
-                    job_cancel,
-                )
-                .await
+                let exports = library::storage().exports_dir();
+                let prefs = store::load().export;
+                if item.kind == CardKind::Audio {
+                    export_audio_with_last_settings(
+                        item.bundle,
+                        prefs,
+                        exports,
+                        progress_tx,
+                        job_cancel,
+                    )
+                    .await
+                } else {
+                    export_with_last_settings(item.bundle, prefs, exports, progress_tx, job_cancel)
+                        .await
+                }
             });
             while let Ok((rendered, total)) = progress_rx.recv_async().await {
                 let open = this.update(cx, |this, cx| {
@@ -752,7 +822,7 @@ impl ResultCardView {
             return;
         };
         match (item.kind, item.file) {
-            (CardKind::Studio, _) | (_, None) => {
+            (CardKind::Studio | CardKind::Audio, _) | (_, None) => {
                 let bundle = item.bundle;
                 cx.defer(move |cx| app_windows::open_library(Some(bundle), cx));
             }
@@ -933,18 +1003,39 @@ fn text_button(
         .child(label)
 }
 
-fn act_icon(act: Act) -> (&'static str, &'static str) {
+fn audio_thumbnail(theme: Theme) -> impl IntoElement {
+    const BARS: [f32; 10] = [0.4, 0.7, 1.0, 0.6, 0.85, 0.45, 0.75, 0.55, 0.9, 0.5];
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(4.))
+        .children(BARS.iter().map(move |height| {
+            div()
+                .w(px(4.))
+                .h(px(48. * height))
+                .rounded(px(2.))
+                .bg(theme.muted_foreground)
+        }))
+}
+
+fn act_icon(kind: CardKind, act: Act) -> (&'static str, &'static str) {
     match act {
         Act::Edit => ("icons/pencil.svg", t!("Edit")),
         Act::Open => ("icons/play.svg", t!("Open")),
         Act::Copy => ("icons/copy.svg", t!("Copy")),
+        Act::Export if kind == CardKind::Audio => ("icons/download.svg", t!("Export audio")),
         Act::Export => ("icons/download.svg", t!("Export")),
     }
 }
 
 fn status_text(card: &Card) -> Option<SharedString> {
+    let audio = card.item.kind == CardKind::Audio;
     let text = match &card.state {
         CardState::Working(Job::Copy) => t!("Copying"),
+        CardState::Working(Job::Export) if audio => t!("Exporting audio"),
         CardState::Working(Job::Export) => t!("Rendering video"),
         CardState::Working(Job::Delete) => t!("Deleting"),
         CardState::Working(Job::Restore) => t!("Restoring"),
@@ -960,6 +1051,7 @@ fn status_text(card: &Card) -> Option<SharedString> {
             return Some(t!("Saved {file}", file = file).into());
         }
         CardState::Failed(Job::Copy) => t!("Couldn't copy"),
+        CardState::Failed(Job::Export) if audio => t!("Couldn't save the audio"),
         CardState::Failed(Job::Export) => t!("Couldn't save the video"),
         CardState::Deleted(_) => t!("Deleted"),
         CardState::Ready
@@ -1012,6 +1104,9 @@ impl ResultCardView {
                 .bg(theme.muted)
                 .when_some(image, |this, image| {
                     this.child(img(image).size_full().object_fit(gpui::ObjectFit::Cover))
+                })
+                .when(item.kind == CardKind::Audio, |this| {
+                    this.child(audio_thumbnail(theme))
                 })
                 .when_some(item.chip.clone(), |this, chip| {
                     this.child(
@@ -1082,7 +1177,7 @@ impl ResultCardView {
         let row = match &state {
             CardState::Ready => {
                 let acts = item.kind.acts().iter().enumerate().map(|(slot, act)| {
-                    let (icon, label) = act_icon(*act);
+                    let (icon, label) = act_icon(item.kind, *act);
                     let act = *act;
                     text_button(
                         theme,
@@ -1281,6 +1376,43 @@ mod tests {
         assert_eq!(CardKind::Instant.acts(), &[Act::Open, Act::Copy]);
         assert_eq!(CardKind::Screenshot.acts(), &[Act::Edit, Act::Copy]);
         assert_eq!(CardKind::Studio.acts(), &[Act::Edit, Act::Export]);
+        assert_eq!(CardKind::Audio.acts(), &[Act::Edit, Act::Export]);
+    }
+
+    #[test]
+    fn an_audio_only_card_exports_audio_and_says_so() {
+        assert_eq!(act_icon(CardKind::Audio, Act::Export).1, "Export audio");
+        assert_eq!(act_icon(CardKind::Studio, Act::Export).1, "Export");
+        assert!(!CardKind::Audio.drags());
+        assert!(CardKind::Audio.opens_project());
+        let start = Instant::now();
+        let mut stack = Stack::default();
+        let id = stack.push(item(CardKind::Audio, "Voice note"), start);
+        stack.start_export(id, start).unwrap();
+        assert_eq!(
+            status_text(&stack.cards[0]).as_deref(),
+            Some("Exporting audio")
+        );
+        stack.finish_export(id, Err(ExportEnd::Failed), start);
+        assert_eq!(
+            status_text(&stack.cards[0]).as_deref(),
+            Some("Couldn't save the audio")
+        );
+    }
+
+    #[test]
+    fn an_audio_export_uses_the_last_file_type() {
+        assert_eq!(last_audio_format(None), AudioExportFormat::Mp3);
+        let prefs: store::ExportPrefs = serde_json::from_value(serde_json::json!({
+            "format": "Audio",
+            "fps": 30,
+            "export_to": "file",
+            "resolution": "1080p",
+            "compression": "Maximum",
+            "audio_format": "wav"
+        }))
+        .unwrap();
+        assert_eq!(last_audio_format(Some(&prefs)), AudioExportFormat::Wav);
     }
 
     #[test]
