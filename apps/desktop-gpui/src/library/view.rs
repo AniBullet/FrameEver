@@ -427,11 +427,13 @@ pub fn build_in(
     let groups = state.sort == SortKey::Date && state.view == ViewMode::Grid;
     let mut sections: Vec<Section> = Vec::new();
     for index in items.iter().copied() {
-        let group = if leads(&index) {
-            Some(DateGroup::Pinned)
-        } else {
-            groups.then(|| clock.group_of(entries[index].created_millis))
-        };
+        let group = groups.then(|| {
+            if leads(&index) {
+                DateGroup::Pinned
+            } else {
+                clock.group_of(entries[index].created_millis)
+            }
+        });
         match sections.iter_mut().find(|section| section.group == group) {
             Some(section) => section.items.push(index),
             None => sections.push(Section {
@@ -836,6 +838,14 @@ mod tests {
         };
         let view = build_in(&entries, &list, "", &[], &clock(), None, &[3]);
         assert_eq!(names(&view, &entries)[0], "Archive");
+        assert!(view.sections.iter().all(|section| section.group.is_none()));
+        let by_name = ViewState {
+            sort: SortKey::Name,
+            ..ViewState::default()
+        };
+        let view = build_in(&entries, &by_name, "", &[], &clock(), None, &[3]);
+        assert_eq!(names(&view, &entries)[0], "Archive");
+        assert!(view.sections.iter().all(|section| section.group.is_none()));
         let folder = [0, 3];
         let view = build_in(
             &entries,

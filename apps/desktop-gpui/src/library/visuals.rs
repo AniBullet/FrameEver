@@ -176,7 +176,29 @@ pub fn work(job: &Job) -> Visual {
     }
 }
 
-pub fn remember(dir: &Path, done: &[(PathBuf, String, Visual)], keep: &HashSet<PathBuf>) {
+pub fn work_batch(dir: &Path, batch: Vec<(Job, String)>) -> Vec<(PathBuf, Visual)> {
+    let done: Vec<(PathBuf, String, Visual)> = batch
+        .into_iter()
+        .map(|(job, stamp)| {
+            let visual = work(&job);
+            (job.project, stamp, visual)
+        })
+        .collect();
+    remember(dir, &done, None);
+    done.into_iter()
+        .map(|(project, _, visual)| (project, visual))
+        .collect()
+}
+
+pub fn forget_all_but(dir: &Path, keep: &HashSet<PathBuf>) {
+    remember(dir, &[], Some(keep));
+}
+
+fn remember(dir: &Path, done: &[(PathBuf, String, Visual)], keep: Option<&HashSet<PathBuf>>) {
+    static WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _turn = WRITER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let path = dir.join(CACHE_FILE);
     let mut cache = load_cache(&path);
     cache.version = CACHE_VERSION;
@@ -190,8 +212,10 @@ pub fn remember(dir: &Path, done: &[(PathBuf, String, Visual)], keep: &HashSet<P
             },
         );
     }
-    let keep: HashSet<String> = keep.iter().map(|project| key_of(project)).collect();
-    cache.items.retain(|key, _| keep.contains(key));
+    if let Some(keep) = keep {
+        let keep: HashSet<String> = keep.iter().map(|project| key_of(project)).collect();
+        cache.items.retain(|key, _| keep.contains(key));
+    }
     save_cache(&path, &cache);
 }
 
@@ -506,7 +530,7 @@ mod tests {
             .into_iter()
             .map(|(job, stamp)| (job.project.clone(), stamp, work(&job)))
             .collect();
-        remember(&cache, &done, &keep);
+        remember(&cache, &done, Some(&keep));
         let (known, todo) = cached(vec![job.clone()], &cache);
         assert!(todo.is_empty());
         assert_eq!(
@@ -521,6 +545,38 @@ mod tests {
         assert_eq!(
             work(&todo[0].0).excerpt.as_deref(),
             Some("We moved the launch to Friday")
+        );
+    }
+
+    #[test]
+    fn a_pass_stopped_partway_keeps_what_it_finished_for_the_next_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        let jobs: Vec<Job> = ["One", "Two", "Three"]
+            .into_iter()
+            .map(|name| {
+                let folder = dir.path().join(name);
+                std::fs::create_dir_all(&folder).unwrap();
+                Job {
+                    project: project_with_captions(&folder, &[(0.0, name)]),
+                    audio_only: false,
+                }
+            })
+            .collect();
+
+        let (_, mut todo) = cached(jobs.clone(), &cache);
+        assert_eq!(todo.len(), 3);
+        let first = todo.remove(0);
+        let worked = work_batch(&cache, vec![first]);
+        assert_eq!(worked.len(), 1);
+        assert_eq!(worked[0].1.excerpt.as_deref(), Some("One"));
+
+        let (known, todo) = cached(jobs.clone(), &cache);
+        assert_eq!(known.len(), 1);
+        assert_eq!(known[&jobs[0].project].excerpt.as_deref(), Some("One"));
+        assert_eq!(
+            todo.iter().map(|(job, _)| &job.project).collect::<Vec<_>>(),
+            [&jobs[1].project, &jobs[2].project]
         );
     }
 

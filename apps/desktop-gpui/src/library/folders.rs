@@ -37,6 +37,8 @@ pub struct LibraryFile {
     pub pins: Vec<String>,
     #[serde(default, deserialize_with = "lenient_list")]
     pub smart_folders: Vec<SmartFolder>,
+    #[serde(default, deserialize_with = "lenient_count")]
+    pub next_id: u64,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, Value>,
 }
@@ -48,6 +50,7 @@ impl Default for LibraryFile {
             folders: Vec::new(),
             pins: Vec::new(),
             smart_folders: Vec::new(),
+            next_id: 0,
             extra: Default::default(),
         }
     }
@@ -65,6 +68,13 @@ fn lenient_list<'de, D: Deserializer<'de>, T: serde::de::DeserializeOwned>(
         .into_iter()
         .filter_map(|value| serde_json::from_value(value).ok())
         .collect())
+}
+
+fn lenient_count<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    Ok(Value::deserialize(deserializer)
+        .ok()
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0))
 }
 
 fn lenient_ids<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
@@ -117,6 +127,7 @@ fn sanitize(file: &mut LibraryFile) {
         }
     }
     dedupe(&mut file.pins);
+    file.next_id = file.next_id.max(file.first_free_number());
 }
 
 fn dedupe(ids: &mut Vec<String>) {
@@ -224,16 +235,20 @@ fn write_atomic(path: &Path, file: &LibraryFile) -> std::io::Result<()> {
 }
 
 impl LibraryFile {
-    fn unused_id(&self, prefix: &str) -> String {
-        let highest = self
-            .folders
+    fn first_free_number(&self) -> u64 {
+        self.folders
             .iter()
             .map(|folder| folder.id.as_str())
             .chain(self.smart_folders.iter().map(|folder| folder.id.as_str()))
-            .filter_map(|id| id.strip_prefix(prefix)?.parse::<u64>().ok())
+            .filter_map(|id| id.get(1..)?.parse::<u64>().ok())
             .max()
-            .unwrap_or(0);
-        format!("{prefix}{}", highest + 1)
+            .map_or(1, |highest| highest.saturating_add(1))
+    }
+
+    fn unused_id(&mut self, prefix: &str) -> String {
+        let number = self.next_id.max(self.first_free_number());
+        self.next_id = number.saturating_add(1);
+        format!("{prefix}{number}")
     }
 
     fn folder_mut(&mut self, id: &str) -> Option<&mut Folder> {

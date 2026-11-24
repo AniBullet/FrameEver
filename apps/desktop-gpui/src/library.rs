@@ -703,7 +703,41 @@ fn entries_during(
         .iter()
         .flat_map(|dir| list_screenshots_in(dir))
         .map(screenshot_entry);
-    recordings.chain(screenshots).collect()
+    let mut entries: Vec<view::Entry> = recordings.chain(screenshots).collect();
+    give_copies_their_own_ids(&mut entries);
+    entries
+}
+
+fn give_copies_their_own_ids(entries: &mut [view::Entry]) {
+    let mut by_age: Vec<usize> = (0..entries.len())
+        .filter(|&index| entries[index].id.is_some())
+        .collect();
+    by_age.sort_by(|&a, &b| {
+        let (a, b) = (&entries[a], &entries[b]);
+        a.created_millis
+            .total_cmp(&b.created_millis)
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    let mut owners = std::collections::HashSet::new();
+    for index in by_age {
+        let entry = &mut entries[index];
+        let Some(shared) = entry.id.clone() else {
+            continue;
+        };
+        if owners.insert(shared.clone()) {
+            continue;
+        }
+        match storage::replace_project_id(&entry.path, &shared) {
+            Ok(id) => {
+                owners.insert(id.clone());
+                entry.id = Some(id);
+            }
+            Err(error) => {
+                tracing::warn!(path = %entry.path.display(), %error, "could not give a copied project its own id");
+                entry.id = None;
+            }
+        }
+    }
 }
 
 pub fn list_entries(active_recording: Option<&Path>) -> Vec<view::Entry> {
@@ -2189,6 +2223,35 @@ mod tests {
                 .exports
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn a_copied_project_gets_its_own_id_and_the_original_keeps_its_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = write_studio_bundle(dir.path(), "Original", 1);
+        let id = frameever_utils::storage::ensure_project_id(&original).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let copy = write_studio_bundle(dir.path(), "Copy", 1);
+        std::fs::copy(original.join("frameever.json"), copy.join("frameever.json")).unwrap();
+
+        let id_of = |entries: &[view::Entry], path: &Path| {
+            entries
+                .iter()
+                .find(|entry| entry.path == path)
+                .and_then(|entry| entry.id.clone())
+        };
+        let entries = entries_in(&[dir.path().to_path_buf()], &[]);
+
+        assert_eq!(id_of(&entries, &original), Some(id.clone()));
+        let fresh = id_of(&entries, &copy).expect("the copy keeps an id");
+        assert_ne!(fresh, id);
+        assert_eq!(
+            frameever_utils::storage::project_id(&copy),
+            Some(fresh.clone())
+        );
+        let again = entries_in(&[dir.path().to_path_buf()], &[]);
+        assert_eq!(id_of(&again, &original), Some(id));
+        assert_eq!(id_of(&again, &copy), Some(fresh));
     }
 
     #[test]

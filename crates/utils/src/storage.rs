@@ -290,6 +290,13 @@ pub fn discard_if_unused(project: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+fn project_file_turn() -> std::sync::MutexGuard<'static, ()> {
+    static WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    WRITER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn read_project_file(project: &Path) -> serde_json::Map<String, serde_json::Value> {
     std::fs::read(project.join(PROJECT_FILE_NAME))
         .ok()
@@ -326,6 +333,7 @@ fn insert_project_id(document: &mut serde_json::Map<String, serde_json::Value>) 
 }
 
 pub fn stamp_format_version(project: &Path) -> std::io::Result<()> {
+    let _turn = project_file_turn();
     let mut document = read_project_file(project);
     document.insert(FORMAT_VERSION_KEY.into(), FORMAT_VERSION.into());
     insert_project_id(&mut document);
@@ -341,26 +349,64 @@ pub fn project_id(project: &Path) -> Option<String> {
 }
 
 pub fn ensure_project_id(project: &Path) -> std::io::Result<String> {
+    let _turn = project_file_turn();
     let path = project.join(PROJECT_FILE_NAME);
-    let mut document = match std::fs::read(&path) {
+    let (mut document, rebuilt) = match std::fs::read(&path) {
         Ok(bytes) => match serde_json::from_slice(&bytes) {
-            Ok(document) => document,
+            Ok(document) => (document, false),
             Err(error) => {
                 tracing::warn!(project = %project.display(), %error, "rebuilding an unreadable project file");
                 keep_unreadable_copy(&path, &bytes)?;
-                serde_json::Map::from_iter([(FORMAT_VERSION_KEY.into(), FORMAT_VERSION.into())])
+                let mut rebuilt = serde_json::Map::from_iter([(
+                    FORMAT_VERSION_KEY.into(),
+                    FORMAT_VERSION.into(),
+                )]);
+                if let Some(id) = id_in_damaged(&bytes) {
+                    rebuilt.insert(PROJECT_ID_KEY.into(), id.into());
+                }
+                (rebuilt, true)
             }
         },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            serde_json::Map::from_iter([(FORMAT_VERSION_KEY.into(), FORMAT_VERSION.into())])
-        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (
+            serde_json::Map::from_iter([(FORMAT_VERSION_KEY.into(), FORMAT_VERSION.into())]),
+            true,
+        ),
         Err(error) => return Err(error),
     };
     let before = document.clone();
     let id = insert_project_id(&mut document);
-    if document != before {
+    if rebuilt || document != before {
         write_project_file(project, &document)?;
     }
+    Ok(id)
+}
+
+fn id_in_damaged(bytes: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(bytes);
+    let key = format!("\"{PROJECT_ID_KEY}\"");
+    text.match_indices(&key).find_map(|(at, _)| {
+        let value = text[at + key.len()..].trim_start().strip_prefix(':')?;
+        let quoted = value.trim_start().strip_prefix('"')?;
+        let id = &quoted[..quoted.find('"')?];
+        uuid::Uuid::parse_str(id).ok().map(|_| id.to_owned())
+    })
+}
+
+pub fn replace_project_id(project: &Path, shared: &str) -> std::io::Result<String> {
+    let _turn = project_file_turn();
+    let mut document = read_project_file_for_update(project)?;
+    let held = document
+        .get(PROJECT_ID_KEY)
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| !id.is_empty());
+    if let Some(held) = held
+        && held != shared
+    {
+        return Ok(held.to_owned());
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    document.insert(PROJECT_ID_KEY.into(), id.clone().into());
+    write_project_file(project, &document)?;
     Ok(id)
 }
 
@@ -414,6 +460,7 @@ fn read_project_file_for_update(
 }
 
 pub fn record_export(project: &Path, record: &ExportRecord) -> std::io::Result<()> {
+    let _turn = project_file_turn();
     let mut document = read_project_file_for_update(project)?;
     let entry = serde_json::to_value(record).map_err(std::io::Error::other)?;
     match document.get_mut(EXPORTS_KEY) {
@@ -444,6 +491,7 @@ pub fn exports(project: &Path) -> Vec<ExportRecord> {
 }
 
 pub fn remove_export(project: &Path, path: &Path) -> std::io::Result<()> {
+    let _turn = project_file_turn();
     let mut document = read_project_file_for_update(project)?;
     let Some(serde_json::Value::Array(records)) = document.get_mut(EXPORTS_KEY) else {
         return Ok(());
@@ -478,6 +526,7 @@ pub fn save_chapter_markers(project: &Path, recorded: &[Duration]) -> std::io::R
 }
 
 pub fn write_chapter_markers(project: &Path, markers: &[ChapterMarker]) -> std::io::Result<()> {
+    let _turn = project_file_turn();
     let mut document = read_project_file_for_update(project)?;
     let entries = serde_json::to_value(markers).map_err(std::io::Error::other)?;
     document.insert(CHAPTER_MARKERS_KEY.into(), entries);
@@ -1045,6 +1094,107 @@ mod tests {
                 .to_string_lossy()
                 .starts_with("frameever.json.unreadable-")
         );
+    }
+
+    #[test]
+    fn a_rebuilt_project_file_keeps_the_id_its_damaged_copy_still_shows() {
+        let tree = Tree::new();
+        let project = tree.dir("Cut.ever");
+        let id = "0b7c1f4e-2d3a-4c5b-8e9f-1a2b3c4d5e6f";
+        std::fs::write(
+            project.join(PROJECT_FILE_NAME),
+            format!(r#"{{"formatVersion":2,"id" : "{id}","exports":[{{"path":"#),
+        )
+        .unwrap();
+
+        assert_eq!(ensure_project_id(&project).unwrap(), id);
+        assert_eq!(project_id(&project).as_deref(), Some(id));
+        assert!(kept_copy(&project).is_some());
+    }
+
+    #[test]
+    fn a_damaged_copy_without_a_usable_id_gets_a_new_one() {
+        let tree = Tree::new();
+        let project = tree.dir("Cut.ever");
+        std::fs::write(
+            project.join(PROJECT_FILE_NAME),
+            r#"{"id":"not-an-id","exports":[{"#,
+        )
+        .unwrap();
+
+        let id = ensure_project_id(&project).unwrap();
+
+        assert_ne!(id, "not-an-id");
+        assert!(uuid::Uuid::parse_str(&id).is_ok());
+    }
+
+    #[test]
+    fn requests_for_an_id_at_the_same_time_agree_on_one() {
+        let tree = Tree::new();
+        for round in 0..20 {
+            let project = tree.dir(&format!("Race{round}.ever"));
+            let start = std::sync::Barrier::new(8);
+            let ids: Vec<String> = std::thread::scope(|scope| {
+                let handles: Vec<_> = (0..8)
+                    .map(|_| {
+                        scope.spawn(|| {
+                            start.wait();
+                            ensure_project_id(&project).unwrap()
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|handle| handle.join().unwrap())
+                    .collect()
+            });
+            assert!(ids.iter().all(|id| *id == ids[0]), "round {round}: {ids:?}");
+            assert_eq!(project_id(&project).as_ref(), Some(&ids[0]));
+        }
+    }
+
+    #[test]
+    fn an_export_recorded_while_an_id_is_given_is_kept() {
+        let tree = Tree::new();
+        for round in 0..20 {
+            let project = tree.dir(&format!("Both{round}.ever"));
+            std::fs::write(project.join(PROJECT_FILE_NAME), r#"{"formatVersion":2}"#).unwrap();
+            let record = export_record(tree.path(&format!("Both{round}.mp4")), "mp4", None, 1);
+            let start = std::sync::Barrier::new(2);
+            let id = std::thread::scope(|scope| {
+                let exported = scope.spawn(|| {
+                    start.wait();
+                    record_export(&project, &record).unwrap();
+                });
+                let given = scope.spawn(|| {
+                    start.wait();
+                    ensure_project_id(&project).unwrap()
+                });
+                exported.join().unwrap();
+                given.join().unwrap()
+            });
+            assert_eq!(export_records(&project), vec![record], "round {round}");
+            assert_eq!(project_id(&project), Some(id), "round {round}");
+        }
+    }
+
+    #[test]
+    fn a_copy_gets_a_fresh_id_only_while_it_still_holds_the_shared_one() {
+        let tree = Tree::new();
+        let project = tree.dir("Copy.ever");
+        std::fs::write(
+            project.join(PROJECT_FILE_NAME),
+            r#"{"formatVersion":2,"id":"shared","exports":[]}"#,
+        )
+        .unwrap();
+
+        let fresh = replace_project_id(&project, "shared").unwrap();
+
+        assert_ne!(fresh, "shared");
+        assert_eq!(project_id(&project).as_ref(), Some(&fresh));
+        assert_eq!(replace_project_id(&project, "shared").unwrap(), fresh);
+        assert_eq!(project_id(&project), Some(fresh));
+        assert_eq!(format_version(&project), Some(2));
     }
 
     #[test]

@@ -267,3 +267,55 @@ fn new_ids_never_reuse_one_still_in_the_file() {
     assert_eq!(file.smart_folders.len(), 1);
     assert_eq!(file.smart_folders[0].name, "Edited");
 }
+
+#[test]
+fn an_id_freed_by_a_delete_is_never_handed_out_again() {
+    let mut file = LibraryFile::default();
+    file.new_folder("A", &[]);
+    file.new_folder("B", &[]);
+    let third = file.new_folder("C", &[]);
+    file.delete(&third);
+    let next = file.new_folder("D", &[]);
+    assert_ne!(next, third);
+    let smart_id = file.save_smart(SmartFolder {
+        id: String::new(),
+        ..smart("")
+    });
+    file.delete(&smart_id);
+    let next_smart = file.save_smart(SmartFolder {
+        id: String::new(),
+        ..smart("")
+    });
+    assert_ne!(next_smart, smart_id);
+}
+
+#[test]
+fn undoing_a_delete_after_a_new_folder_keeps_both() {
+    let (_dir, path) = scratch();
+    std::fs::write(
+        &path,
+        br#"{"version":1,"folders":[{"id":"f1","name":"A","members":[]},{"id":"f2","name":"B","members":[]},{"id":"f3","name":"Old","members":["x"]}],"pins":[],"smartFolders":[]}"#,
+    )
+    .unwrap();
+    let mut removed = None;
+    update(&path, |file| {
+        removed = file.folders.iter().find(|f| f.id == "f3").cloned();
+        file.delete("f3");
+    })
+    .unwrap();
+    let mut created = String::new();
+    update(&path, |file| created = file.new_folder("New", &ids(&["y"]))).unwrap();
+    let restored = update(&path, |file| file.folders.push(removed.take().unwrap())).unwrap();
+    assert_ne!(created, "f3");
+    let names: Vec<&str> = restored.folders.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, ["A", "B", "New", "Old"]);
+    assert_eq!(restored.folders[2].members, ids(&["y"]));
+    let reloaded = load(&path).file;
+    assert_eq!(reloaded.folders.len(), 4);
+    let again = update(&path, |file| {
+        file.new_folder("Later", &[]);
+    })
+    .unwrap();
+    let mut seen = HashSet::new();
+    assert!(again.folders.iter().all(|f| seen.insert(f.id.clone())));
+}

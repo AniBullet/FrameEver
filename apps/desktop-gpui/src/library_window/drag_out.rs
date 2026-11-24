@@ -83,7 +83,6 @@ impl LibraryWindow {
         cx: &mut Context<Self>,
     ) -> Option<(SharedString, Theme)> {
         self.change_selection(cx, |selection, _| selection.context_click(path));
-        self.library.organizer.dragging_out = true;
         let files = self.library_files_to_share();
         let notice = library::share_gap(self.library.selected_entries())
             .map(|gap| (drag_notice_text(gap), self.theme));
@@ -93,6 +92,7 @@ impl LibraryWindow {
         #[cfg(target_os = "windows")]
         {
             let source = platform::native_window(window);
+            self.library.organizer.dragging_out = true;
             cx.spawn_in(window, async move |this, cx| {
                 if let Err(error) = platform::drag_files_out(source, &files) {
                     tracing::warn!("library drag-out failed: {error}");
@@ -117,5 +117,52 @@ fn drag_notice_text(gap: ShareGap) -> SharedString {
         ShareGap::LeftOut(count) => {
             t!("Left out {count} with no file to drag", count = count).into()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::library::{MediaKind, view::Entry};
+
+    #[gpui::test]
+    fn a_drag_with_nothing_to_share_does_not_stay_marked_as_ours(cx: &mut gpui::TestAppContext) {
+        let session = cx.update(crate::session::RecordingSession::init);
+        let (library, cx) =
+            cx.add_window_view(move |window, cx| LibraryWindow::new(session, window, cx));
+        let path = PathBuf::from("Unexported.ever");
+        let entry = Entry {
+            path: path.clone(),
+            kind: MediaKind::Studio,
+            name: "Unexported".into(),
+            size: 0,
+            duration: None,
+            created_millis: 0.,
+            exports: Vec::new(),
+            compression: crate::library::view::Compression::None,
+            compressible: false,
+            clip_count: 1,
+            thumbnail: None,
+            thumbnail_version: None,
+            screenshot: None,
+            opens_editor: true,
+            audio_only: false,
+            id: None,
+            rebuilt: None,
+        };
+        library.update_in(cx, |library, _, cx| {
+            library.shown = true;
+            library.library.entries = Some(vec![entry]);
+            library.rebuild_library(cx);
+        });
+
+        let notice = library.update_in(cx, |library, window, cx| {
+            library.start_library_drag(&path, window, cx)
+        });
+
+        assert!(notice.is_some());
+        library.read_with(cx, |library, _| {
+            assert!(!library.library.organizer.dragging_out);
+        });
     }
 }

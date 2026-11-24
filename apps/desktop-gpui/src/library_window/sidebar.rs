@@ -132,6 +132,37 @@ pub(super) fn read_library_file() -> LibraryFile {
     loaded.file
 }
 
+type Learned = Vec<(PathBuf, String, Option<PathBuf>)>;
+
+fn organize_on_disk(
+    file_path: &std::path::Path,
+    known: Vec<(PathBuf, Option<String>)>,
+    edit: impl FnOnce(&mut LibraryFile, &[String]) -> After,
+) -> (Learned, Result<LibraryFile, UpdateError>, After) {
+    let mut learned = Vec::new();
+    let mut after = After::Stay;
+    let saved = folders::update(file_path, |file| {
+        let mut ids = Vec::new();
+        for (path, id) in known {
+            match id {
+                Some(id) => ids.push(id),
+                None => match frameever_utils::storage::ensure_project_id(&path) {
+                    Ok(id) => {
+                        let rebuilt = frameever_utils::storage::kept_copy(&path);
+                        learned.push((path, id.clone(), rebuilt));
+                        ids.push(id);
+                    }
+                    Err(error) => {
+                        tracing::warn!(path = %path.display(), %error, "could not give a project an id");
+                    }
+                },
+            }
+        }
+        after = edit(file, &ids);
+    });
+    (learned, saved, after)
+}
+
 fn save_failed(error: &UpdateError) -> (&'static str, &'static str) {
     match error {
         UpdateError::ReadOnly => (
@@ -225,28 +256,7 @@ impl LibraryWindow {
         cx.spawn_in(window, async move |this, cx| {
             let (learned, saved, after) = cx
                 .background_executor()
-                .spawn(async move {
-                    let mut ids = Vec::new();
-                    let mut learned = Vec::new();
-                    for (path, id) in known {
-                        match id {
-                            Some(id) => ids.push(id),
-                            None => match frameever_utils::storage::ensure_project_id(&path) {
-                                Ok(id) => {
-                                    let rebuilt = frameever_utils::storage::kept_copy(&path);
-                                    learned.push((path, id.clone(), rebuilt));
-                                    ids.push(id);
-                                }
-                                Err(error) => {
-                                    tracing::warn!(path = %path.display(), %error, "could not give a project an id");
-                                }
-                            },
-                        }
-                    }
-                    let mut after = After::Stay;
-                    let saved = folders::update(&file_path, |file| after = edit(file, &ids));
-                    (learned, saved, after)
-                })
+                .spawn(async move { organize_on_disk(&file_path, known, edit) })
                 .await;
             this.update_in(cx, |this, window, cx| {
                 this.organized(learned, saved, after, window, cx);
@@ -258,7 +268,7 @@ impl LibraryWindow {
 
     fn organized(
         &mut self,
-        learned: Vec<(PathBuf, String, Option<PathBuf>)>,
+        learned: Learned,
         saved: Result<LibraryFile, UpdateError>,
         after: After,
         window: &mut Window,
@@ -445,7 +455,15 @@ impl LibraryWindow {
         else {
             return;
         };
-
+        if self.library.organizer.renaming.as_ref() == Some(&id) {
+            return;
+        }
+        if self.library.organizer.narrow {
+            self.library.organizer.narrow_shown = true;
+            self.library.layout_stale = true;
+        } else if self.library.state.sidebar_hidden {
+            self.change_library_view(cx, |state| state.sidebar_hidden = false);
+        }
         self.library.organizer.renaming = Some(id);
         self.library.organizer.rename_input.update(cx, |input, cx| {
             input.set_text(name, cx);
@@ -1032,6 +1050,143 @@ impl LibraryWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pin_and_a_folder_drop_at_once_on_a_new_project_both_land_on_one_id() {
+        for round in 0..10 {
+            let dir = tempfile::tempdir().unwrap();
+            let file_path = dir.path().join("library.json");
+            let launch = folders::update(&file_path, |file| {
+                file.new_folder("Launch", &[]);
+            })
+            .unwrap()
+            .folders[0]
+                .id
+                .clone();
+            let project = dir.path().join("Demo.ever");
+            std::fs::create_dir_all(&project).unwrap();
+            let start = std::sync::Barrier::new(2);
+            std::thread::scope(|scope| {
+                let pin = scope.spawn(|| {
+                    start.wait();
+                    organize_on_disk(&file_path, vec![(project.clone(), None)], |file, ids| {
+                        file.toggle_pins(ids);
+                        After::Stay
+                    })
+                    .1
+                    .unwrap();
+                });
+                let drop = scope.spawn(|| {
+                    start.wait();
+                    organize_on_disk(&file_path, vec![(project.clone(), None)], |file, ids| {
+                        file.toggle_members(&launch, ids);
+                        After::Stay
+                    })
+                    .1
+                    .unwrap();
+                });
+                pin.join().unwrap();
+                drop.join().unwrap();
+            });
+            let id = frameever_utils::storage::project_id(&project).expect("the project has an id");
+            let file = folders::load(&file_path).file;
+            assert_eq!(file.pins, vec![id.clone()], "round {round}");
+            assert_eq!(file.folders[0].members, vec![id], "round {round}");
+        }
+    }
+
+    fn library_with_folder(
+        cx: &mut gpui::TestAppContext,
+    ) -> (Entity<LibraryWindow>, &mut gpui::VisualTestContext, String) {
+        let session = cx.update(crate::session::RecordingSession::init);
+        let (library, cx) =
+            cx.add_window_view(move |window, cx| LibraryWindow::new(session, window, cx));
+        let id = library.update(cx, |library, _| {
+            library.shown = true;
+            let id = library.library.organizer.file.new_folder("Launch", &[]);
+            library.library.organizer.place = Place::Folder(id.clone());
+            id
+        });
+        (library, cx, id)
+    }
+
+    fn typed(library: &Entity<LibraryWindow>, cx: &mut gpui::VisualTestContext) -> String {
+        library.read_with(cx, |library, cx| {
+            library
+                .library
+                .organizer
+                .rename_input
+                .read(cx)
+                .text()
+                .to_owned()
+        })
+    }
+
+    #[gpui::test]
+    fn pressing_f2_again_while_renaming_keeps_what_was_typed(cx: &mut gpui::TestAppContext) {
+        let (library, cx, id) = library_with_folder(cx);
+        library.update_in(cx, |library, window, cx| {
+            library.rename_focused_folder(window, cx);
+        });
+        assert_eq!(typed(&library, cx), "Launch");
+        library.update(cx, |library, cx| {
+            library
+                .library
+                .organizer
+                .rename_input
+                .update(cx, |input, cx| input.set_text("Launch v2", cx));
+        });
+
+        library.update_in(cx, |library, window, cx| {
+            library.rename_focused_folder(window, cx);
+        });
+
+        assert_eq!(typed(&library, cx), "Launch v2");
+        library.read_with(cx, |library, _| {
+            assert_eq!(library.library.organizer.renaming, Some(id));
+        });
+    }
+
+    fn draw_at(width: f32, cx: &mut gpui::VisualTestContext) {
+        cx.simulate_resize(gpui::size(px(width), px(800.)));
+        cx.update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        });
+    }
+
+    fn sidebar_showing(library: &Entity<LibraryWindow>, cx: &mut gpui::VisualTestContext) -> bool {
+        library.read_with(cx, |library, _| {
+            library
+                .library
+                .organizer
+                .shows_sidebar(library.library.state.sidebar_hidden)
+        })
+    }
+
+    #[gpui::test]
+    fn a_rename_started_with_the_sidebar_hidden_shows_it_first(cx: &mut gpui::TestAppContext) {
+        let (library, cx, id) = library_with_folder(cx);
+        draw_at(NARROW_WIDTH - 200., cx);
+        assert!(!sidebar_showing(&library, cx));
+        library.update_in(cx, |library, window, cx| {
+            library.start_folder_rename(id.clone(), window, cx);
+        });
+        draw_at(NARROW_WIDTH - 200., cx);
+        assert!(sidebar_showing(&library, cx));
+
+        library.update(cx, |library, _| {
+            library.library.organizer.renaming = None;
+            library.library.state.sidebar_hidden = true;
+        });
+        draw_at(NARROW_WIDTH + 200., cx);
+        assert!(!sidebar_showing(&library, cx));
+        library.update_in(cx, |library, window, cx| {
+            library.start_folder_rename(id.clone(), window, cx);
+        });
+        draw_at(NARROW_WIDTH + 200., cx);
+        assert!(sidebar_showing(&library, cx));
+    }
 
     #[test]
     fn the_sidebar_folds_away_when_narrow_and_its_own_switch_shows_it_again() {

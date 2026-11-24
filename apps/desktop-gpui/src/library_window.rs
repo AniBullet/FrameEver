@@ -59,6 +59,7 @@ const REOPEN_GUARD: Duration = Duration::from_millis(600);
 const DETAIL_WIDTH: f32 = 340.;
 const JOB_BAR: f32 = 3.;
 const LIST_ROW: f32 = 34.;
+const VISUALS_BATCH: usize = 4;
 const LIST_GAP: f32 = 8.;
 const LIST_COLUMNS: [(Option<SortKey>, f32); 4] = [
     (None, 84.),
@@ -1682,30 +1683,24 @@ impl LibraryWindow {
             if shown.is_err() {
                 return;
             }
-            let done: Vec<(PathBuf, String, library::visuals::Visual)> = cx
-                .background_executor()
-                .spawn(async move {
-                    todo.into_iter()
-                        .map(|(job, stamp)| {
-                            let visual = library::visuals::work(&job);
-                            (job.project, stamp, visual)
-                        })
-                        .collect()
-                })
-                .await;
-            let worked: Vec<(PathBuf, library::visuals::Visual)> = done
-                .iter()
-                .map(|(project, _, visual)| (project.clone(), visual.clone()))
-                .collect();
-            let stored = this.update(cx, |this, cx| {
-                this.library.organizer.visuals.extend(worked);
-                cx.notify();
-            });
-            if stored.is_err() {
-                return;
+            let mut todo = todo.into_iter().peekable();
+            while todo.peek().is_some() {
+                let batch: Vec<_> = todo.by_ref().take(VISUALS_BATCH).collect();
+                let cache = dir.clone();
+                let worked = cx
+                    .background_executor()
+                    .spawn(async move { library::visuals::work_batch(&cache, batch) })
+                    .await;
+                let stored = this.update(cx, |this, cx| {
+                    this.library.organizer.visuals.extend(worked);
+                    cx.notify();
+                });
+                if stored.is_err() {
+                    return;
+                }
             }
             cx.background_executor()
-                .spawn(async move { library::visuals::remember(&dir, &done, &keep) })
+                .spawn(async move { library::visuals::forget_all_but(&dir, &keep) })
                 .await;
         }));
     }
