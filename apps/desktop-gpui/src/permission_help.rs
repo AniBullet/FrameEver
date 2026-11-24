@@ -152,8 +152,6 @@ fn open(need: Need, reveal_main_on_close: bool, cx: &mut App) {
     let bounds = Bounds::centered(None, size(px(WIDTH), px(height)), cx);
     let opened = cx.open_window(
         WindowOptions {
-            #[cfg(target_os = "linux")]
-            app_id: Some(crate::app_windows::app_id().into()),
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: None,
             kind: WindowKind::Floating,
