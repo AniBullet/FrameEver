@@ -29,6 +29,32 @@ impl From<io::Error> for UploadLockError {
     }
 }
 
+#[derive(Clone, Copy)]
+enum LockAccess {
+    Exclusive,
+    Shared,
+}
+
+impl LockAccess {
+    #[cfg(windows)]
+    fn windows_share_mode(self) -> u32 {
+        const FILE_SHARE_READ: u32 = 0x1;
+        const FILE_SHARE_WRITE: u32 = 0x2;
+        match self {
+            Self::Exclusive => 0,
+            Self::Shared => FILE_SHARE_READ | FILE_SHARE_WRITE,
+        }
+    }
+
+    #[cfg(unix)]
+    fn flock_operation(self) -> libc::c_int {
+        match self {
+            Self::Exclusive => libc::LOCK_EX,
+            Self::Shared => libc::LOCK_SH,
+        }
+    }
+}
+
 pub struct UploadLock {
     _file: fs::File,
     project: PathBuf,
@@ -38,6 +64,14 @@ pub struct UploadLock {
 
 impl UploadLock {
     pub fn acquire(project: &Path) -> Result<Self, UploadLockError> {
+        Self::acquire_as(project, LockAccess::Exclusive)
+    }
+
+    pub fn acquire_shared(project: &Path) -> Result<Self, UploadLockError> {
+        Self::acquire_as(project, LockAccess::Shared)
+    }
+
+    fn acquire_as(project: &Path, access: LockAccess) -> Result<Self, UploadLockError> {
         metadata(project, true).map_err(io::Error::other)?;
         let project = project.canonicalize()?;
         let parent = project
@@ -86,7 +120,9 @@ impl UploadLock {
         #[cfg(windows)]
         {
             use std::os::windows::fs::OpenOptionsExt;
-            options.share_mode(0).custom_flags(0x0020_0000);
+            options
+                .share_mode(access.windows_share_mode())
+                .custom_flags(0x0020_0000);
         }
         let file = options.open(&path).map_err(|error| {
             if cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 33)) {
@@ -112,7 +148,9 @@ impl UploadLock {
             if file_meta.nlink() != 1 || file_meta.uid() != unsafe { libc::geteuid() } {
                 return Err(io::Error::other("Upload lock is not exclusively owned").into());
             }
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            if unsafe { libc::flock(file.as_raw_fd(), access.flock_operation() | libc::LOCK_NB) }
+                != 0
+            {
                 let error = io::Error::last_os_error();
                 return Err(if error.kind() == io::ErrorKind::WouldBlock {
                     UploadLockError::Busy
@@ -399,6 +437,34 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn readers_share_a_project_and_exclude_its_owner() {
+        let directory = tempfile::tempdir().unwrap();
+        let project = directory.path().join("recording.ever");
+        fs::create_dir(&project).unwrap();
+
+        let reader = UploadLock::acquire_shared(&project).unwrap();
+        let second_reader = UploadLock::acquire_shared(&project).unwrap();
+        assert!(matches!(
+            UploadLock::acquire(&project),
+            Err(UploadLockError::Busy)
+        ));
+        drop(reader);
+        assert!(matches!(
+            UploadLock::acquire(&project),
+            Err(UploadLockError::Busy)
+        ));
+        drop(second_reader);
+
+        let owner = UploadLock::acquire(&project).unwrap();
+        assert!(matches!(
+            UploadLock::acquire_shared(&project),
+            Err(UploadLockError::Busy)
+        ));
+        drop(owner);
+        drop(UploadLock::acquire_shared(&project).unwrap());
     }
 
     #[cfg(unix)]

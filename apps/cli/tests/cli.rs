@@ -394,6 +394,47 @@ fn a_software_encoded_and_decoded_export_exits_cleanly() {
 }
 
 #[test]
+fn project_config_set_waits_while_the_app_cleans_the_project() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("recording.ever");
+    std::fs::create_dir_all(project.join("content")).unwrap();
+    std::fs::write(project.join("content").join("display.mp4"), b"fake").unwrap();
+    write_single_segment_meta(&project);
+    std::fs::write(project.join("project-config.json"), b"{}").unwrap();
+
+    let cleanup = frameever_recording::upload_resume::UploadLock::acquire(&project).unwrap();
+    let mut config_set = frameever()
+        .args([
+            "project",
+            "config",
+            "set",
+            project.to_str().unwrap(),
+            "--settings-json",
+            "{}",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    assert!(
+        config_set.try_wait().unwrap().is_none(),
+        "config set ran during the clean-up"
+    );
+    assert_eq!(
+        std::fs::read(project.join("project-config.json")).unwrap(),
+        b"{}"
+    );
+
+    drop(cleanup);
+    assert!(config_set.wait().unwrap().success());
+    assert_ne!(
+        std::fs::read(project.join("project-config.json")).unwrap(),
+        b"{}"
+    );
+}
+
+#[test]
 fn project_validate_detects_missing_media() {
     let dir = tempfile::tempdir().unwrap();
     let project = dir.path().join("recording.ever");

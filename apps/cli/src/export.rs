@@ -453,7 +453,7 @@ impl Export {
     ) -> Result<(), String> {
         let output = self.resolve_output()?;
         frameever_export::validate_output_path(&self.project_path)?;
-        crate::project::require_settled(&self.project_path)?;
+        let project_hold = hold_project_for_reading(self.project_path.clone()).await?;
         if let Some(tracks) = self.tracks.clone() {
             return self
                 .run_tracks(&tracks, output, progress_json, completion_json, stdout)
@@ -474,6 +474,7 @@ impl Export {
             .map_err(|e| format!("Failed to load recording meta: {e}"))?;
 
         if matches!(&meta.inner, RecordingMetaInner::Instant(_)) {
+            drop(project_hold);
             return export_instant_project(
                 self.project_path,
                 output,
@@ -786,6 +787,16 @@ fn parse_tracks(
 /// `finalize`, so this only fires for recordings interrupted before that (e.g. a killed worker);
 /// without it the exporter fails trying to open a fragment directory as a video. No-op for recordings
 /// that are already progressive.
+async fn hold_project_for_reading(
+    project_path: PathBuf,
+) -> Result<Option<frameever_recording::upload_resume::UploadLock>, String> {
+    tokio::task::spawn_blocking(move || {
+        crate::project::open_project(&project_path, crate::project::ProjectAccess::Read)
+    })
+    .await
+    .map_err(|error| format!("project lock task failed: {error}"))?
+}
+
 async fn ensure_remuxed(project_path: PathBuf) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         frameever_recording::recovery::RecoveryManager::remux_if_needed(&project_path)
@@ -1107,7 +1118,7 @@ impl ExportPreview {
     }
 
     async fn run_inner(self) -> Result<(), String> {
-        crate::project::require_settled(&self.project_path)?;
+        let _project_hold = hold_project_for_reading(self.project_path.clone()).await?;
         let settings = serde_json::from_str::<frameever_export::preview::ExportPreviewSettings>(
             &self.settings_json,
         )

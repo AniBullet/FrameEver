@@ -1,4 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
+
+use frameever_recording::upload_resume::{UploadLock, UploadLockError};
 
 use frameever_project::{
     InstantRecordingMeta, RecordingMeta, RecordingMetaInner, StudioRecordingMeta,
@@ -91,7 +96,43 @@ fn keep_typed_text(
 
 const INTERRUPTED_CLEANUP: &str = "an unused clip media clean-up of this project was interrupted";
 
-pub(crate) fn require_settled(project_path: &Path) -> Result<(), String> {
+const PROJECT_IN_USE: &str = "the project is in use: FrameEver is cleaning up its clip media, it is still recording, or another frameever command is exporting it. Try again when that finishes";
+const PROJECT_WAIT: Duration = Duration::from_secs(30);
+const PROJECT_RETRY: Duration = Duration::from_millis(100);
+
+#[derive(Clone, Copy)]
+pub(crate) enum ProjectAccess {
+    Read,
+    Write,
+}
+
+pub(crate) fn open_project(
+    project_path: &Path,
+    access: ProjectAccess,
+) -> Result<Option<UploadLock>, String> {
+    let deadline = Instant::now() + PROJECT_WAIT;
+    let lock = loop {
+        let attempt = match access {
+            ProjectAccess::Read => UploadLock::acquire_shared(project_path),
+            ProjectAccess::Write => UploadLock::acquire(project_path),
+        };
+        match attempt {
+            Ok(lock) => break Some(lock),
+            Err(UploadLockError::Busy) if Instant::now() < deadline => {
+                std::thread::sleep(PROJECT_RETRY)
+            }
+            Err(UploadLockError::Busy) => return Err(PROJECT_IN_USE.to_string()),
+            Err(UploadLockError::Io(error)) => {
+                tracing::debug!(%error, path = %project_path.display(), "Opening the project without its lock");
+                break None;
+            }
+        }
+    };
+    refuse_interrupted_cleanup(project_path)?;
+    Ok(lock)
+}
+
+fn refuse_interrupted_cleanup(project_path: &Path) -> Result<(), String> {
     if frameever_utils::storage::unused_media_cleanup_interrupted(project_path) {
         return Err(format!(
             "{INTERRUPTED_CLEANUP}. Open the project in FrameEver to finish it, then try again"
@@ -101,7 +142,7 @@ pub(crate) fn require_settled(project_path: &Path) -> Result<(), String> {
 }
 
 pub fn config_get(project_path: PathBuf) -> Result<(), String> {
-    require_settled(&project_path)?;
+    refuse_interrupted_cleanup(&project_path)?;
     let config = match frameever_project::ProjectConfiguration::load(&project_path) {
         Ok(config) => config,
         // Instant and un-edited studio recordings have no project-config.json; return the
@@ -118,7 +159,7 @@ pub fn config_set(
     settings_json: &str,
     format: OutputFormat,
 ) -> Result<(), String> {
-    require_settled(&project_path)?;
+    let _project = open_project(&project_path, ProjectAccess::Write)?;
     let mut incoming: serde_json::Value = serde_json::from_str(settings_json)
         .map_err(|e| format!("Invalid project config JSON: {e}"))?;
     if let Ok(existing) = frameever_project::ProjectConfiguration::load(&project_path) {
@@ -137,7 +178,7 @@ pub fn config_set(
 }
 
 pub fn inspect(project_path: PathBuf, format: OutputFormat) -> Result<(), String> {
-    require_settled(&project_path)?;
+    refuse_interrupted_cleanup(&project_path)?;
     let meta = RecordingMeta::load_for_project(&project_path)
         .map_err(|e| format!("Failed to load recording meta: {e}"))?;
     let output_path = meta.output_path();
