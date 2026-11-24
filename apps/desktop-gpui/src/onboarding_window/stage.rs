@@ -587,7 +587,12 @@ impl OnboardingWindow {
         let waiting = self.stage.waiting_on == Some(permission);
         let guided = crate::permission_guide::eligible(permission);
         let waiting_required = waiting && permission.required();
-        let body = if waiting_required && guided {
+        let settings_only = self.state.settings_only();
+        let body = if waiting_required && settings_only {
+            t!(
+                "Click + under the Screen & System Audio Recording list in System Settings, then choose FrameEver. Already listed? Just switch it on."
+            )
+        } else if waiting_required && guided {
             t!(
                 "Drag FrameEver from the panel under System Settings into the list. Already listed? Just switch it on."
             )
@@ -599,7 +604,8 @@ impl OnboardingWindow {
             t!(
                 "It was turned off earlier, so switch FrameEver on in System Settings. Or skip it for now."
             )
-        } else if action == Some(RowAction::OpenSettings) && permission.required() {
+        } else if action == Some(RowAction::OpenSettings) && permission.required() && !settings_only
+        {
             t!("Open System Settings, find FrameEver in the list and switch it on.")
         } else {
             copy.body

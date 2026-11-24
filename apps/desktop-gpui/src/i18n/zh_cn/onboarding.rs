@@ -113,6 +113,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "macOS 会在帧刻重启后生效，可以等这里都完成后再重启。",
     ),
     (
+        "Click + under the Screen & System Audio Recording list in System Settings, then choose FrameEver. Already listed? Just switch it on.",
+        "在系统设置中，点按“录屏与系统录音”列表下的 +，然后选择帧刻。已经在列表里了？直接打开开关即可。",
+    ),
+    (
         "Drag FrameEver from the panel under System Settings into the list. Already listed? Just switch it on.",
         "把帧刻从系统设置下方的面板拖进列表。已经在列表里了？直接打开开关即可。",
     ),

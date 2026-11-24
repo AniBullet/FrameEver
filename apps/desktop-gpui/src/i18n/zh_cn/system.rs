@@ -40,6 +40,11 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ),
     ("Screen & System Audio Recording", "录屏与系统录音"),
     ("Drag FrameEver into the list", "把帧刻拖进列表"),
+    ("Add FrameEver with the + button", "用 + 按钮添加帧刻"),
+    (
+        "Click + under the Screen & System Audio Recording list above, then choose FrameEver.",
+        "点按上方“录屏与系统录音”列表下的 +，然后选择帧刻。",
+    ),
     (
         "Drop it on the {pane} list above, then make sure its switch is on.",
         "把它拖到上方的“{pane}”列表里，然后确认开关已打开。",

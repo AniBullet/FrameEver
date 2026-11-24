@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use gpui::{
     App, AppContext, Bounds, Context, FontWeight, Global, InteractiveElement, IntoElement,
     MouseButton, ParentElement, Render, Styled, Task, Window, WindowBounds, WindowHandle,
-    WindowKind, WindowOptions, div, img, point, px, size,
+    WindowKind, WindowOptions, div, img, point, prelude::FluentBuilder as _, px, size,
 };
 
 use crate::doodle;
@@ -91,6 +91,7 @@ pub struct PermissionGuide {
     hidden: bool,
     app: PathBuf,
     icon: Arc<gpui::Image>,
+    add_with_plus: bool,
 }
 
 /// Show the guide for `permission` while the user is in System Settings.
@@ -138,6 +139,7 @@ pub fn start(permission: OSPermission, cx: &mut App) {
                         gpui::ImageFormat::Png,
                         APP_ICON.to_vec(),
                     )),
+                    add_with_plus: crate::permissions::grants_are_settings_only(),
                 }
             })
         },
@@ -327,6 +329,25 @@ impl Render for PermissionGuide {
             OSPermission::Accessibility => t!("Accessibility"),
             _ => t!("Screen & System Audio Recording"),
         };
+        let add_with_plus = self.add_with_plus;
+        let (title, body) = if add_with_plus {
+            (
+                t!("Add FrameEver with the + button").to_string(),
+                t!(
+                    "Click + under the Screen & System Audio Recording list above, then choose FrameEver."
+                )
+                .to_string(),
+            )
+        } else {
+            (
+                t!("Drag FrameEver into the list").to_string(),
+                t!(
+                    "Drop it on the {pane} list above, then make sure its switch is on.",
+                    pane = pane
+                )
+                .to_string(),
+            )
+        };
         div()
             .size_full()
             .p(px(SHADOW_INSET))
@@ -349,25 +370,24 @@ impl Render for PermissionGuide {
                             .relative()
                             .flex_none()
                             .size(px(80.))
-                            .cursor_grab()
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(|this, _, window, _| {
-                                    if !platform::begin_file_drag(window, &this.app) {
-                                        tracing::warn!("permission guide: drag did not start");
-                                    }
-                                }),
-                            )
-                            .child(
-                                div().absolute().inset_0().child(doodle::doodle(
-                                    &art::DRAG_FRAME,
-                                    palette,
-                                    self.shown_at,
-                                    still,
-                                    80.,
-                                    80.,
-                                )),
-                            )
+                            .when(!add_with_plus, |icon| {
+                                icon.cursor_grab().on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _, window, _| {
+                                        if !platform::begin_file_drag(window, &this.app) {
+                                            tracing::warn!("permission guide: drag did not start");
+                                        }
+                                    }),
+                                )
+                            })
+                            .child(div().absolute().inset_0().child(doodle::doodle(
+                                &art::DRAG_FRAME,
+                                palette,
+                                self.shown_at,
+                                still,
+                                80.,
+                                80.,
+                            )))
                             .child(
                                 div()
                                     .absolute()
@@ -391,7 +411,7 @@ impl Render for PermissionGuide {
                                     .line_height(px(19.))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(paper.ink)
-                                    .child(t!("Drag FrameEver into the list")),
+                                    .child(title),
                             )
                             .child(
                                 div()
@@ -399,10 +419,7 @@ impl Render for PermissionGuide {
                                     .line_height(px(17.))
                                     .font_weight(FontWeight::NORMAL)
                                     .text_color(paper.soft)
-                                    .child(t!(
-                                        "Drop it on the {pane} list above, then make sure its switch is on.",
-                                        pane = pane
-                                    )),
+                                    .child(body),
                             ),
                     )
                     .child(div().flex_none().child(doodle::doodle(
