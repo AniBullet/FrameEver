@@ -463,7 +463,7 @@ impl Mp4ExportSettings {
                 ExportCodec::Hevc | ExportCodec::Av1 => MP4File::init_hevc(
                     "output",
                     encoder_output_path.clone(),
-                    self.optimize_filesize,
+                    true,
                     |o| {
                         let builder = HevcEncoder::builder(video_info)
                             .with_bpp(self.effective_bpp())
@@ -479,7 +479,7 @@ impl Mp4ExportSettings {
                 ExportCodec::H264 => MP4File::init(
                 "output",
                 encoder_output_path.clone(),
-                self.optimize_filesize,
+                true,
                 |o| {
                     #[cfg(target_os = "macos")]
                     if want_hw_input {
