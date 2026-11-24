@@ -194,6 +194,7 @@ pub struct ExportFile {
     pub name: String,
     pub exported_millis: f64,
     pub size: Option<u64>,
+    pub video: bool,
 }
 
 impl ExportFile {
@@ -229,7 +230,7 @@ impl Entry {
     pub fn latest_export(&self) -> Option<&ExportFile> {
         self.exports
             .iter()
-            .filter(|export| export.found())
+            .filter(|export| export.video && export.found())
             .max_by(|a, b| a.exported_millis.total_cmp(&b.exported_millis))
     }
 }
@@ -739,6 +740,7 @@ mod tests {
             name: name.to_string(),
             exported_millis,
             size,
+            video: true,
         }
     }
 

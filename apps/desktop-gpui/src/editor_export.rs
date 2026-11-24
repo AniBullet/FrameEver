@@ -140,6 +140,15 @@ enum FileJob {
     Audio(AudioExportFormat),
 }
 
+impl FileJob {
+    fn record_format(&self) -> &'static str {
+        match self {
+            Self::Tracks { .. } => library::TRACKS_EXPORT_FORMAT,
+            Self::Audio(format) => format.extension(),
+        }
+    }
+}
+
 fn audio_format_from_slug(slug: Option<&str>) -> AudioExportFormat {
     slug.and_then(AudioExportFormat::from_extension)
         .unwrap_or(AudioExportFormat::Mp3)
@@ -1450,6 +1459,8 @@ impl EditorWindow {
                 project_path.join("output").join("tracks"),
             ),
         };
+        let record_format = job.record_format();
+        let record_project = project_path.clone();
         ui.cancel = Arc::new(AtomicBool::new(false));
         let cancel = ui.cancel.clone();
         ui.phase = ExportPhase::ChoosingFile;
@@ -1479,8 +1490,8 @@ impl EditorWindow {
                         }
                     }
                 };
-            let folder = match chosen {
-                Ok(Some(path)) => path,
+            let (folder, remember_folder) = match chosen {
+                Ok(Some(path)) => (path, true),
                 Ok(None) => {
                     let _ = this.update_in(cx, |this, window, cx| {
                         if let Some(ui) = this.export.as_mut()
@@ -1498,7 +1509,7 @@ impl EditorWindow {
                         error,
                         "Save dialog unavailable; keeping the export in the project output folder"
                     );
-                    fallback
+                    (fallback, false)
                 }
             };
 
@@ -1619,6 +1630,11 @@ impl EditorWindow {
                             path = %saved.display(),
                             elapsed_ms = started_at.elapsed().as_millis() as u64,
                             "editor file export completed"
+                        );
+                        library::record_export(
+                            &record_project,
+                            &library::export_record(saved.clone(), record_format, None),
+                            remember_folder,
                         );
                         crate::app_sounds::play_notification();
                         ui.phase = ExportPhase::Done;

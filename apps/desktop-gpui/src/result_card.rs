@@ -438,6 +438,7 @@ async fn export_audio_with_last_settings(
     let name = frameever_project::RecordingMeta::load_for_project(&bundle)
         .map_err(|error| error.to_string())?
         .pretty_name;
+    let record_project = bundle.clone();
     std::fs::create_dir_all(&exports).map_err(|error| error.to_string())?;
     let output = library::unique_export_path(&exports, &name, format.extension())?;
     let resources = ExportResources::new(vec![DiskBudget {
@@ -468,6 +469,11 @@ async fn export_audio_with_last_settings(
             move || stop.store(true, Ordering::Release),
         )
         .await?;
+    library::record_export(
+        &record_project,
+        &library::export_record(saved.clone(), format.extension(), None),
+        false,
+    );
     Ok(saved)
 }
 

@@ -272,6 +272,7 @@ fn the_latest_export_plays_before_the_raw_recording() {
         name: "made.mp4".to_string(),
         exported_millis: 1.,
         size: Some(1),
+        video: true,
     }];
     assert_eq!(
         segments_of(&entry).unwrap(),

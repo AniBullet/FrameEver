@@ -452,10 +452,11 @@ fn export_files(project: &Path) -> Vec<view::ExportFile> {
         .into_iter()
         .filter_map(|record| {
             let name = record.path.file_name()?.to_string_lossy().into_owned();
-            let size = size_of_file(&record.path);
+            let size = size_of_export(&record.path);
             Some(view::ExportFile {
                 name,
                 size,
+                video: is_video_export(&record.format),
                 exported_millis: record.exported_at as f64 * 1000.,
                 path: record.path,
             })
@@ -463,11 +464,26 @@ fn export_files(project: &Path) -> Vec<view::ExportFile> {
         .collect()
 }
 
-fn size_of_file(path: &Path) -> Option<u64> {
-    std::fs::metadata(path)
-        .ok()
-        .filter(|metadata| metadata.is_file())
-        .map(|metadata| metadata.len())
+pub const TRACKS_EXPORT_FORMAT: &str = "tracks";
+
+fn is_video_export(format: &str) -> bool {
+    format != TRACKS_EXPORT_FORMAT
+        && frameever_export::audio::AudioExportFormat::from_extension(format).is_none()
+}
+
+fn size_of_export(path: &Path) -> Option<u64> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if metadata.is_file() {
+        return Some(metadata.len());
+    }
+    let files = std::fs::read_dir(path).ok()?;
+    Some(
+        files
+            .filter_map(|entry| entry.ok()?.metadata().ok())
+            .filter(std::fs::Metadata::is_file)
+            .map(|metadata| metadata.len())
+            .sum(),
+    )
 }
 
 pub fn rename_project(project: &Path, name: &str) -> Result<String, String> {
@@ -2049,6 +2065,66 @@ mod tests {
         assert_eq!(shot.kind, MediaKind::Screenshot);
         assert!(shot.screenshot.is_some());
         assert!(shot.opens_editor);
+    }
+
+    #[test]
+    fn a_tracks_export_lists_its_folder_with_the_size_of_its_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let studio = write_studio_bundle(dir.path(), "Demo", 1);
+        let tracks = dir.path().join("Demo tracks");
+        std::fs::create_dir_all(&tracks).unwrap();
+        std::fs::write(tracks.join("Screen.mp4"), b"video").unwrap();
+        std::fs::write(tracks.join("Microphone.wav"), b"aud").unwrap();
+        frameever_utils::storage::record_export(
+            &studio,
+            &ExportRecord {
+                path: tracks,
+                format: "tracks".into(),
+                codec: None,
+                exported_at: 1,
+            },
+        )
+        .unwrap();
+
+        let exports = export_files(&studio);
+        assert_eq!(exports[0].name, "Demo tracks");
+        assert_eq!(exports[0].size, Some(8));
+    }
+
+    #[test]
+    fn a_later_audio_or_tracks_export_leaves_the_video_as_the_one_played_and_shared() {
+        let dir = tempfile::tempdir().unwrap();
+        let recordings = dir.path().join("Recordings");
+        std::fs::create_dir_all(&recordings).unwrap();
+        let studio = write_studio_bundle(&recordings, "Demo", 1);
+        let video = dir.path().join("Demo.mp4");
+        let audio = dir.path().join("Demo.mp3");
+        let tracks = dir.path().join("Demo tracks");
+        std::fs::write(&video, b"video").unwrap();
+        std::fs::write(&audio, b"audio").unwrap();
+        std::fs::create_dir_all(&tracks).unwrap();
+        std::fs::write(tracks.join("Screen.mp4"), b"video").unwrap();
+        for (exported_at, path, format) in [
+            (1, &video, "mp4"),
+            (2, &audio, "mp3"),
+            (3, &tracks, "tracks"),
+        ] {
+            frameever_utils::storage::record_export(
+                &studio,
+                &ExportRecord {
+                    path: path.clone(),
+                    format: format.into(),
+                    codec: None,
+                    exported_at,
+                },
+            )
+            .unwrap();
+        }
+
+        let entries = entries_in(&[recordings], &[]);
+        assert_eq!(entries[0].exports.len(), 3);
+        assert_eq!(entries[0].latest_export().unwrap().path, video);
+        assert_eq!(file_to_share(&entries[0]), Some(video));
     }
 
     #[test]
