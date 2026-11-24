@@ -40,6 +40,8 @@ pub use preparing_projection::{
     PreparingAudioInput, PreparingCursorImage, PreparingStudioSegment, PreparingVideoInput,
 };
 
+const AUDIO_ONLY_STANDIN: &str = "display.mp4";
+
 macro_rules! finalization_info {
     ($($arg:tt)*) => {
         tracing::info!(target: "frameever_recording::recording_finalization", $($arg)*)
@@ -462,13 +464,17 @@ impl RecoveryManager {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
 
-            if audio_only {
-                Self::restore_audio_only_standin(&segment_path);
-            }
-
             let display_info = Self::segment_track_fragments(&segment_path, "display", true);
-            let display_fragments = display_info.fragments;
+            let mut display_fragments = display_info.fragments;
             let display_init_segment = display_info.init_segment;
+            let mut segment_duration = Self::estimate_fragments_duration(&display_fragments);
+            if audio_only
+                && display_fragments.is_empty()
+                && let Some(duration) = Self::audio_only_duration(&segment_path)
+            {
+                display_fragments.push(segment_path.join(AUDIO_ONLY_STANDIN));
+                segment_duration = Some(duration);
+            }
 
             if display_fragments.is_empty() {
                 debug!(
@@ -487,7 +493,7 @@ impl RecoveryManager {
             let system_audio_fragments =
                 Self::find_audio_fragments(&segment_path.join("system_audio"));
 
-            if let Some(duration) = Self::estimate_fragments_duration(&display_fragments) {
+            if let Some(duration) = segment_duration {
                 total_duration += duration;
             }
 
@@ -525,17 +531,20 @@ impl RecoveryManager {
         })
     }
 
-    fn restore_audio_only_standin(segment_path: &Path) {
-        let standin = segment_path.join("display.mp4");
-        if standin.is_file() {
-            return;
-        }
-        let duration = ["audio-input", "system_audio"]
+    fn audio_only_duration(segment_path: &Path) -> Option<Duration> {
+        ["audio-input", "system_audio"]
             .iter()
             .filter_map(|track| Self::find_audio_fragments(&segment_path.join(track)))
             .filter_map(|fragments| Self::estimate_fragments_duration(&fragments))
-            .max();
-        let Some(duration) = duration else {
+            .max()
+    }
+
+    fn restore_audio_only_standin(segment_path: &Path) {
+        let standin = segment_path.join(AUDIO_ONLY_STANDIN);
+        if standin.is_file() {
+            return;
+        }
+        let Some(duration) = Self::audio_only_duration(segment_path) else {
             return;
         };
         if let Err(error) = crate::sources::standin_for_span(&standin, duration) {
@@ -1424,9 +1433,15 @@ impl RecoveryManager {
             }
             validate_recovery_manifests(&staged.join("content"), true)?;
             let segments = staged.join("content/segments");
+            let audio_only = staged_meta
+                .studio_meta()
+                .is_some_and(StudioRecordingMeta::is_audio_only);
             for entry in std::fs::read_dir(segments)? {
                 let entry = entry?;
                 if entry.file_type()?.is_dir() {
+                    if audio_only {
+                        Self::restore_audio_only_standin(&entry.path());
+                    }
                     for track in ["display", "camera"] {
                         let directory = entry.path().join(track);
                         Self::rescue_pending_tmp_fragments(&directory, None, true);
@@ -5195,6 +5210,14 @@ mod clean_studio_snapshot_tests {
 
         let recording = RecoveryManager::inspect_recording(project)
             .expect("an audio only recording with its microphone is offered for recovery");
+        assert!(
+            !project
+                .join("content/segments/segment-0/display.mp4")
+                .exists(),
+            "inspection wrote the display stand-in"
+        );
+        let estimated = recording.estimated_duration.as_secs_f64();
+        assert!((estimated - 2.0).abs() < 0.2, "{estimated}");
         let recovered = RecoveryManager::recover(&recording).unwrap();
 
         assert!(recovered.meta.is_audio_only());
