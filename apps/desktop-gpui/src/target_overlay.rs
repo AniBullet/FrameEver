@@ -777,6 +777,7 @@ pub struct OverlayWindow {
 #[derive(Clone)]
 enum OverlayDeviceChoice {
     Camera(Option<crate::devices::CameraOption>),
+    CameraPicture,
     Microphone(Option<crate::devices::MicrophoneOption>),
     Access(crate::permissions::OSPermission),
 }
@@ -1348,8 +1349,13 @@ impl OverlayWindow {
             if !recording_devices_available(cx) {
                 return;
             }
-            if let Err(error) = main.update(cx, |view, _, cx| match choice {
+            if let Err(error) = main.update(cx, |view, window, cx| match choice {
                 OverlayDeviceChoice::Camera(camera) => view.set_camera_selection(camera, cx),
+                OverlayDeviceChoice::CameraPicture => {
+                    if view.device_changes_allowed(cx) {
+                        crate::camera_picture::select_or_choose(window, cx);
+                    }
+                }
                 OverlayDeviceChoice::Microphone(mic) => view.set_microphone_selection(mic, cx),
                 OverlayDeviceChoice::Access(_) => {}
             }) {
@@ -1391,9 +1397,10 @@ impl OverlayWindow {
             )
         });
         let (mut items, mut choices) = if camera {
+            let picture = view.camera_picture_selected(cx);
             let mut items = vec![crate::ui::MenuItem::new(
                 t!("No Camera"),
-                view.camera_selection().is_none(),
+                view.camera_selection().is_none() && !picture,
             )];
             let mut choices = vec![OverlayDeviceChoice::Camera(None)];
             for camera in &view.device_snapshot().cameras {
@@ -1404,6 +1411,15 @@ impl OverlayWindow {
                 ));
                 choices.push(OverlayDeviceChoice::Camera(Some(camera.clone())));
             }
+            items.push(crate::ui::MenuItem::new(
+                if view.has_remembered_camera_picture(cx) {
+                    t!("Picture")
+                } else {
+                    t!("Use a picture")
+                },
+                picture,
+            ));
+            choices.push(OverlayDeviceChoice::CameraPicture);
             (items, choices)
         } else {
             let mut items = vec![crate::ui::MenuItem::new(
@@ -2240,9 +2256,12 @@ impl OverlayWindow {
         let Ok(view) = main.read(cx) else {
             return Vec::new();
         };
-        let camera = view
-            .camera_selection()
-            .map(|camera| crate::main_window::camera_label(&camera.label));
+        let camera = if view.camera_picture_selected(cx) {
+            Some(t!("Picture").to_string())
+        } else {
+            view.camera_selection()
+                .map(|camera| crate::main_window::camera_label(&camera.label))
+        };
         let microphone = view.microphone_selection().map(|mic| mic.name.clone());
         let disabled = view.is_enumerating_devices() || !recording_devices_available(cx);
         let theme = self.theme;

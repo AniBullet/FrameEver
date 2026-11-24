@@ -3428,8 +3428,7 @@ pub fn open_camera_window(cx: &mut App) {
     }
 
     let state = crate::store::load().camera_window.unwrap_or_default();
-    let (width, height) =
-        camera_window::window_size(&state, camera_window::retained_preview_aspect(cx));
+    let (width, height) = camera_window::opening_window_size(&state, cx);
 
     let main = cx.global::<AppWindows>().main;
     let display = main
@@ -8626,6 +8625,7 @@ mod controls_preflight_tests {
                     target: ScreenCaptureTarget::CameraOnly,
                     microphone: None,
                     camera: None,
+                    camera_picture: None,
                     device_settings: Default::default(),
                     input_readiness: Default::default(),
                     system_audio: false,

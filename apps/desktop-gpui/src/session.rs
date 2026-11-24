@@ -337,7 +337,7 @@ pub struct RecordingSession {
     pipeline_failed: bool,
 }
 
-struct SessionGlobal(Entity<RecordingSession>);
+pub(crate) struct SessionGlobal(pub(crate) Entity<RecordingSession>);
 impl Global for SessionGlobal {}
 
 impl RecordingSession {
@@ -549,6 +549,7 @@ impl RecordingSession {
             target: frameever_recording::sources::screen_capture::ScreenCaptureTarget::CameraOnly,
             microphone: microphone.map(str::to_owned),
             camera: None,
+            camera_picture: None,
             device_settings: Default::default(),
             input_readiness: Default::default(),
             system_audio: false,
@@ -1632,9 +1633,10 @@ impl RecordingSession {
                 )
             });
         let camera_snapshot = self.last_config.as_ref().and_then(|config| {
-            (config.mode == recording::RecordingMode::Studio && config.camera.is_some())
-                .then(|| crate::app_windows::studio_camera_snapshot(&config.target, cx))
-                .flatten()
+            (config.mode == recording::RecordingMode::Studio
+                && (config.camera.is_some() || config.camera_picture.is_some()))
+            .then(|| crate::app_windows::studio_camera_snapshot(&config.target, cx))
+            .flatten()
         });
         let (studio_progress, studio_finalization) = if prepares_studio_editor(
             self.mode(),
@@ -2766,6 +2768,7 @@ mod input_change_tests {
             target,
             microphone: Some("USB Microphone".into()),
             camera: Some(recording::DeviceOrModelID::DeviceID("webcam".into())),
+            camera_picture: None,
             device_settings: Default::default(),
             input_readiness: Default::default(),
             system_audio: false,

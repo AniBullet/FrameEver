@@ -8,7 +8,7 @@
 //! kameo actors and the capture pipeline both assume tokio.
 
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context as _, anyhow};
@@ -45,6 +45,7 @@ pub struct StartConfig {
     /// Microphone by name -- the identity `MicrophoneFeed` keys on.
     pub microphone: Option<String>,
     pub camera: Option<DeviceOrModelID>,
+    pub camera_picture: Option<PathBuf>,
     pub device_settings: crate::store::RecordingDeviceSettings,
     pub input_readiness: crate::feeds::InputReadiness,
     pub system_audio: bool,
@@ -122,19 +123,30 @@ async fn finalize_studio(
             None => RecoveryManager::remux_if_needed(&project_path),
         };
         result.map_err(anyhow::Error::from)?;
-        let placement = completed
-            .meta
-            .camera_path()
-            .and_then(|_| camera_snapshot.and_then(|snapshot| snapshot.placement));
+        let camera_picture =
+            studio_camera_picture(&project_path, completed.meta.camera_path().is_some());
+        if let Some(picture) = &camera_picture
+            && !set_project_camera_picture(&project_path, picture)
+        {
+            tracing::warn!("Could not record the camera picture in the project");
+        }
+        let camera_shown = completed.meta.camera_path().is_some() || camera_picture.is_some();
+        let placement = camera_snapshot
+            .and_then(|snapshot| snapshot.placement)
+            .filter(|_| camera_shown);
         let preset_applied = apply_default_preset_to_project_config(
             &project_path,
             &crate::presets::PresetsStore::load(),
         );
         apply_camera_preview_to_project_config(
             &project_path,
-            camera_snapshot.map_or_else(current_camera_blur, |snapshot| snapshot.blur),
+            if camera_picture.is_some() {
+                crate::store::BlurMode::Off
+            } else {
+                camera_snapshot.map_or_else(current_camera_blur, |snapshot| snapshot.blur)
+            },
             placement,
-            completed.meta.camera_path().and(camera_snapshot),
+            camera_snapshot.filter(|_| camera_shown),
         );
         if !preset_applied {
             let library = serde_json::from_value(serde_json::Value::Object(
@@ -1088,6 +1100,7 @@ fn write_bundle_thumbnail(project_dir: &std::path::Path, source_video: &std::pat
 pub(crate) fn preparing_presentation(
     project: &frameever_project::ProjectConfiguration,
     camera_snapshot: Option<StudioCameraSnapshot>,
+    camera_picture: Option<String>,
 ) -> Result<frameever_project::ProjectConfiguration, String> {
     let library = serde_json::from_value(serde_json::Value::Object(crate::store::store_section(
         "animated_gradients",
@@ -1095,7 +1108,11 @@ pub(crate) fn preparing_presentation(
     .map_err(|error| format!("Preparing appearance preferences did not parse: {error}"))?;
     let mut config = preparing_presentation_for(
         project,
-        camera_snapshot.map_or_else(current_camera_blur, |snapshot| snapshot.blur),
+        if camera_picture.is_some() {
+            crate::store::BlurMode::Off
+        } else {
+            camera_snapshot.map_or_else(current_camera_blur, |snapshot| snapshot.blur)
+        },
         &library,
         &crate::presets::PresetsStore::load(),
     )?;
@@ -1126,7 +1143,43 @@ pub(crate) fn preparing_presentation(
             config.camera.size_includes_padding = true;
         }
     }
+    if camera_picture.is_some() {
+        config.camera_picture = camera_picture;
+    }
     Ok(config)
+}
+
+pub(crate) const STUDIO_CAMERA_PICTURE: &str = "content/images/camera-picture.jpg";
+
+pub(crate) fn studio_camera_picture(project: &Path, camera_recorded: bool) -> Option<String> {
+    (!camera_recorded && project.join(STUDIO_CAMERA_PICTURE).is_file())
+        .then(|| STUDIO_CAMERA_PICTURE.to_string())
+}
+
+fn set_project_camera_picture(project_dir: &Path, picture: &str) -> bool {
+    let path = project_dir.join("project-config.json");
+    let Ok(bytes) = std::fs::read(&path) else {
+        return false;
+    };
+    let Ok(serde_json::Value::Object(mut config)) = serde_json::from_slice(&bytes) else {
+        return false;
+    };
+    config.insert(
+        "cameraPicture".into(),
+        serde_json::Value::String(picture.to_string()),
+    );
+    let Ok(serialized) = serde_json::to_vec_pretty(&serde_json::Value::Object(config)) else {
+        return false;
+    };
+    let temp = path.with_extension("gpui-tmp");
+    if std::fs::write(&temp, serialized).is_err() {
+        return false;
+    }
+    if std::fs::rename(&temp, &path).is_err() {
+        let _ = std::fs::remove_file(&temp);
+        return false;
+    }
+    true
 }
 
 fn preparing_presentation_for(
@@ -1569,6 +1622,10 @@ pub async fn start(mut config: StartConfig) -> anyhow::Result<ActiveRecording> {
         }
         config.mode = RecordingMode::Studio;
         config.camera = None;
+        config.camera_picture = None;
+    }
+    if config.camera.is_some() {
+        config.camera_picture = None;
     }
     if matches!(config.target, ScreenCaptureTarget::CameraOnly) && config.camera.is_none() {
         return Err(anyhow!(t!(
@@ -1779,6 +1836,7 @@ async fn start_attempt(
     };
     let mut instant_metadata_lock = None;
     let window_only = matches!(config.target, ScreenCaptureTarget::Window { .. })
+        && !(config.mode == RecordingMode::Instant && config.camera_picture.is_some())
         && crate::store::GeneralSettings::load().window_capture_style
             == crate::store::WindowCaptureStyle::FocusedWindow;
     let handle = match config.mode {
@@ -1855,6 +1913,19 @@ async fn start_attempt(
             Handle::Instant(handle)
         }
     };
+
+    if config.mode == RecordingMode::Studio
+        && let Some(picture) = &config.camera_picture
+    {
+        let destination = project_dir.join(STUDIO_CAMERA_PICTURE);
+        if let Err(error) = destination
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::copy(picture, &destination).map(|_| ()))
+        {
+            tracing::warn!(%error, "Could not keep the camera picture with the recording");
+        }
+    }
 
     Ok(ActiveRecording {
         handle,
@@ -2164,6 +2235,44 @@ fn replace_datetime_template_token(
 mod tests {
     use super::*;
     use crate::store::BlurMode;
+
+    #[test]
+    fn a_studio_picture_counts_only_without_a_recorded_camera() {
+        let dir = temp_project("camera-picture");
+        assert_eq!(studio_camera_picture(&dir, false), None);
+        std::fs::create_dir_all(dir.join("content/images")).unwrap();
+        std::fs::write(dir.join(STUDIO_CAMERA_PICTURE), b"jpeg").unwrap();
+        assert_eq!(
+            studio_camera_picture(&dir, false).as_deref(),
+            Some(STUDIO_CAMERA_PICTURE)
+        );
+        assert_eq!(studio_camera_picture(&dir, true), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_studio_picture_is_written_without_touching_other_keys() {
+        let dir = temp_project("camera-picture-config");
+        let path = dir.join("project-config.json");
+        let original = serde_json::json!({
+            "camera": { "hide": false, "futureCameraSetting": "retained" },
+            "futureProjectSetting": [1, 2, 3]
+        });
+        std::fs::write(&path, serde_json::to_vec(&original).unwrap()).unwrap();
+        assert!(set_project_camera_picture(&dir, STUDIO_CAMERA_PICTURE));
+        let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let mut expected = original.clone();
+        expected["cameraPicture"] = STUDIO_CAMERA_PICTURE.into();
+        assert_eq!(written, expected);
+        assert_eq!(
+            frameever_project::ProjectConfiguration::load(&dir)
+                .unwrap()
+                .camera_picture
+                .as_deref(),
+            Some(STUDIO_CAMERA_PICTURE)
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     use chrono::TimeZone as _;
     use serde_json::Value;
 

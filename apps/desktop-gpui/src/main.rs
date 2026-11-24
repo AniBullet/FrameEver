@@ -19,6 +19,7 @@ mod camera_blur;
 #[cfg(any(not(target_os = "macos"), test))]
 mod camera_blur_portable;
 mod camera_loading;
+mod camera_picture;
 mod camera_window;
 mod caption_export;
 mod command_palette;

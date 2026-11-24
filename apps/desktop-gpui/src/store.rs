@@ -90,6 +90,8 @@ pub struct PersistedState {
     #[serde(default)]
     pub editor_window: Option<EditorWindowMemory>,
     #[serde(default)]
+    pub camera_picture: Option<CameraPictureChoice>,
+    #[serde(default)]
     pub main_window: MainWindowMemory,
     #[serde(default)]
     pub library: crate::library::view::ViewState,
@@ -209,6 +211,12 @@ fn bundled_resource_dirs_for(
 
 fn state_path() -> PathBuf {
     app_data_dir().join("gpui-state.json")
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CameraPictureChoice {
+    pub path: PathBuf,
+    pub selected: bool,
 }
 
 pub fn load() -> PersistedState {

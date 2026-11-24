@@ -2648,7 +2648,10 @@ impl EditorWindow {
             .filter(|(_, tab)| !audio_only || tab.shown_in_audio_only())
             .map(|(index, tab)| {
                 let disabled = match tab {
-                    SidebarTab::Camera => !summary.is_some_and(|summary| summary.has_camera),
+                    SidebarTab::Camera => match summary {
+                        Some(summary) => !summary.has_camera && self.is_audio_only(),
+                        None => true,
+                    },
                     SidebarTab::Cursor => !summary.is_some_and(|summary| summary.has_cursor_data),
                     _ => false,
                 };

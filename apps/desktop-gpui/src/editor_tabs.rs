@@ -1411,10 +1411,165 @@ impl EditorWindow {
     // -- Camera --------------------------------------------------------------
 
     /// `CameraConfig` (`ConfigSidebar.tsx:2978-3330`).
+    fn render_camera_picture(&self, picture: Option<String>, cx: &mut Context<Self>) -> AnyElement {
+        use gpui::StyledImage as _;
+        let theme = self.theme;
+        let has_picture = picture.is_some();
+        let thumbnail = match picture {
+            Some(relative) => gpui::img(self.project_path.join(relative))
+                .size(px(56.))
+                .flex_none()
+                .rounded(px(12.))
+                .object_fit(gpui::ObjectFit::Cover)
+                .into_any_element(),
+            None => div()
+                .size(px(56.))
+                .flex_none()
+                .rounded(px(12.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(Hsla::from(theme.muted))
+                .child(
+                    svg()
+                        .path("icons/image.svg")
+                        .size(px(20.))
+                        .text_color(Hsla::from(theme.muted_foreground)),
+                )
+                .into_any_element(),
+        };
+        ui::Field::section(&theme, t!("Picture"))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(12.))
+                    .child(thumbnail)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(8.))
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .line_height(px(16.))
+                                    .text_color(Hsla::from(theme.muted_foreground))
+                                    .child(if has_picture {
+                                        t!("Shown where your camera would be.")
+                                    } else {
+                                        t!("Add a picture to show where your camera would be.")
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .gap(px(6.))
+                                    .child(
+                                        ui::EditorButton::plain(&theme, "camera-picture-choose")
+                                            .label(if has_picture {
+                                                t!("Replace")
+                                            } else {
+                                                t!("Add picture")
+                                            })
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.pick_camera_picture(window, cx);
+                                            })),
+                                    )
+                                    .when(has_picture, |this| {
+                                        this.child(
+                                            ui::EditorButton::plain(
+                                                &theme,
+                                                "camera-picture-remove",
+                                            )
+                                            .label(t!("Remove"))
+                                            .on_click(
+                                                cx.listener(|this, _, window, cx| {
+                                                    this.edit_project(
+                                                        "camera-picture",
+                                                        window,
+                                                        cx,
+                                                        |project| {
+                                                            project.camera_picture.take().is_some()
+                                                        },
+                                                    );
+                                                }),
+                                            ),
+                                        )
+                                    }),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    pub(crate) fn pick_camera_picture(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.sidebar.picking_image {
+            return;
+        }
+        self.end_field_edit(cx);
+        self.close_color_picker(cx);
+        self.sidebar.image_import_error = None;
+        self.sidebar.picking_image = true;
+        let project_path = self.project_path.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let source = crate::platform::open_image_panel(crate::camera_picture::EXTENSIONS);
+            if this.update_in(cx, |_, _, _| ()).is_err() {
+                return;
+            }
+            let imported = match source {
+                Some(source) => Some(
+                    cx.background_executor()
+                        .spawn(async move {
+                            crate::camera_picture::import_into_project(&project_path, &source)
+                        })
+                        .await,
+                ),
+                None => None,
+            };
+            this.update_in(cx, |this, window, cx| {
+                this.sidebar.picking_image = false;
+                match imported {
+                    Some(Ok(relative)) => {
+                        this.edit_project("camera-picture", window, cx, move |project| {
+                            project.camera_picture = Some(relative);
+                            project.camera.hide = false;
+                            true
+                        });
+                    }
+                    Some(Err(error)) => {
+                        this.sidebar.image_import_error = Some(error);
+                        cx.notify();
+                    }
+                    None => cx.notify(),
+                }
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
     pub(crate) fn render_camera_tab(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let camera = &self.project.camera;
         let manual = camera.manual_position;
+        let recorded = self.summary().is_some_and(|summary| summary.has_camera);
+        let picture = (!recorded)
+            .then(|| self.project.camera_picture.clone())
+            .flatten();
+        if !recorded && picture.is_none() {
+            return div()
+                .flex()
+                .flex_col()
+                .gap(px(14.))
+                .child(self.render_camera_picture(None, cx))
+                .into_any_element();
+        }
 
         let shape_label = CAMERA_SHAPES
             .iter()
@@ -1435,6 +1590,7 @@ impl EditorWindow {
             .flex()
             .flex_col()
             .gap(px(14.))
+            .children(picture.map(|picture| self.render_camera_picture(Some(picture), cx)))
             .child(
                 ui::Field::section(&theme, t!("Camera")).child(
                     div()
@@ -1476,14 +1632,16 @@ impl EditorWindow {
                                 }),
                             ),
                         ))
-                        .child(ui::Subfield::plain(&theme, t!("Background")).child(
-                            div().w(px(160.)).child(self.menu_select(
-                                SidebarMenu::CameraBlur,
-                                "camera-blur",
-                                blur_label,
-                                cx,
-                            )),
-                        ))
+                        .when(recorded, |this| {
+                            this.child(ui::Subfield::plain(&theme, t!("Background")).child(
+                                div().w(px(160.)).child(self.menu_select(
+                                    SidebarMenu::CameraBlur,
+                                    "camera-blur",
+                                    blur_label,
+                                    cx,
+                                )),
+                            ))
+                        })
                         .child(ui::Subfield::plain(&theme, t!("Shape")).child(
                             div().w(px(160.)).child(self.menu_select(
                                 SidebarMenu::CameraShape,

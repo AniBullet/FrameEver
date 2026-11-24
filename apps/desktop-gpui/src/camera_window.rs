@@ -59,12 +59,66 @@ pub fn window_size(state: &CameraWindowState, frame_aspect: Option<f32>) -> (f32
     (width, height + CAMERA_TOOLBAR_HEIGHT)
 }
 
+fn picture_dimensions(state: &CameraWindowState, aspect: f32) -> (f32, f32) {
+    let base = clamp_size(state.size);
+    let aspect = match state.shape {
+        CameraShape::Full if aspect.is_finite() && aspect > 0. => aspect.clamp(0.25, 4.),
+        _ => 1.,
+    };
+    (base * aspect, base)
+}
+
+fn bubble_dimensions(
+    state: &CameraWindowState,
+    picture_aspect: Option<f32>,
+    frame_aspect: Option<f32>,
+) -> (f32, f32) {
+    match picture_aspect {
+        Some(aspect) => picture_dimensions(state, aspect),
+        None => preview_dimensions(state, frame_aspect),
+    }
+}
+
+fn bubble_window_size(
+    state: &CameraWindowState,
+    picture_aspect: Option<f32>,
+    frame_aspect: Option<f32>,
+) -> (f32, f32) {
+    let (width, height) = bubble_dimensions(state, picture_aspect, frame_aspect);
+    (width, height + CAMERA_TOOLBAR_HEIGHT)
+}
+
+fn camera_picture_aspect(cx: &gpui::App) -> Option<f32> {
+    Feeds::global(cx)
+        .read(cx)
+        .camera_picture
+        .as_ref()
+        .map(|picture| picture.aspect())
+}
+
+pub(crate) fn opening_window_size(state: &CameraWindowState, cx: &gpui::App) -> (f32, f32) {
+    bubble_window_size(
+        state,
+        camera_picture_aspect(cx),
+        retained_preview_aspect(cx),
+    )
+}
+
 pub(crate) fn inline_preview_size(
     state: &CameraWindowState,
     frame_aspect: Option<f32>,
     viewport: (f32, f32),
 ) -> (f32, f32) {
-    let (width, height) = preview_dimensions(state, frame_aspect);
+    inline_bubble_size(state, None, frame_aspect, viewport)
+}
+
+fn inline_bubble_size(
+    state: &CameraWindowState,
+    picture_aspect: Option<f32>,
+    frame_aspect: Option<f32>,
+    viewport: (f32, f32),
+) -> (f32, f32) {
+    let (width, height) = bubble_dimensions(state, picture_aspect, frame_aspect);
     let scale = ((viewport.0 - 48.).max(160.) / width)
         .min((viewport.1 - 320.).max(160.) / height)
         .min(1.);
@@ -137,11 +191,40 @@ mod toolbar_fit_tests {
     }
 
     #[test]
+    fn a_picture_keeps_its_own_aspect_where_a_camera_is_widened() {
+        let full = CameraWindowState {
+            shape: CameraShape::Full,
+            size: 230.,
+            ..Default::default()
+        };
+        assert_eq!(
+            bubble_window_size(&full, Some(1.), None),
+            (230., 230. + CAMERA_TOOLBAR_HEIGHT)
+        );
+        assert_eq!(
+            bubble_window_size(&full, Some(0.75), None),
+            (172.5, 230. + CAMERA_TOOLBAR_HEIGHT)
+        );
+        assert_eq!(
+            bubble_window_size(&full, None, Some(1.)),
+            window_size(&full, Some(1.))
+        );
+        let round = CameraWindowState {
+            size: 230.,
+            ..Default::default()
+        };
+        assert_eq!(
+            bubble_window_size(&round, Some(2.), None),
+            window_size(&round, None)
+        );
+    }
+
+    #[test]
     fn camera_toolbar_drops_blur_then_mirror_without_shrinking() {
-        assert_eq!(toolbar_buttons(1., 230.), 5);
-        assert_eq!(toolbar_buttons(1., 165.), 5);
-        assert_eq!(toolbar_buttons(1., 150.), 4);
-        assert_eq!(toolbar_buttons(1., 134.), 3);
+        assert_eq!(toolbar_buttons(1., 230., 5), 5);
+        assert_eq!(toolbar_buttons(1., 165., 5), 5);
+        assert_eq!(toolbar_buttons(1., 150., 5), 4);
+        assert_eq!(toolbar_buttons(1., 134., 5), 3);
         assert_eq!(toolbar_width(1., 5), 165.);
         assert_eq!(toolbar_width(1., 4), 135.);
         assert_eq!(toolbar_width(1., 3), 105.);
@@ -155,9 +238,9 @@ fn toolbar_width(_: f32, buttons: usize) -> f32 {
     buttons as f32 * 28. + (buttons - 1) as f32 * 2. + 17.
 }
 
-fn toolbar_buttons(scale: f32, width: f32) -> usize {
-    [5, 4]
-        .into_iter()
+fn toolbar_buttons(scale: f32, width: f32, most: usize) -> usize {
+    (4..=most)
+        .rev()
         .find(|&buttons| toolbar_width(scale, buttons) <= width)
         .unwrap_or(3)
 }
@@ -971,6 +1054,8 @@ struct CameraPreviewView {
     selection_revision: u64,
     frame_revision: Option<u64>,
     camera: Option<crate::feeds::SelectedCamera>,
+    picture: Option<Arc<crate::camera_picture::CameraPicture>>,
+    stale_picture: Option<Arc<gpui::RenderImage>>,
     /// Bumped by the canvas paint callback; the parent's cadence log reads it
     /// to prove notify-driven repaints actually present.
     paints: Arc<AtomicU32>,
@@ -998,6 +1083,7 @@ impl CameraPreviewView {
         let camera_error = feeds.read(cx).camera_error.clone();
         let camera_disconnected = feeds.read(cx).camera_disconnected();
         let camera = feeds.read(cx).camera.clone();
+        let picture = feeds.read(cx).camera_picture.clone();
         let state = store::load().camera_window.unwrap_or_default();
         let retained = cx
             .default_global::<ParkedCameraPreview>()
@@ -1046,8 +1132,22 @@ impl CameraPreviewView {
             let feeds = feeds.read(cx);
             let error = feeds.camera_error.clone();
             let camera = feeds.camera.clone();
-            if this.camera_disconnected != feeds.camera_disconnected() {
-                this.camera_disconnected = feeds.camera_disconnected();
+            let picture = feeds.camera_picture.clone();
+            let disconnected = feeds.camera_disconnected();
+            let same_picture = match (&this.picture, &picture) {
+                (Some(shown), Some(next)) => Arc::ptr_eq(shown, next),
+                (None, None) => true,
+                _ => false,
+            };
+            if !same_picture {
+                if let Some(previous) = this.picture.take() {
+                    this.stale_picture = Some(previous.image.clone());
+                }
+                this.picture = picture;
+                cx.notify();
+            }
+            if this.camera_disconnected != disconnected {
+                this.camera_disconnected = disconnected;
                 cx.notify();
             }
             if this.camera_error != error || this.camera != camera {
@@ -1081,6 +1181,8 @@ impl CameraPreviewView {
             selection_revision: 0,
             frame_revision: None,
             camera,
+            picture,
+            stale_picture: None,
             paints,
             camera_error,
             camera_disconnected,
@@ -1175,6 +1277,25 @@ impl Render for CameraPreviewView {
         self.retained_invalidated = false;
         let theme = self.theme;
         let radius = self.radius;
+        if let Some(image) = self.stale_picture.take() {
+            let _ = window.drop_image(image);
+        }
+        if let Some(picture) = &self.picture {
+            self.paints.fetch_add(1, Ordering::Relaxed);
+            return div()
+                .relative()
+                .size_full()
+                .overflow_hidden()
+                .rounded(px(radius))
+                .bg(theme.background)
+                .child(
+                    gpui::img(picture.image.clone())
+                        .size_full()
+                        .rounded(px(radius))
+                        .object_fit(gpui::ObjectFit::Cover),
+                )
+                .into_any_element();
+        }
 
         let showing_frame = self.latest_frame.is_some() || self.retained.is_some();
         let awaiting_access = self.awaiting_access && !showing_frame && self.camera_error.is_none();
@@ -1336,7 +1457,7 @@ impl Render for CameraPreviewView {
             );
         }
 
-        container
+        container.into_any_element()
     }
 }
 
@@ -1410,6 +1531,8 @@ pub struct CameraWindow {
     effect_failures: PreviewEffectFailures,
     preview: Entity<CameraPreviewView>,
     toolbar: Entity<CameraToolbarView>,
+    picture_aspect: Option<f32>,
+    _picture_subscription: Subscription,
     frame_dims: Option<(usize, usize)>,
     retained_aspect: Option<f32>,
     // Cadence instrumentation: proves the preview stays live (delivered) and
@@ -1645,6 +1768,16 @@ impl CameraWindow {
         });
         let camera = cx.entity();
         let toolbar = cx.new(|cx| CameraToolbarView::new(&camera, cx));
+        let picture_aspect = camera_picture_aspect(cx);
+        let picture_subscription =
+            cx.observe_in(&Feeds::global(cx), window, |this, _, window, cx| {
+                let aspect = camera_picture_aspect(cx);
+                if this.picture_aspect != aspect {
+                    this.picture_aspect = aspect;
+                    this.apply_window_size(window, cx);
+                    cx.notify();
+                }
+            });
 
         // `currentWindow.onMoved` + the 400ms position sync
         // (`camera.tsx:167-216`): every move lands in the shared store,
@@ -1690,6 +1823,8 @@ impl CameraWindow {
             effect_failures: PreviewEffectFailures::default(),
             preview,
             toolbar,
+            picture_aspect,
+            _picture_subscription: picture_subscription,
             frame_dims: None,
             retained_aspect,
             frames_in_window: 0,
@@ -1718,7 +1853,12 @@ impl CameraWindow {
     }
 
     pub fn inline_size(&self, viewport: (f32, f32)) -> (f32, f32) {
-        inline_preview_size(&self.state, self.frame_aspect(), viewport)
+        inline_bubble_size(
+            &self.state,
+            self.picture_aspect,
+            self.frame_aspect(),
+            viewport,
+        )
     }
 
     pub fn is_inline(&self) -> bool {
@@ -2047,9 +2187,9 @@ impl CameraWindow {
         if self.inline {
             return;
         }
-        let (width, window_height) = self
-            .picker_size
-            .unwrap_or_else(|| window_size(&self.state, self.frame_aspect()));
+        let (width, window_height) = self.picker_size.unwrap_or_else(|| {
+            bubble_window_size(&self.state, self.picture_aspect, self.frame_aspect())
+        });
         let height = window_height - CAMERA_TOOLBAR_HEIGHT;
         let display = display_for_point(
             f64::from(position.0 + width / 2.),
@@ -2180,12 +2320,12 @@ impl CameraWindow {
         toolbar_scale(&self.state)
     }
 
-    fn toolbar_buttons(&self) -> usize {
+    fn toolbar_buttons(&self, most: usize) -> usize {
         let width = self.picker_size.map_or_else(
-            || window_size(&self.state, self.frame_aspect()).0,
+            || bubble_window_size(&self.state, self.picture_aspect, self.frame_aspect()).0,
             |(width, _)| width,
         );
-        toolbar_buttons(self.toolbar_scale(), width)
+        toolbar_buttons(self.toolbar_scale(), width, most)
     }
 
     /// Pushes the chrome inputs the preview renders with (its own notify is
@@ -2275,7 +2415,10 @@ impl CameraWindow {
         // Deselecting the camera is what closes the window (`Feeds` observes
         // the selection); mirrors the Tauri close button closing the webview
         // and the main window's selection following it.
-        Feeds::global(cx).update(cx, |feeds, cx| feeds.set_camera(None, cx));
+        Feeds::global(cx).update(cx, |feeds, cx| {
+            feeds.set_camera_picture(None, cx);
+            feeds.set_camera(None, cx);
+        });
     }
 
     fn toolbar_button(
@@ -2293,6 +2436,9 @@ impl CameraWindow {
             "size" => t!("Size"),
             "mirror" => t!("Mirror"),
             "blur" => t!("Background blur"),
+            "picture" => t!("Use a picture"),
+            "change-picture" => t!("Change picture"),
+            "use-camera" => t!("Use your camera"),
             _ => t!("Turn camera off"),
         };
         let dots = if id == "blur" && !failed {
@@ -2358,7 +2504,18 @@ impl CameraWindow {
 
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let buttons = self.toolbar_buttons();
+        let picture = self.picture_aspect.is_some();
+        let switching = crate::camera_picture::can_change(cx) && !self.inline;
+        let back_to_camera = picture && Feeds::global(cx).read(cx).previous_camera.is_some();
+        let extras: &[&str] = match (picture, switching) {
+            (false, true) => &["picture", "mirror", "blur"],
+            (false, false) => &["mirror", "blur"],
+            (true, true) if back_to_camera => &["change-picture", "use-camera"],
+            (true, true) => &["change-picture"],
+            (true, false) => &[],
+        };
+        let buttons = self.toolbar_buttons(3 + extras.len());
+        let extras = &extras[..buttons.saturating_sub(3).min(extras.len())];
         #[cfg(target_os = "macos")]
         let (mirror_failed, blur_failed) = (self.effect_failures.mirror, self.effect_failures.blur);
         #[cfg(not(target_os = "macos"))]
@@ -2426,34 +2583,76 @@ impl CameraWindow {
                             });
                         },
                     ))
-                    .when(buttons >= 4, |bar| {
-                        bar.child(self.toolbar_button(
-                            "mirror",
-                            "icons/triangles-centerline-dashed-horizontal.svg",
-                            self.state.mirrored && !mirror_failed,
-                            mirror_failed,
-                            cx,
-                            |this, window, cx| {
-                                this.mutate_state(window, cx, |state| {
-                                    state.mirrored = !state.mirrored
-                                });
-                            },
-                        ))
-                    })
-                    .when(buttons >= 5, |bar| {
-                        bar.child(self.toolbar_button(
-                            "blur",
-                            "icons/person-standing.svg",
-                            self.state.background_blur != BlurMode::Off && !blur_failed,
-                            blur_failed,
-                            cx,
-                            |this, window, cx| {
-                                this.mutate_state(window, cx, |state| {
-                                    state.background_blur = state.background_blur.cycle()
-                                });
-                            },
-                        ))
-                    })
+                    .children(extras.iter().map(|extra| {
+                        match *extra {
+                            "picture" => self
+                                .toolbar_button(
+                                    "picture",
+                                    "icons/image.svg",
+                                    false,
+                                    false,
+                                    cx,
+                                    |_, window, cx| {
+                                        crate::camera_picture::select_or_choose(window, cx)
+                                    },
+                                )
+                                .into_any_element(),
+                            "change-picture" => self
+                                .toolbar_button(
+                                    "change-picture",
+                                    "icons/image.svg",
+                                    true,
+                                    false,
+                                    cx,
+                                    |_, window, cx| crate::camera_picture::choose(window, cx),
+                                )
+                                .into_any_element(),
+                            "use-camera" => self
+                                .toolbar_button(
+                                    "use-camera",
+                                    "icons/webcam.svg",
+                                    false,
+                                    false,
+                                    cx,
+                                    |_, _, cx| {
+                                        if crate::camera_picture::can_change(cx) {
+                                            Feeds::global(cx).update(cx, |feeds, cx| {
+                                                feeds.use_previous_camera(cx)
+                                            });
+                                        }
+                                    },
+                                )
+                                .into_any_element(),
+                            "mirror" => self
+                                .toolbar_button(
+                                    "mirror",
+                                    "icons/triangles-centerline-dashed-horizontal.svg",
+                                    self.state.mirrored && !mirror_failed,
+                                    mirror_failed,
+                                    cx,
+                                    |this, window, cx| {
+                                        this.mutate_state(window, cx, |state| {
+                                            state.mirrored = !state.mirrored
+                                        });
+                                    },
+                                )
+                                .into_any_element(),
+                            _ => self
+                                .toolbar_button(
+                                    "blur",
+                                    "icons/person-standing.svg",
+                                    self.state.background_blur != BlurMode::Off && !blur_failed,
+                                    blur_failed,
+                                    cx,
+                                    |this, window, cx| {
+                                        this.mutate_state(window, cx, |state| {
+                                            state.background_blur = state.background_blur.cycle()
+                                        });
+                                    },
+                                )
+                                .into_any_element(),
+                        }
+                    }))
                     .child(
                         div()
                             .flex_none()
@@ -2699,9 +2898,9 @@ impl CameraWindow {
                 cx.notify();
             }
         }
-        let next = self
-            .picker_size
-            .unwrap_or_else(|| window_size(&self.state, self.frame_aspect()));
+        let next = self.picker_size.unwrap_or_else(|| {
+            bubble_window_size(&self.state, self.picture_aspect, self.frame_aspect())
+        });
         self.place_bubble(
             (
                 origin.0
