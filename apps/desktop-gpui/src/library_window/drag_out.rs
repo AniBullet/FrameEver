@@ -83,6 +83,7 @@ impl LibraryWindow {
         cx: &mut Context<Self>,
     ) -> Option<(SharedString, Theme)> {
         self.change_selection(cx, |selection, _| selection.context_click(path));
+        self.library.organizer.dragging_out = true;
         let files = self.library_files_to_share();
         let notice = library::share_gap(self.library.selected_entries())
             .map(|gap| (drag_notice_text(gap), self.theme));
@@ -92,7 +93,7 @@ impl LibraryWindow {
         #[cfg(target_os = "windows")]
         {
             let source = platform::native_window(window);
-            cx.spawn_in(window, async move |_, cx| {
+            cx.spawn_in(window, async move |this, cx| {
                 if let Err(error) = platform::drag_files_out(source, &files) {
                     tracing::warn!("library drag-out failed: {error}");
                 }
@@ -100,6 +101,8 @@ impl LibraryWindow {
                     cx.stop_active_drag(window);
                 })
                 .ok();
+                this.update(cx, |this, _| this.library.organizer.dragging_out = false)
+                    .ok();
             })
             .detach();
         }

@@ -1,7 +1,7 @@
 use std::{cell::RefCell, path::Path, rc::Rc};
 
 use gpui::{
-    Bounds, Context, InteractiveElement, IntoElement, ParentElement, Pixels, Point,
+    Bounds, Context, InteractiveElement, IntoElement, ParentElement, Pixels, Point, SharedString,
     StatefulInteractiveElement, Styled, Window, anchored, canvas, deferred, div, point,
     prelude::FluentBuilder, px, svg,
 };
@@ -36,6 +36,14 @@ pub(super) enum Command {
     Sort(SortKey),
     Direction(SortDirection),
     ShowAs(ViewMode),
+    Pin,
+    AddToFolder,
+    RemoveFromFolder,
+    ToggleFolder(usize),
+    NewFolder,
+    RenameFolder,
+    EditRules,
+    DeleteFolder,
 }
 
 impl Command {
@@ -43,6 +51,7 @@ impl Command {
         match self {
             Self::SortBy => Some(Submenu::Sort),
             Self::View => Some(Submenu::View),
+            Self::AddToFolder => Some(Submenu::Folders),
             _ => None,
         }
     }
@@ -54,24 +63,43 @@ pub(super) struct ItemActions {
     compressible: bool,
     saves_gif: bool,
     copyable: bool,
+    in_folder: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Target {
     Blank,
     One(ItemActions),
-    Many { compressible: bool, copyable: bool },
+    Many {
+        compressible: bool,
+        copyable: bool,
+        in_folder: bool,
+    },
+    Folders(usize),
+    Folder {
+        smart: bool,
+    },
 }
 
 impl Target {
-    fn of(entry: &Entry) -> Self {
+    fn of(entry: &Entry, in_folder: bool) -> Self {
         Self::One(ItemActions {
             opens: entry.opens_editor || entry.kind == MediaKind::Instant,
             compressible: entry.compressible,
             saves_gif: library::gif::can_save_as_gif(entry),
             copyable: library::file_to_share(entry).is_some(),
+            in_folder,
         })
     }
+}
+
+fn organize_commands(in_folder: bool) -> Vec<Option<Command>> {
+    let mut rows = vec![Some(Command::Pin), Some(Command::AddToFolder)];
+    if in_folder {
+        rows.push(Some(Command::RemoveFromFolder));
+    }
+    rows.push(None);
+    rows
 }
 
 pub(super) fn commands(target: Target) -> Vec<Option<Command>> {
@@ -83,11 +111,25 @@ pub(super) fn commands(target: Target) -> Vec<Option<Command>> {
             None,
             Some(Command::OpenStorage),
         ],
+        Target::Folders(count) => (0..count)
+            .map(|index| Some(Command::ToggleFolder(index)))
+            .chain((count > 0).then_some(None))
+            .chain([Some(Command::NewFolder)])
+            .collect(),
+        Target::Folder { smart } => {
+            let mut rows = vec![Some(Command::RenameFolder)];
+            if smart {
+                rows.push(Some(Command::EditRules));
+            }
+            rows.extend([None, Some(Command::DeleteFolder)]);
+            rows
+        }
         Target::Many {
             compressible,
             copyable,
+            in_folder,
         } => {
-            let mut rows = Vec::new();
+            let mut rows = organize_commands(in_folder);
             if compressible {
                 rows.push(Some(Command::Compress));
             }
@@ -104,7 +146,11 @@ pub(super) fn commands(target: Target) -> Vec<Option<Command>> {
                 if actions.copyable {
                     rows.push(Some(Command::OpenExternally));
                 }
-                rows.extend([None, Some(Command::Export)]);
+                rows.push(None);
+            }
+            rows.extend(organize_commands(actions.in_folder));
+            if actions.opens {
+                rows.push(Some(Command::Export));
                 if actions.compressible {
                     rows.push(Some(Command::Compress));
                 }
@@ -166,6 +212,7 @@ fn next_row(rows: &[Option<Command>], from: Option<usize>, forward: bool) -> Opt
 enum Submenu {
     Sort,
     View,
+    Folders,
 }
 
 pub(super) struct ContextMenu {
@@ -196,15 +243,51 @@ impl LibraryWindow {
         cx: &mut Context<Self>,
     ) {
         self.change_selection(cx, |selection, _| selection.context_click(path));
+        let in_folder = self.open_folder().is_some();
         let target = if self.library.selection.items().len() > 1 {
             Target::Many {
                 compressible: !self.library_compressible().is_empty(),
                 copyable: !self.library_files_to_share().is_empty(),
+                in_folder,
             }
         } else {
-            self.library.entry(path).map_or(Target::Blank, Target::of)
+            self.library
+                .entry(path)
+                .map_or(Target::Blank, |entry| Target::of(entry, in_folder))
         };
         self.library.context = Some(ContextMenu::new(position, target));
+        cx.notify();
+    }
+
+    fn open_folder(&self) -> Option<&library::folders::Folder> {
+        let crate::library::places::Place::Folder(id) = &self.library.organizer.place else {
+            return None;
+        };
+        self.library
+            .organizer
+            .file
+            .folders
+            .iter()
+            .find(|folder| &folder.id == id)
+    }
+
+    pub(super) fn open_library_folders_menu(
+        &mut self,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let count = self.library.organizer.file.folders.len();
+        self.library.context = Some(ContextMenu::new(position, Target::Folders(count)));
+        cx.notify();
+    }
+
+    pub(super) fn open_library_folder_menu(
+        &mut self,
+        position: Point<Pixels>,
+        smart: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.library.context = Some(ContextMenu::new(position, Target::Folder { smart }));
         cx.notify();
     }
 
@@ -241,6 +324,9 @@ impl LibraryWindow {
         match submenu {
             Submenu::Sort => sort_commands(self.library.state.sort),
             Submenu::View => view_commands(),
+            Submenu::Folders => {
+                commands(Target::Folders(self.library.organizer.file.folders.len()))
+            }
         }
     }
 
@@ -330,31 +416,83 @@ impl LibraryWindow {
                 self.change_library_view(cx, |state| state.direction = direction);
             }
             Command::ShowAs(mode) => self.show_library_as(mode, cx),
-            Command::SortBy | Command::View => {}
+            Command::Pin => self.pin_library_selection(window, cx),
+            Command::RemoveFromFolder => {
+                if let Some(folder) = self.open_folder().map(|folder| folder.id.clone()) {
+                    self.remove_selection_from_folder(folder, window, cx);
+                }
+            }
+            Command::ToggleFolder(index) => {
+                let folder = self
+                    .library
+                    .organizer
+                    .file
+                    .folders
+                    .get(index)
+                    .map(|folder| folder.id.clone());
+                if let Some(folder) = folder {
+                    self.toggle_selection_in_folder(folder, window, cx);
+                }
+            }
+            Command::NewFolder => self.new_library_folder(true, window, cx),
+            Command::RenameFolder => self.rename_focused_folder(window, cx),
+            Command::EditRules => {
+                if let crate::library::places::Place::Smart(id) =
+                    self.library.organizer.place.clone()
+                {
+                    self.open_smart_dialog(Some(id), window, cx);
+                }
+            }
+            Command::DeleteFolder => self.delete_focused_folder(window, cx),
+            Command::SortBy | Command::View | Command::AddToFolder => {}
         }
     }
 
-    fn command_label(&self, command: Command) -> &'static str {
+    fn command_label(&self, command: Command) -> SharedString {
         match command {
-            Command::Open => t!("Open"),
-            Command::Preview => t!("Preview"),
-            Command::OpenExternally => t!("Open in default app"),
-            Command::Export => t!("Export…"),
-            Command::Compress => t!("Compress"),
-            Command::SaveAsGif => t!("Save as GIF…"),
-            Command::Rename => t!("Rename"),
-            Command::CopyFile => t!("Copy file"),
-            Command::CopyFiles => t!("Copy files"),
-            Command::Reveal => t!("Show in folder"),
-            Command::Delete => t!("Delete…"),
-            Command::SortBy => t!("Sort by"),
-            Command::View => tc!("library menu", "View"),
-            Command::Refresh => t!("Refresh"),
-            Command::OpenStorage => t!("Open storage folder"),
-            Command::Sort(sort) => column_label(Some(sort)),
-            Command::Direction(direction) => direction_label(self.library.state.sort, direction),
-            Command::ShowAs(ViewMode::Grid) => t!("Grid"),
-            Command::ShowAs(ViewMode::List) => t!("List"),
+            Command::Open => t!("Open").into(),
+            Command::Preview => t!("Preview").into(),
+            Command::OpenExternally => t!("Open in default app").into(),
+            Command::Export => t!("Export…").into(),
+            Command::Compress => t!("Compress").into(),
+            Command::SaveAsGif => t!("Save as GIF…").into(),
+            Command::Rename => t!("Rename").into(),
+            Command::CopyFile => t!("Copy file").into(),
+            Command::CopyFiles => t!("Copy files").into(),
+            Command::Reveal => t!("Show in folder").into(),
+            Command::Delete => t!("Delete…").into(),
+            Command::SortBy => t!("Sort by").into(),
+            Command::View => tc!("library menu", "View").into(),
+            Command::Refresh => t!("Refresh").into(),
+            Command::OpenStorage => t!("Open storage folder").into(),
+            Command::Sort(sort) => column_label(Some(sort)).into(),
+            Command::Direction(direction) => {
+                direction_label(self.library.state.sort, direction).into()
+            }
+            Command::ShowAs(ViewMode::Grid) => t!("Grid").into(),
+            Command::ShowAs(ViewMode::List) => t!("List").into(),
+            Command::Pin if self.selection_pinned() => t!("Unpin").into(),
+            Command::Pin => t!("Pin").into(),
+            Command::AddToFolder => t!("Add to folder").into(),
+            Command::RemoveFromFolder => self
+                .open_folder()
+                .map_or_else(SharedString::default, |folder| {
+                    t!("Remove from {folder}", folder = folder.name).into()
+                }),
+            Command::ToggleFolder(index) => self
+                .library
+                .organizer
+                .file
+                .folders
+                .get(index)
+                .map_or_else(SharedString::default, |folder| folder.name.clone().into()),
+            Command::NewFolder => t!("New folder…").into(),
+            Command::RenameFolder => t!("Rename").into(),
+            Command::EditRules => t!("Edit rules…").into(),
+            Command::DeleteFolder => match self.library.organizer.place {
+                crate::library::places::Place::Smart(_) => t!("Delete smart folder").into(),
+                _ => t!("Delete folder").into(),
+            },
         }
     }
 
@@ -375,6 +513,13 @@ impl LibraryWindow {
             Command::Sort(sort) => sort == state.sort,
             Command::Direction(direction) => direction == state.direction,
             Command::ShowAs(mode) => mode == state.view,
+            Command::ToggleFolder(index) => self
+                .library
+                .organizer
+                .file
+                .folders
+                .get(index)
+                .is_some_and(|folder| self.selection_in_folder(&folder.id)),
             _ => false,
         }
     }
@@ -400,9 +545,10 @@ impl LibraryWindow {
                 let ticked = self.command_ticked(command);
                 self.popup_row(("library-context-row", index))
                     .when(highlight == Some(index), |this| this.bg(theme.accent))
-                    .when(command == Command::Delete, |this| {
-                        this.text_color(theme.danger_text)
-                    })
+                    .when(
+                        matches!(command, Command::Delete | Command::DeleteFolder),
+                        |this| this.text_color(theme.danger_text),
+                    )
                     .child(
                         div()
                             .flex_1()
@@ -517,6 +663,7 @@ mod tests {
             compressible,
             saves_gif: false,
             copyable,
+            in_folder: false,
         })
     }
 
@@ -527,6 +674,7 @@ mod tests {
             compressible: true,
             saves_gif: true,
             copyable: true,
+            in_folder: false,
         });
         assert_eq!(
             listed(instant),
@@ -534,6 +682,8 @@ mod tests {
                 Command::Open,
                 Command::Preview,
                 Command::OpenExternally,
+                Command::Pin,
+                Command::AddToFolder,
                 Command::Export,
                 Command::Compress,
                 Command::SaveAsGif,
@@ -563,6 +713,8 @@ mod tests {
             screenshot: None,
             opens_editor: false,
             audio_only: false,
+            id: None,
+            rebuilt: None,
         }
     }
 
@@ -628,6 +780,8 @@ mod tests {
                 Command::Open,
                 Command::Preview,
                 Command::OpenExternally,
+                Command::Pin,
+                Command::AddToFolder,
                 Command::Export,
                 Command::Rename,
                 Command::CopyFile,
@@ -651,10 +805,66 @@ mod tests {
     }
 
     #[test]
-    fn a_recording_still_in_progress_can_only_be_named_shown_or_deleted() {
+    fn a_recording_still_in_progress_can_only_be_organized_named_shown_or_deleted() {
         assert_eq!(
             listed(one(false, false, false)),
-            [Command::Rename, Command::Reveal, Command::Delete]
+            [
+                Command::Pin,
+                Command::AddToFolder,
+                Command::Rename,
+                Command::Reveal,
+                Command::Delete
+            ]
+        );
+    }
+
+    #[test]
+    fn inside_a_folder_the_menu_offers_to_take_items_out() {
+        let inside = Target::One(ItemActions {
+            in_folder: true,
+            ..ItemActions::default()
+        });
+        assert_eq!(
+            listed(inside)[..3],
+            [
+                Command::Pin,
+                Command::AddToFolder,
+                Command::RemoveFromFolder
+            ]
+        );
+        assert!(
+            listed(Target::Many {
+                compressible: false,
+                copyable: false,
+                in_folder: true,
+            })
+            .contains(&Command::RemoveFromFolder)
+        );
+    }
+
+    #[test]
+    fn the_folder_list_ends_with_new_folder_and_a_folder_has_its_own_menu() {
+        assert_eq!(
+            commands(Target::Folders(2)),
+            [
+                Some(Command::ToggleFolder(0)),
+                Some(Command::ToggleFolder(1)),
+                None,
+                Some(Command::NewFolder)
+            ]
+        );
+        assert_eq!(commands(Target::Folders(0)), [Some(Command::NewFolder)]);
+        assert_eq!(
+            listed(Target::Folder { smart: true }),
+            [
+                Command::RenameFolder,
+                Command::EditRules,
+                Command::DeleteFolder
+            ]
+        );
+        assert_eq!(
+            listed(Target::Folder { smart: false }),
+            [Command::RenameFolder, Command::DeleteFolder]
         );
     }
 
@@ -664,15 +874,24 @@ mod tests {
             listed(Target::Many {
                 compressible: false,
                 copyable: false,
+                in_folder: false,
             }),
-            [Command::Reveal, Command::Delete]
+            [
+                Command::Pin,
+                Command::AddToFolder,
+                Command::Reveal,
+                Command::Delete
+            ]
         );
         assert_eq!(
             listed(Target::Many {
                 compressible: true,
                 copyable: true,
+                in_folder: false,
             }),
             [
+                Command::Pin,
+                Command::AddToFolder,
                 Command::Compress,
                 Command::CopyFiles,
                 Command::Reveal,

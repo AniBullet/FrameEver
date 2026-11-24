@@ -6,6 +6,8 @@ mod gif;
 mod overlay;
 mod preview;
 mod scrub;
+mod sidebar;
+mod smart;
 
 use std::{
     cell::RefCell,
@@ -107,6 +109,7 @@ gpui::actions!(
 );
 
 pub fn bind_keys(cx: &mut gpui::App) {
+    sidebar::bind_keys(cx);
     let context = Some("LibraryWindow");
     cx.bind_keys([
         gpui::KeyBinding::new("ctrl-l", ShowRecorder, context),
@@ -163,6 +166,8 @@ pub struct LibraryWindow {
     memory_save_task: Option<Task<()>>,
     _search_events: gpui::Subscription,
     _name_events: gpui::Subscription,
+    _folder_name_events: gpui::Subscription,
+    _day_task: Task<()>,
 }
 
 impl LibraryWindow {
@@ -198,9 +203,13 @@ impl LibraryWindow {
         let search_events = cx.subscribe_in(&search_input, window, Self::on_search_event);
         let name_input = cx.new(|cx| ui::TextInputState::single_line(window, cx));
         let name_events = cx.subscribe(&name_input, Self::on_library_name_event);
+        let folder_input = cx.new(|cx| ui::TextInputState::single_line(window, cx));
+        let folder_name_events = cx.subscribe_in(&folder_input, window, Self::on_folder_name_event);
+        let organizer = sidebar::Organizer::new(folder_input, cx.focus_handle());
+        let day_task = Self::watch_library_day(window, cx);
         Self {
             theme: Theme::for_window(window, cx, false),
-            library: LibraryPage::new(name_input, cx.focus_handle(), cx.focus_handle()),
+            library: LibraryPage::new(name_input, cx.focus_handle(), cx.focus_handle(), organizer),
             shown: false,
             search: String::new(),
             search_input,
@@ -211,6 +220,8 @@ impl LibraryWindow {
             memory_save_task: None,
             _search_events: search_events,
             _name_events: name_events,
+            _folder_name_events: folder_name_events,
+            _day_task: day_task,
         }
     }
 
@@ -554,6 +565,9 @@ impl gpui::Render for LibraryWindow {
             .on_action(cx.listener(|this, _: &FocusLibrarySearch, window, cx| {
                 this.focus_library_search(window, cx);
             }))
+            .on_action(cx.listener(|this, _: &sidebar::ToggleSidebar, _, cx| {
+                this.toggle_library_sidebar(cx);
+            }))
             .on_action(cx.listener(|this, _: &LargerTiles, _, cx| {
                 this.step_library_tiles(1, cx);
             }))
@@ -666,7 +680,9 @@ impl gpui::Render for LibraryWindow {
             .children(self.render_library_marquee(cx))
             .children(self.render_library_undo(cx))
             .children(self.render_library_gif_toast())
+            .children(self.render_folder_toast(cx))
             .children(self.render_library_dialog(cx))
+            .children(self.render_smart_dialog(cx))
             .children(self.render_library_gif(cx))
             .children(self.palette.view())
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| {
@@ -768,13 +784,16 @@ pub(super) struct LibraryPage {
     gif: gif::GifState,
     compress: CompressQueue,
     last_click: Option<PathBuf>,
+    organizer: sidebar::Organizer,
+    smart: Option<smart::SmartDraft>,
 }
 
 impl LibraryPage {
-    pub(super) fn new(
+    fn new(
         name_input: Entity<ui::TextInputState>,
         items_focus: FocusHandle,
         overlay_focus: FocusHandle,
+        organizer: sidebar::Organizer,
     ) -> Self {
         Self {
             pending_selection: None,
@@ -819,6 +838,8 @@ impl LibraryPage {
             gif: gif::GifState::default(),
             compress: CompressQueue::default(),
             last_click: None,
+            organizer,
+            smart: None,
         }
     }
 
@@ -839,7 +860,7 @@ impl LibraryPage {
     }
 
     pub(super) fn dialog_open(&self) -> bool {
-        self.delete.dialog_open() || self.gif.dialog_open()
+        self.delete.dialog_open() || self.gif.dialog_open() || self.smart.is_some()
     }
 
     fn entry(&self, path: &Path) -> Option<&Entry> {
@@ -1017,17 +1038,18 @@ impl LibraryWindow {
     pub(super) fn refresh_library(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let active = crate::session::RecordingSession::active_project_dir_in(cx);
         self.library.scan_task = Some(cx.spawn_in(window, async move |this, cx| {
-            let (entries, dirs) = cx
+            let (entries, dirs, file) = cx
                 .background_executor()
                 .spawn(async move {
                     (
                         library::list_entries(active.as_deref()),
                         library::watched_dirs(),
+                        sidebar::read_library_file(),
                     )
                 })
                 .await;
             this.update_in(cx, |this, window, cx| {
-                this.set_library_entries(entries, dirs, window, cx);
+                this.set_library_entries(entries, dirs, file, window, cx);
             })
             .ok();
         }));
@@ -1037,9 +1059,21 @@ impl LibraryWindow {
         &mut self,
         entries: Vec<Entry>,
         dirs: Vec<PathBuf>,
+        file: library::folders::LibraryFile,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let unchanged = self.library.entries.as_ref() == Some(&entries)
+            && self.library.organizer.file == file
+            && self.library.pending_selection.is_none();
+        if self.shown && dirs != self.library.watched {
+            self.watch_library(dirs.clone(), window, cx);
+        }
+        if unchanged {
+            return;
+        }
+        self.library.organizer.file = file;
+        self.load_library_visuals(&entries, window, cx);
         if !self.library.fresh.is_empty() && !crate::store::load().library_first_line_shown {
             self.library.first_line = entries.len() <= self.library.fresh.len();
             cx.background_spawn(async {
@@ -1061,9 +1095,6 @@ impl LibraryWindow {
             } else {
                 tracing::warn!(path = %path.display(), "the recent project is no longer in the library");
             }
-        }
-        if self.shown && dirs != self.library.watched {
-            self.watch_library(dirs, window, cx);
         }
     }
 
@@ -1091,12 +1122,19 @@ impl LibraryWindow {
         let Some(entries) = &page.entries else {
             return;
         };
-        page.view = view::build(
+        let clock = Clock::now();
+        let organizer = &mut page.organizer;
+        organizer.places = library::places::Places::work_out(&organizer.file, entries, &clock);
+        if !organizer.places.exists(&organizer.place) {
+            organizer.place = library::places::Place::All;
+        }
+        page.view = view::build_in(
             entries,
             &page.state,
             &self.search,
             &page.fresh,
-            &Clock::now(),
+            &clock,
+            organizer.places.members(&organizer.place),
         );
         page.order = page.view.order(entries);
         page.selection.retain(&page.order);
@@ -1128,7 +1166,10 @@ impl LibraryWindow {
     }
 
     pub(super) fn sync_library_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let width = f32::from(window.viewport_size().width) - self.library.panel_width();
+        let viewport = f32::from(window.viewport_size().width);
+        self.sync_sidebar_width(viewport);
+        let width = viewport - self.library.panel_width() - self.sidebar_width();
+
         let columns = view::columns(width - PADDING * 2., self.library.state.tile_size);
         let tab = self.library.state.tab;
         let imports: Vec<usize> = crate::import::imports_snapshot(cx)
@@ -1568,6 +1609,102 @@ impl LibraryWindow {
         image
     }
 
+    pub(super) fn render_tile_cover(
+        &self,
+        entry: &Entry,
+        image: Option<Arc<RenderImage>>,
+        icon_size: f32,
+    ) -> AnyElement {
+        let theme = self.theme;
+        let visual = self.library.organizer.visuals.get(&entry.path);
+        if entry.audio_only
+            && let Some(wave) = visual.and_then(|visual| visual.wave.as_ref())
+        {
+            return wave_bars(&theme, wave).into_any_element();
+        }
+        let picture = match image {
+            Some(image) => img(image)
+                .size_full()
+                .object_fit(gpui::ObjectFit::Contain)
+                .into_any_element(),
+            None => div()
+                .flex()
+                .size_full()
+                .items_center()
+                .justify_center()
+                .child(
+                    svg()
+                        .path(entry_icon(entry))
+                        .size(px(icon_size))
+                        .text_color(theme.muted_foreground),
+                )
+                .into_any_element(),
+        };
+        match visual.and_then(|visual| visual.excerpt.as_deref()) {
+            Some(excerpt) => div()
+                .relative()
+                .size_full()
+                .child(picture)
+                .child(caption_band(&theme, excerpt, 11.))
+                .into_any_element(),
+            None => picture,
+        }
+    }
+
+    fn load_library_visuals(
+        &mut self,
+        entries: &[Entry],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let jobs: Vec<library::visuals::Job> = entries
+            .iter()
+            .filter_map(library::visuals::Job::of)
+            .collect();
+        let keep: std::collections::HashSet<PathBuf> =
+            jobs.iter().map(|job| job.project.clone()).collect();
+        self.library.organizer.visuals_task = Some(cx.spawn_in(window, async move |this, cx| {
+            let dir = library::thumbnail_cache_dir();
+            let cache = dir.clone();
+            let (known, todo) = cx
+                .background_executor()
+                .spawn(async move { library::visuals::cached(jobs, &cache) })
+                .await;
+            let shown = this.update(cx, |this, cx| {
+                this.library.organizer.visuals = known;
+                cx.notify();
+            });
+            if shown.is_err() {
+                return;
+            }
+            let done: Vec<(PathBuf, String, library::visuals::Visual)> = cx
+                .background_executor()
+                .spawn(async move {
+                    todo.into_iter()
+                        .map(|(job, stamp)| {
+                            let visual = library::visuals::work(&job);
+                            (job.project, stamp, visual)
+                        })
+                        .collect()
+                })
+                .await;
+            let worked: Vec<(PathBuf, library::visuals::Visual)> = done
+                .iter()
+                .map(|(project, _, visual)| (project.clone(), visual.clone()))
+                .collect();
+            let stored = this.update(cx, |this, cx| {
+                this.library.organizer.visuals.extend(worked);
+                cx.notify();
+            });
+            if stored.is_err() {
+                return;
+            }
+            cx.background_executor()
+                .spawn(async move { library::visuals::remember(&dir, &done, &keep) })
+                .await;
+        }));
+    }
+
     fn run_thumbnail_jobs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if std::mem::replace(&mut self.library.thumbnails.running, true) {
             return;
@@ -1670,12 +1807,16 @@ impl LibraryWindow {
                     .flex()
                     .flex_1()
                     .min_h_0()
+                    .when(self.sidebar_width() > 0., |this| {
+                        this.child(self.render_library_sidebar(cx))
+                    })
                     .child(
                         div()
                             .flex()
                             .flex_col()
                             .flex_1()
                             .min_w_0()
+                            .children(self.render_place_title(cx))
                             .when(self.shows_list_head(), |this| {
                                 this.child(self.render_list_head(cx))
                             })
@@ -1769,6 +1910,7 @@ impl LibraryWindow {
             .px(px(PADDING))
             .border_b_1()
             .border_color(theme.border)
+            .child(self.render_sidebar_toggle(cx))
             .child(self.render_library_tabs(cx))
             .child(
                 div()
@@ -2260,6 +2402,8 @@ impl LibraryWindow {
         }
         match self.library.surface {
             Some(Surface::Empty) => body.child(self.render_library_empty(cx)).into_any_element(),
+            Some(Surface::EmptyPlace) => body.child(self.render_empty_place()).into_any_element(),
+
             Some(Surface::NoMatch) => body
                 .child(self.render_library_no_match(cx))
                 .into_any_element(),
@@ -2624,6 +2768,10 @@ impl LibraryWindow {
             };
         }
         let selected = self.library.selection.contains(&entry.path);
+        let pinned = entry
+            .id
+            .as_deref()
+            .is_some_and(|id| self.library.organizer.file.is_pinned(id));
         let tile = self.selection_look(
             div()
                 .id(library::row_id(&entry.path))
@@ -2664,33 +2812,51 @@ impl LibraryWindow {
                     .rounded(px(6.))
                     .overflow_hidden()
                     .bg(theme.muted)
-                    .child(match image {
-                        Some(image) => img(image)
-                            .size_full()
-                            .object_fit(gpui::ObjectFit::Contain)
-                            .into_any_element(),
-                        None => div()
-                            .flex()
-                            .size_full()
-                            .items_center()
-                            .justify_center()
+                    .child(self.render_tile_cover(entry, image, 24.))
+                    .child(
+                        tile_corner(&theme)
+                            .top(px(4.))
+                            .left(px(4.))
+                            .gap(px(2.))
                             .child(
                                 svg()
                                     .path(entry_icon(entry))
-                                    .size(px(24.))
-                                    .text_color(theme.muted_foreground),
+                                    .size(px(14.))
+                                    .text_color(gpui::white()),
                             )
-                            .into_any_element(),
-                    })
-                    .child(
-                        tile_corner(&theme).top(px(4.)).left(px(4.)).child(
-                            svg()
-                                .path(kind_icon(entry.kind))
-                                .size(px(14.))
-                                .text_color(gpui::white()),
-                        ),
+                            .when(pinned, |this| {
+                                this.child(
+                                    svg()
+                                        .path("icons/pin.svg")
+                                        .size(px(14.))
+                                        .text_color(gpui::white()),
+                                )
+                            }),
                     )
-                    .when(entry.exported(), |this| {
+                    .when(entry.rebuilt.is_some(), |this| {
+                        this.child(
+                            tile_corner(&theme)
+                                .id("library-tile-rebuilt")
+                                .top(px(4.))
+                                .right(px(4.))
+                                .bg(theme.warning)
+                                .tooltip(move |_, cx| {
+                                    ui::Tooltip::new(
+                                        &theme,
+                                        t!("Rebuilt from a damaged project file"),
+                                    )
+                                    .view(cx)
+                                })
+                                .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+                                .child(
+                                    svg()
+                                        .path("icons/triangle-alert.svg")
+                                        .size(px(14.))
+                                        .text_color(theme.warning_foreground),
+                                ),
+                        )
+                    })
+                    .when(entry.rebuilt.is_none() && entry.exported(), |this| {
                         this.child(
                             tile_corner(&theme).top(px(4.)).right(px(4.)).child(
                                 svg()
@@ -2876,6 +3042,41 @@ pub(crate) fn library_badge(theme: &Theme, count: usize) -> impl IntoElement {
         .text_size(px(11.))
         .text_color(theme.primary_foreground)
         .child(count.to_string())
+}
+
+fn wave_bars(theme: &Theme, wave: &library::visuals::Wave) -> gpui::Div {
+    div()
+        .flex()
+        .size_full()
+        .items_center()
+        .gap(px(2.))
+        .px(gpui::relative(0.06))
+        .bg(theme.muted)
+        .children(wave.iter().map(|bar| {
+            div()
+                .flex_1()
+                .rounded_full()
+                .h(gpui::relative(0.12 + 0.7 * f32::from(*bar) / 255.))
+                .bg(theme.muted_foreground)
+        }))
+}
+
+fn caption_band(theme: &Theme, excerpt: &str, size: f32) -> gpui::Div {
+    div()
+        .absolute()
+        .left(gpui::relative(0.08))
+        .right(gpui::relative(0.08))
+        .bottom(gpui::relative(0.1))
+        .px(px(6.))
+        .py(px(2.))
+        .rounded(px(3.))
+        .bg(black_alpha(0.72))
+        .text_color(theme.fixed_white)
+        .text_size(px(size))
+        .line_height(gpui::relative(1.35))
+        .text_center()
+        .line_clamp(2)
+        .child(excerpt.to_owned())
 }
 
 fn tile_corner(theme: &Theme) -> gpui::Div {

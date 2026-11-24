@@ -54,7 +54,7 @@ impl StatusFilter {
         Self::CompressedOnly,
     ];
 
-    fn matches(self, entry: &Entry) -> bool {
+    pub fn matches(self, entry: &Entry) -> bool {
         match self {
             Self::Exported => entry.exported(),
             Self::NotExported => entry.kind != MediaKind::Screenshot && !entry.exported(),
@@ -129,6 +129,8 @@ pub struct ViewState {
     pub tile_size: f32,
     #[serde(default)]
     pub view: ViewMode,
+    #[serde(default)]
+    pub sidebar_hidden: bool,
 }
 
 impl Default for ViewState {
@@ -140,6 +142,7 @@ impl Default for ViewState {
             direction: SortDirection::Descending,
             tile_size: TILE_DEFAULT,
             view: ViewMode::Grid,
+            sidebar_hidden: false,
         }
     }
 }
@@ -220,6 +223,8 @@ pub struct Entry {
     pub screenshot: Option<PathBuf>,
     pub opens_editor: bool,
     pub audio_only: bool,
+    pub id: Option<String>,
+    pub rebuilt: Option<PathBuf>,
 }
 
 impl Entry {
@@ -265,7 +270,7 @@ impl Clock {
         }
     }
 
-    fn date_of(&self, millis: f64) -> NaiveDate {
+    pub fn date_of(&self, millis: f64) -> NaiveDate {
         DateTime::from_timestamp_millis(millis as i64).map_or(self.today, |time| {
             time.with_timezone(&self.offset).date_naive()
         })
@@ -320,6 +325,7 @@ pub struct Section {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LibraryView {
     pub total: usize,
+    pub in_place: usize,
     pub tab_counts: [usize; 4],
     pub status_counts: [usize; 4],
     pub sections: Vec<Section>,
@@ -330,6 +336,7 @@ pub struct LibraryView {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Surface {
     Empty,
+    EmptyPlace,
     NoMatch,
     Items,
 }
@@ -340,6 +347,8 @@ impl LibraryView {
             Surface::Items
         } else if self.total == 0 {
             Surface::Empty
+        } else if self.in_place == 0 {
+            Surface::EmptyPlace
         } else {
             Surface::NoMatch
         }
@@ -376,11 +385,25 @@ pub fn build(
     fresh: &[PathBuf],
     clock: &Clock,
 ) -> LibraryView {
+    build_in(entries, state, query, fresh, clock, None)
+}
+
+pub fn build_in(
+    entries: &[Entry],
+    state: &ViewState,
+    query: &str,
+    fresh: &[PathBuf],
+    clock: &Clock,
+    place: Option<&[usize]>,
+) -> LibraryView {
     let needle = query.trim().to_lowercase();
+    let held = |index: &usize| place.is_none_or(|members| members.binary_search(index).is_ok());
+    let in_place = (0..entries.len()).filter(held).count();
     let mut items: Vec<usize> = (0..entries.len())
         .filter(|index| {
             let entry = &entries[*index];
-            state.tab.holds(entry.kind)
+            held(index)
+                && state.tab.holds(entry.kind)
                 && (state.statuses.is_empty()
                     || state.statuses.iter().any(|status| status.matches(entry)))
                 && matches_search(entry, &needle)
@@ -413,6 +436,7 @@ pub fn build(
 
     LibraryView {
         total: entries.len(),
+        in_place,
         tab_counts: Tab::ALL.map(|tab| entries.iter().filter(|e| tab.holds(e.kind)).count()),
         status_counts: StatusFilter::ALL
             .map(|status| entries.iter().filter(|e| status.matches(e)).count()),
@@ -723,6 +747,8 @@ mod tests {
             screenshot: None,
             opens_editor: false,
             audio_only: false,
+            id: None,
+            rebuilt: None,
         }
     }
 
@@ -982,6 +1008,60 @@ mod tests {
         let view = build(&entries, &state, "", &fresh, &clock());
         assert_eq!(names(&view, &entries), ["new", "earlier", "old"]);
         assert_eq!(view.sections.len(), 2);
+    }
+
+    #[test]
+    fn a_place_narrows_what_search_tabs_and_status_work_inside() {
+        let entries = library();
+        let in_place = [0, 1];
+        let view = build_in(
+            &entries,
+            &ViewState::default(),
+            "",
+            &[],
+            &clock(),
+            Some(&in_place),
+        );
+        assert_eq!(names(&view, &entries), ["demo", "Bug"]);
+        assert_eq!(view.tab_count(Tab::All), 4);
+        let state = ViewState {
+            tab: Tab::Instant,
+            ..ViewState::default()
+        };
+        let view = build_in(&entries, &state, "", &[], &clock(), Some(&in_place));
+        assert_eq!(names(&view, &entries), ["Bug"]);
+        let view = build_in(
+            &entries,
+            &ViewState::default(),
+            "launch",
+            &[],
+            &clock(),
+            Some(&in_place),
+        );
+        assert_eq!(names(&view, &entries), ["demo"]);
+    }
+
+    #[test]
+    fn an_empty_place_is_not_a_failed_search() {
+        let entries = library();
+        let view = build_in(
+            &entries,
+            &ViewState::default(),
+            "",
+            &[],
+            &clock(),
+            Some(&[]),
+        );
+        assert_eq!(view.surface(false), Surface::EmptyPlace);
+        let view = build_in(
+            &entries,
+            &ViewState::default(),
+            "zzz",
+            &[],
+            &clock(),
+            Some(&[2]),
+        );
+        assert_eq!(view.surface(false), Surface::NoMatch);
     }
 
     #[test]
@@ -1314,6 +1394,7 @@ mod tests {
             tab: Tab::Instant,
             view: ViewMode::List,
             tile_size: 200.,
+            sidebar_hidden: true,
             ..ViewState::default()
         };
         state.set_sort(SortKey::Duration);

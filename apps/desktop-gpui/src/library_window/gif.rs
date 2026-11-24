@@ -361,7 +361,9 @@ impl LibraryWindow {
     }
 
     pub(super) fn dismiss_library_dialog(&mut self, cx: &mut Context<Self>) {
-        if self.library.gif.dialog_open() {
+        if self.library.smart.is_some() {
+            self.close_smart_dialog(cx);
+        } else if self.library.gif.dialog_open() {
             self.cancel_library_gif(cx);
         } else {
             self.close_library_dialog(cx);

@@ -53,6 +53,8 @@ impl Fixture {
             screenshot: None,
             opens_editor: true,
             audio_only: false,
+            id: None,
+            rebuilt: None,
         }
     }
 }

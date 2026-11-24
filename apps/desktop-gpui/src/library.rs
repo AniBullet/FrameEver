@@ -29,7 +29,7 @@ use frameever_project::{
 };
 use frameever_recording::{recovery::RecoveryManager, upload_resume::UploadLock};
 use frameever_utils::storage::{
-    ExportRecord, ProjectKind, Storage, StorageSettings, is_project, last_export_folder,
+    self, ExportRecord, ProjectKind, Storage, StorageSettings, is_project, last_export_folder,
     last_export_folder_entry,
 };
 use gpui::{App, ElementId, RenderImage};
@@ -37,11 +37,15 @@ use gpui::{App, ElementId, RenderImage};
 use crate::i18n::t;
 
 pub mod compress_queue;
+pub mod folders;
 pub mod gif;
+pub mod places;
 pub mod player;
 pub mod recycle;
+pub mod rules;
 mod versions;
 pub mod view;
+pub mod visuals;
 pub mod watch;
 pub use frameever_utils::storage::remove_export;
 pub use recycle::Deleted;
@@ -634,6 +638,8 @@ fn recording_entry(item: RecordingItem, active_recording: Option<&Path>) -> view
         opens_editor: item.opens_editor(active_recording),
         audio_only: item.audio_only,
         screenshot: None,
+        id: storage::project_id(&item.path),
+        rebuilt: storage::kept_copy(&item.path),
         name: item.pretty_name,
         thumbnail: item.thumbnail,
         thumbnail_version: item.thumbnail_version,
@@ -653,6 +659,8 @@ fn screenshot_entry(item: ScreenshotItem) -> view::Entry {
         clip_count: 1,
         opens_editor: true,
         audio_only: false,
+        id: storage::project_id(&item.bundle),
+        rebuilt: storage::kept_copy(&item.bundle),
         thumbnail_version: item.thumbnail.as_deref().and_then(source_mtime_nanos),
         thumbnail: item.thumbnail,
         screenshot: Some(item.path),
@@ -1559,7 +1567,7 @@ fn drain_decode_jobs<J, R>(
 /// this app's own identifier (cache data is regenerable, so it belongs where
 /// backups and migration skip it), not the `so.cap.desktop` app-data dir both
 /// apps share.
-fn thumbnail_cache_dir() -> PathBuf {
+pub(crate) fn thumbnail_cache_dir() -> PathBuf {
     // Verification runs point FRAMEEVER_GPUI_APP_DATA_DIR at a sandbox; a cache that
     // still wrote to the user's real one would leak state across runs.
     if std::env::var("FRAMEEVER_GPUI_APP_DATA_DIR").is_ok_and(|dir| !dir.trim().is_empty()) {

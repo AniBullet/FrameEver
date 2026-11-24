@@ -920,6 +920,157 @@ impl LibraryWindow {
         )
     }
 
+    fn render_detail_rebuilt(&self, entry: &Entry) -> Option<gpui::Div> {
+        let theme = self.theme;
+        let copy = entry.rebuilt.clone()?;
+        Some(
+            div()
+                .flex()
+                .items_start()
+                .gap(px(8.))
+                .p(px(10.))
+                .rounded(px(8.))
+                .bg(theme.warning_tint)
+                .text_color(theme.warning_text)
+                .child(
+                    svg()
+                        .path("icons/triangle-alert.svg")
+                        .size(px(14.))
+                        .mt(px(2.))
+                        .flex_shrink_0()
+                        .text_color(theme.warning_text),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(t!("Rebuilt from a damaged project file")),
+                        )
+                        .child(
+                            div()
+                                .mt(px(2.))
+                                .text_size(px(12.))
+                                .text_color(theme.foreground)
+                                .child(t!(
+                                    "Its recording is intact. Edits saved in the old file may be missing; FrameEver kept a copy of it."
+                                )),
+                        ),
+                )
+                .child(
+                    self.export_action(
+                        ("library-rebuilt-copy", 0),
+                        "icons/folder-open.svg",
+                        t!("Show the copy in folder"),
+                    )
+                    .on_click(move |_, _, cx| library::reveal_path(&copy, cx)),
+                ),
+        )
+    }
+
+    fn render_detail_folders(&self, entry: &Entry, cx: &mut Context<Self>) -> gpui::Div {
+        let theme = self.theme;
+        let file = &self.library.organizer.file;
+        let holders: Vec<(String, String)> = entry.id.as_deref().map_or_else(Vec::new, |id| {
+            file.folders
+                .iter()
+                .filter(|folder| folder.members.iter().any(|member| member == id))
+                .map(|folder| (folder.id.clone(), folder.name.clone()))
+                .collect()
+        });
+        let empty = holders.is_empty();
+        let chips = holders.into_iter().enumerate().map(|(index, (id, name))| {
+            let path = entry.path.clone();
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .h(px(24.))
+                .pl(px(8.))
+                .pr(px(4.))
+                .rounded(px(12.))
+                .border_1()
+                .border_color(theme.border)
+                .bg(theme.card)
+                .text_size(px(12.))
+                .child(
+                    svg()
+                        .path("icons/folder.svg")
+                        .size(px(14.))
+                        .text_color(theme.muted_foreground),
+                )
+                .child(name)
+                .child(
+                    focus_ring(
+                        div()
+                            .id(("library-folder-chip-remove", index))
+                            .tab_index(0)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(px(18.))
+                            .rounded_full()
+                            .cursor_pointer()
+                            .hover(move |style| style.bg(theme.accent))
+                            .tooltip(move |_, cx| {
+                                ui::Tooltip::new(&theme, t!("Remove from this folder")).view(cx)
+                            })
+                            .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+                            .child(
+                                svg()
+                                    .path("icons/x.svg")
+                                    .size(px(12.))
+                                    .text_color(theme.muted_foreground),
+                            ),
+                        theme,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.remove_from_folder(vec![path.clone()], id.clone(), window, cx);
+                    })),
+                )
+        });
+        let add = focus_ring(
+            div()
+                .id("library-folder-chip-add")
+                .tab_index(0)
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .h(px(24.))
+                .px(px(8.))
+                .rounded(px(12.))
+                .border_1()
+                .border_dashed()
+                .border_color(theme.border)
+                .cursor_pointer()
+                .text_size(px(12.))
+                .text_color(theme.muted_foreground)
+                .hover(move |style| style.bg(theme.accent))
+                .child(
+                    svg()
+                        .path("icons/plus.svg")
+                        .size(px(14.))
+                        .text_color(theme.muted_foreground),
+                )
+                .when(empty, |this| this.child(t!("Add to folder"))),
+            theme,
+        )
+        .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+            this.open_library_folders_menu(event.position(), cx);
+        }));
+        div().child(self.subhead(t!("Folders"))).child(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(6.))
+                .children(chips)
+                .child(add),
+        )
+    }
+
     pub(super) fn render_library_detail(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let theme = self.theme;
         if self.library.selection.items().len() > 1 {
@@ -1031,9 +1182,11 @@ impl LibraryWindow {
                         )
                         .child(self.render_detail_actions(&entry, cx))
                         .child(tools)
+                        .children(self.render_detail_rebuilt(&entry))
                         .children(self.render_detail_compress(&entry, cx))
                         .children(self.render_detail_versions(cx))
                         .children(self.render_detail_exports(&entry, cx))
+                        .child(self.render_detail_folders(&entry, cx))
                         .children(self.render_detail_info()),
                 )
                 .into_any_element(),

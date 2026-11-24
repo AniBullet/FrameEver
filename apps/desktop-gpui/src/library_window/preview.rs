@@ -540,6 +540,7 @@ impl LibraryWindow {
     ) -> AnyElement {
         let theme = self.theme;
         let preview = &self.library.detail.preview;
+        let painted = still.is_some();
         let image = self.preview_image(entry, still);
         if let Some(error) = preview.failed {
             div()
@@ -593,24 +594,15 @@ impl LibraryWindow {
                         .h(px(picture.1)),
                 )
                 .into_any_element()
+        } else if preview.frame.is_none() && !painted {
+            self.render_tile_cover(entry, image, 24.)
         } else if let Some(image) = image {
             img(image)
                 .size_full()
                 .object_fit(gpui::ObjectFit::Contain)
                 .into_any_element()
         } else {
-            div()
-                .flex()
-                .size_full()
-                .items_center()
-                .justify_center()
-                .child(
-                    svg()
-                        .path(super::entry_icon(entry))
-                        .size(px(24.))
-                        .text_color(theme.muted_foreground),
-                )
-                .into_any_element()
+            self.render_tile_cover(entry, None, 24.)
         }
     }
 
