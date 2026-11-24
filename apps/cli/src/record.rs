@@ -351,9 +351,7 @@ async fn run_detached(params: RecordParams, format: OutputFormat) -> Result<(), 
         // The worker is already recording in its own process group. If we cannot hand the caller the
         // recordingId it could never stop it, so tear the recording down rather than leak an orphan.
         let _ = session::request_stop(&recording_id);
-        if session::process_alive(pid) {
-            session::terminate(pid);
-        }
+        session::terminate(&session);
         return Err(format!(
             "{error}; background recording {recording_id} was stopped because its start event could not be delivered"
         ));
@@ -380,7 +378,7 @@ async fn wait_for_session_ready(
                             .error
                             .unwrap_or_else(|| "recording worker failed to start".to_string()));
                     }
-                    SessionStatus::Recording if session::process_alive(session.pid) => {
+                    SessionStatus::Recording if session.worker_running() => {
                         return Ok(session);
                     }
                     SessionStatus::Recording => {}
@@ -428,6 +426,7 @@ impl SessionRunArgs {
                 let prior = session::read_session(&recording_id).ok();
                 let _ = session::write_session(&Session {
                     pid: std::process::id(),
+                    pid_started_at: session::process_started_at(std::process::id()),
                     path: prior.as_ref().map(|s| s.path.clone()).unwrap_or_default(),
                     status: SessionStatus::Error,
                     started_at: prior
@@ -458,6 +457,7 @@ async fn session_worker(params: RecordParams, recording_id: &str) -> Result<(), 
     session::write_session(&Session {
         recording_id: recording_id.to_string(),
         pid: std::process::id(),
+        pid_started_at: session::process_started_at(std::process::id()),
         path: path.clone(),
         status: SessionStatus::Recording,
         started_at,
@@ -480,6 +480,7 @@ async fn session_worker(params: RecordParams, recording_id: &str) -> Result<(), 
     session::write_session(&Session {
         recording_id: recording_id.to_string(),
         pid: std::process::id(),
+        pid_started_at: session::process_started_at(std::process::id()),
         path: completed.project_path().to_path_buf(),
         status: SessionStatus::Stopped,
         started_at,
@@ -547,7 +548,7 @@ impl RecordStopArgs {
                 SessionStatus::Recording => {}
             }
 
-            if !session::process_alive(current.pid) {
+            if !current.worker_running() {
                 let recording_meta_exists = current.path.join("recording-meta.json").exists();
                 if !recording_meta_exists {
                     return fail_dead_session(
@@ -571,9 +572,7 @@ impl RecordStopArgs {
             }
 
             if Instant::now() >= deadline {
-                if session::process_alive(current.pid) {
-                    session::terminate(current.pid);
-                }
+                session::terminate(&current);
                 return Err(format!(
                     "timed out after {}s waiting for recording '{id}' to stop",
                     self.timeout
@@ -631,7 +630,7 @@ fn select_active_session(sessions: Vec<Session>) -> Result<Session, String> {
     let (mut active, inactive): (Vec<Session>, Vec<Session>) = sessions
         .into_iter()
         .filter(|s| s.status == SessionStatus::Recording)
-        .partition(|session| session::process_alive(session.pid));
+        .partition(Session::worker_running);
     if active.is_empty() {
         active = inactive;
     }
@@ -696,7 +695,7 @@ pub fn status(format: OutputFormat) -> Result<(), String> {
 }
 
 fn session_status_row(session: Session) -> SessionStatusRow {
-    let alive = session.status == SessionStatus::Recording && session::process_alive(session.pid);
+    let alive = session.status == SessionStatus::Recording && session.worker_running();
     session_status_row_with_alive(session, alive)
 }
 
@@ -1468,10 +1467,11 @@ mod tests {
             .unwrap();
         let dead_pid = worker.id();
         worker.wait().unwrap();
-        assert!(!session::process_alive(dead_pid));
+        assert_eq!(session::process_started_at(dead_pid), None);
         let interrupted = Session {
             recording_id: "interrupted".to_string(),
             pid: dead_pid,
+            pid_started_at: Some(1),
             path: PathBuf::from("interrupted.ever"),
             status: SessionStatus::Recording,
             started_at: Some(1),
@@ -1481,6 +1481,7 @@ mod tests {
         let current = Session {
             recording_id: "current".to_string(),
             pid: std::process::id(),
+            pid_started_at: session::process_started_at(std::process::id()),
             path: PathBuf::from("current.ever"),
             ..interrupted.clone()
         };
@@ -1857,11 +1858,55 @@ mod tests {
     }
 
     #[test]
+    fn a_session_whose_pid_belongs_to_another_live_process_is_not_running() {
+        let mut other = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" })
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let other_pid = other.id();
+        let recorded = |pid_started_at| Session {
+            recording_id: "reused".to_string(),
+            pid: other_pid,
+            pid_started_at,
+            path: PathBuf::from("reused.ever"),
+            status: SessionStatus::Recording,
+            started_at: Some(1),
+            recording_meta_exists: None,
+            error: None,
+        };
+        let real_start = session::process_started_at(other_pid).unwrap();
+
+        for stranger in [recorded(None), recorded(Some(real_start.wrapping_sub(60)))] {
+            assert!(!stranger.worker_running());
+            assert!(!session_status_row(stranger.clone()).alive);
+            let live = Session {
+                recording_id: "live".to_string(),
+                pid: std::process::id(),
+                pid_started_at: session::process_started_at(std::process::id()),
+                ..stranger.clone()
+            };
+            let selected = select_active_session(vec![stranger.clone(), live]).unwrap();
+            assert_eq!(selected.recording_id, "live");
+            session::terminate(&stranger);
+            assert!(other.try_wait().unwrap().is_none());
+        }
+
+        let worker = recorded(Some(real_start));
+        assert!(worker.worker_running());
+        assert!(session_status_row(worker).alive);
+
+        other.kill().unwrap();
+        other.wait().unwrap();
+    }
+
+    #[test]
     fn dead_recording_session_reports_error_status() {
         let row = session_status_row_with_alive(
             Session {
                 recording_id: "abc".to_string(),
                 pid: 123,
+                pid_started_at: None,
                 path: PathBuf::from("recording.ever"),
                 status: SessionStatus::Recording,
                 started_at: Some(1),

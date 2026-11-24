@@ -25,6 +25,8 @@ pub enum SessionStatus {
 pub struct Session {
     pub recording_id: String,
     pub pid: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid_started_at: Option<u64>,
     pub path: PathBuf,
     pub status: SessionStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -139,39 +141,32 @@ pub fn archive_log(id: &str, project_path: &Path) -> Result<Option<PathBuf>, Str
     Ok(Some(destination))
 }
 
-/// Whether `pid` is still running. On unix `kill(pid, 0)` probes existence without signalling; on
-/// Windows a zero-timeout wait on the process handle does the equivalent.
-#[cfg(unix)]
-pub fn process_alive(pid: u32) -> bool {
-    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
-}
-
-#[cfg(windows)]
-pub fn process_alive(pid: u32) -> bool {
-    use windows::Win32::{
-        Foundation::{CloseHandle, WAIT_TIMEOUT},
-        System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
-    };
-    // A running process handle is non-signaled, so a zero-timeout wait returns WAIT_TIMEOUT; once it
-    // exits the handle is signaled (WAIT_OBJECT_0). OpenProcess failing means the pid is already gone.
-    unsafe {
-        let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) else {
-            return false;
-        };
-        let alive = WaitForSingleObject(handle, 0) == WAIT_TIMEOUT;
-        let _ = CloseHandle(handle);
-        alive
+impl Session {
+    pub fn worker_running(&self) -> bool {
+        self.pid_started_at
+            .is_some_and(|started_at| process_started_at(self.pid) == Some(started_at))
     }
 }
 
-/// Best-effort prompt stop on unix (the worker also polls the stop file, which is the cross-platform
-/// path). No-op elsewhere.
+pub fn process_started_at(pid: u32) -> Option<u64> {
+    let pid = sysinfo::Pid::from_u32(pid);
+    let mut system = sysinfo::System::new();
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&[pid]),
+        true,
+        sysinfo::ProcessRefreshKind::nothing(),
+    );
+    system.process(pid).map(sysinfo::Process::start_time)
+}
+
 #[cfg(unix)]
-pub fn terminate(pid: u32) {
-    unsafe {
-        libc::kill(pid as libc::pid_t, libc::SIGTERM);
+pub fn terminate(session: &Session) {
+    if session.worker_running() {
+        unsafe {
+            libc::kill(session.pid as libc::pid_t, libc::SIGTERM);
+        }
     }
 }
 
 #[cfg(not(unix))]
-pub fn terminate(_pid: u32) {}
+pub fn terminate(_session: &Session) {}
