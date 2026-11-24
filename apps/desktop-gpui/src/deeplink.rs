@@ -386,10 +386,15 @@ impl DeepLinkAction {
                         let _ = main.update(cx, |view, _, _| view.finish_deep_link_start(&permit));
                         return;
                     }
+                    let camera_picture;
                     let (camera_feed, mic_feed, mic_meter, input_readiness, device_settings) = {
                         let feeds = Feeds::global(cx);
                         feeds.update(cx, |feeds, cx| feeds.resume_camera_preview(cx));
                         let feeds = feeds.read(cx);
+                        camera_picture = feeds
+                            .camera_picture
+                            .as_ref()
+                            .map(|picture| picture.path.clone());
                         (
                             feeds.camera_actor(),
                             feeds.mic_actor(),
@@ -409,7 +414,7 @@ impl DeepLinkAction {
                                     input_readiness,
                                     microphone: mic_label,
                                     camera,
-                                    camera_picture: None,
+                                    camera_picture,
                                     system_audio: capture_system_audio,
                                     excluded_windows: Vec::new(),
                                     camera_feed,

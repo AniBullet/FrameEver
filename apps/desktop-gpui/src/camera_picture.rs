@@ -174,7 +174,7 @@ pub(crate) fn select(path: PathBuf, cx: &mut gpui::App) {
         cx.update(|cx| {
             let feeds = crate::feeds::Feeds::global(cx);
             match loaded {
-                Ok(picture) if can_change(cx) => feeds.update(cx, |feeds, cx| {
+                Ok(picture) if can_change(cx) && path.is_file() => feeds.update(cx, |feeds, cx| {
                     feeds.set_camera_picture(Some(Arc::new(picture)), cx)
                 }),
                 Ok(_) => {}
@@ -188,50 +188,48 @@ pub(crate) fn select(path: PathBuf, cx: &mut gpui::App) {
     .detach();
 }
 
-pub(crate) fn select_or_choose(window: &mut gpui::Window, cx: &mut gpui::App) {
+pub(crate) fn select_or_choose(cx: &mut gpui::App) {
     match crate::feeds::Feeds::global(cx)
         .read(cx)
         .remembered_camera_picture
         .clone()
     {
         Some(path) => select(path, cx),
-        None => choose(window, cx),
+        None => choose(cx),
     }
 }
 
-pub(crate) fn choose(window: &mut gpui::Window, cx: &mut gpui::App) {
+pub(crate) fn choose(cx: &mut gpui::App) {
     let feeds = crate::feeds::Feeds::global(cx);
     if feeds.read(cx).picking_camera_picture || !can_change(cx) {
         return;
     }
     feeds.update(cx, |feeds, _| feeds.picking_camera_picture = true);
-    window
-        .spawn(cx, async move |cx| {
-            let picked = crate::platform::open_image_panel(EXTENSIONS);
-            let loaded = match picked {
-                Some(source) => Some(
-                    cx.background_executor()
-                        .spawn(async move { load(&save_for_recording(&source)?) })
-                        .await,
-                ),
-                None => None,
-            };
-            cx.update(|_, cx| {
-                let feeds = crate::feeds::Feeds::global(cx);
-                feeds.update(cx, |feeds, _| feeds.picking_camera_picture = false);
-                match loaded {
-                    Some(Ok(picture)) if can_change(cx) => feeds.update(cx, |feeds, cx| {
-                        feeds.set_camera_picture(Some(Arc::new(picture)), cx)
-                    }),
-                    Some(Ok(_)) | None => {}
-                    Some(Err(error)) => {
-                        tracing::warn!(%error, "The camera picture could not be used");
-                    }
+    cx.spawn(async move |cx| {
+        let picked = crate::platform::open_image_panel(EXTENSIONS);
+        let loaded = match picked {
+            Some(source) => Some(
+                cx.background_executor()
+                    .spawn(async move { load(&save_for_recording(&source)?) })
+                    .await,
+            ),
+            None => None,
+        };
+        cx.update(|cx| {
+            let feeds = crate::feeds::Feeds::global(cx);
+            feeds.update(cx, |feeds, _| feeds.picking_camera_picture = false);
+            match loaded {
+                Some(Ok(picture)) if can_change(cx) => feeds.update(cx, |feeds, cx| {
+                    feeds.set_camera_picture(Some(Arc::new(picture)), cx)
+                }),
+                Some(Ok(_)) | None => {}
+                Some(Err(error)) => {
+                    tracing::warn!(%error, "The camera picture could not be used");
                 }
-            })
-            .ok();
-        })
-        .detach();
+            }
+        });
+    })
+    .detach();
 }
 
 pub(crate) fn load(path: &Path) -> Result<CameraPicture, String> {
@@ -256,7 +254,7 @@ mod tests {
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "cap-gpui-camera-picture-{name}-{}-{}",
+            "frameever-gpui-camera-picture-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -293,7 +291,7 @@ mod tests {
         image::RgbImage::from_pixel(64, 48, image::Rgb([30, 90, 160]))
             .save(&source)
             .unwrap();
-        let project = dir.join("rec.cap");
+        let project = dir.join("rec.ever");
         std::fs::create_dir_all(&project).unwrap();
         let relative = import_into_project(&project, &source).unwrap();
         assert!(relative.starts_with("content/images/camera-picture-"));

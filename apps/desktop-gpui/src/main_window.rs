@@ -4442,12 +4442,12 @@ impl MainWindow {
                 Some(t!("Shows in place of a camera").to_string()),
                 selected,
                 None,
-                cx.listener(move |this, _, window, cx| {
+                cx.listener(move |this, _, _, cx| {
                     if !this.device_changes_allowed(cx) {
                         return;
                     }
                     if !this.camera_picture_selected(cx) {
-                        crate::camera_picture::select_or_choose(window, cx);
+                        crate::camera_picture::select_or_choose(cx);
                     }
                     this.close_panel(cx);
                 }),
@@ -4485,9 +4485,9 @@ impl MainWindow {
                                 .size(px(14.))
                                 .text_color(Hsla::from(theme.muted_foreground)),
                         )
-                        .on_click(cx.listener(|this, _, window, cx| {
+                        .on_click(cx.listener(|this, _, _, cx| {
                             if this.device_changes_allowed(cx) {
-                                crate::camera_picture::choose(window, cx);
+                                crate::camera_picture::choose(cx);
                             }
                             this.close_panel(cx);
                         })),

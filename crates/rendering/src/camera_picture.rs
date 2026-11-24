@@ -103,7 +103,7 @@ mod tests {
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "cap-camera-picture-{name}-{}-{}",
+            "frameever-camera-picture-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn pictures_outside_the_project_are_refused() {
         let root = temp_dir("outside");
-        let project = root.join("rec.cap");
+        let project = root.join("rec.ever");
         std::fs::create_dir_all(project.join("content/images")).unwrap();
         let outside = root.join("secret.png");
         image::RgbaImage::from_pixel(4, 4, image::Rgba([1, 2, 3, 255]))

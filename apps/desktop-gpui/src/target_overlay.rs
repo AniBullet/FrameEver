@@ -1349,11 +1349,11 @@ impl OverlayWindow {
             if !recording_devices_available(cx) {
                 return;
             }
-            if let Err(error) = main.update(cx, |view, window, cx| match choice {
+            if let Err(error) = main.update(cx, |view, _, cx| match choice {
                 OverlayDeviceChoice::Camera(camera) => view.set_camera_selection(camera, cx),
                 OverlayDeviceChoice::CameraPicture => {
                     if view.device_changes_allowed(cx) {
-                        crate::camera_picture::select_or_choose(window, cx);
+                        crate::camera_picture::select_or_choose(cx);
                     }
                 }
                 OverlayDeviceChoice::Microphone(mic) => view.set_microphone_selection(mic, cx),

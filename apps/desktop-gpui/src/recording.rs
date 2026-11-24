@@ -1133,8 +1133,9 @@ pub(crate) fn preparing_presentation(
         if let Some(corners) = camera_preview_corners(snapshot.preview.shape) {
             config.camera.rounding_type = corners;
         }
-        config.camera.aspect_ratio =
-            (snapshot.preview.shape == crate::store::CameraShape::Full).then_some(16. / 9.);
+        config.camera.aspect_ratio = (snapshot.preview.shape == crate::store::CameraShape::Full
+            && camera_picture.is_none())
+        .then_some(16. / 9.);
         if let Some(size) = snapshot
             .size_percent
             .filter(|size| size.is_finite() && *size > 0.)
@@ -1491,6 +1492,7 @@ fn apply_camera_preview_to_project_config(
         return false;
     };
 
+    let has_picture = config.contains_key("cameraPicture");
     let camera = config
         .entry("camera")
         .or_insert_with(|| Value::Object(Map::new()));
@@ -1532,6 +1534,9 @@ fn apply_camera_preview_to_project_config(
 
     if let Some(snapshot) = snapshot {
         apply_camera_appearance(camera, snapshot.preview, snapshot.size_percent);
+        if has_picture {
+            camera.remove("aspectRatio");
+        }
     }
 
     // Same shape `ProjectConfiguration::write` produces (serde_json pretty),
@@ -2235,6 +2240,53 @@ fn replace_datetime_template_token(
 mod tests {
     use super::*;
     use crate::store::BlurMode;
+
+    #[test]
+    fn a_full_bubble_picture_keeps_its_own_aspect_in_the_project() {
+        let dir = temp_project("camera-picture-aspect");
+        let path = dir.join("project-config.json");
+        let snapshot = StudioCameraSnapshot {
+            blur: BlurMode::Off,
+            placement: None,
+            preview: crate::store::CameraWindowState {
+                shape: crate::store::CameraShape::Full,
+                ..Default::default()
+            },
+            size_percent: None,
+        };
+        std::fs::write(
+            &path,
+            br#"{"cameraPicture":"content/images/camera-picture.jpg"}"#,
+        )
+        .unwrap();
+        assert!(apply_camera_preview_to_project_config(
+            &dir,
+            BlurMode::Off,
+            None,
+            Some(snapshot)
+        ));
+        let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(written["camera"].get("aspectRatio").is_none(), "{written}");
+
+        std::fs::write(&path, b"{}").unwrap();
+        assert!(apply_camera_preview_to_project_config(
+            &dir,
+            BlurMode::Off,
+            None,
+            Some(snapshot)
+        ));
+        let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(written["camera"].get("aspectRatio").is_some(), "{written}");
+
+        let preparing = preparing_presentation(
+            &frameever_project::ProjectConfiguration::default(),
+            Some(snapshot),
+            Some(STUDIO_CAMERA_PICTURE.to_string()),
+        )
+        .unwrap();
+        assert_eq!(preparing.camera.aspect_ratio, None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn a_studio_picture_counts_only_without_a_recorded_camera() {

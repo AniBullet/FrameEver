@@ -2592,9 +2592,7 @@ impl CameraWindow {
                                     false,
                                     false,
                                     cx,
-                                    |_, window, cx| {
-                                        crate::camera_picture::select_or_choose(window, cx)
-                                    },
+                                    |_, _, cx| crate::camera_picture::select_or_choose(cx),
                                 )
                                 .into_any_element(),
                             "change-picture" => self
@@ -2604,7 +2602,7 @@ impl CameraWindow {
                                     true,
                                     false,
                                     cx,
-                                    |_, window, cx| crate::camera_picture::choose(window, cx),
+                                    |_, _, cx| crate::camera_picture::choose(cx),
                                 )
                                 .into_any_element(),
                             "use-camera" => self
