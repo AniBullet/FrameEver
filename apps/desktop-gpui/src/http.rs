@@ -82,6 +82,18 @@ impl Download {
     }
 
     #[cfg(test)]
+    pub(crate) fn scripted(
+        status: u16,
+        stream: Pin<Box<dyn Stream<Item = Result<Bytes, String>> + Send>>,
+    ) -> Self {
+        Self {
+            status,
+            content_length: None,
+            stream,
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn from_bytes(body: &'static [u8]) -> Self {
         Self {
             status: 200,
@@ -94,16 +106,30 @@ impl Download {
 }
 
 pub(crate) async fn get(url: &str, timeout: Duration) -> Result<Download, String> {
+    send(url, 0, Some(tokio::time::Instant::now() + timeout)).await
+}
+
+pub(crate) async fn get_from(url: &str, from: u64) -> Result<Download, String> {
+    send(url, from, None).await
+}
+
+async fn send(
+    url: &str,
+    from: u64,
+    deadline: Option<tokio::time::Instant>,
+) -> Result<Download, String> {
     let mut url = validate_url(url)?;
     let client = client()?;
-    let deadline = tokio::time::Instant::now() + timeout;
     for _ in 0..=10 {
-        let response = client
-            .get(url.clone())
-            .timeout(deadline.saturating_duration_since(tokio::time::Instant::now()))
-            .send()
-            .await
-            .map_err(|error| error.to_string())?;
+        let mut request = client.get(url.clone());
+        if let Some(deadline) = deadline {
+            request =
+                request.timeout(deadline.saturating_duration_since(tokio::time::Instant::now()));
+        }
+        if from > 0 {
+            request = request.header(reqwest::header::RANGE, format!("bytes={from}-"));
+        }
+        let response = request.send().await.map_err(|error| error.to_string())?;
         if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308)
             && let Some(location) = response.headers().get(reqwest::header::LOCATION)
         {

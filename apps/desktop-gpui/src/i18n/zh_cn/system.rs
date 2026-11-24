@@ -516,6 +516,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Download complete", "下载完成"),
     ("Download failed: {error}", "下载失败：{error}"),
     (
+        "Not enough free space. Free up {size} and try again",
+        "可用空间不足。请释放 {size} 后重试",
+    ),
+    (
         "Downloading model: {progress}%",
         "正在下载模型：{progress}%",
     ),
