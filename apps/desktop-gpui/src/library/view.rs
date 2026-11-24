@@ -242,6 +242,7 @@ impl Entry {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DateGroup {
+    Pinned,
     Today,
     Yesterday,
     ThisWeek,
@@ -385,7 +386,7 @@ pub fn build(
     fresh: &[PathBuf],
     clock: &Clock,
 ) -> LibraryView {
-    build_in(entries, state, query, fresh, clock, None)
+    build_in(entries, state, query, fresh, clock, None, &[])
 }
 
 pub fn build_in(
@@ -395,7 +396,9 @@ pub fn build_in(
     fresh: &[PathBuf],
     clock: &Clock,
     place: Option<&[usize]>,
+    pinned: &[usize],
 ) -> LibraryView {
+    let leads = |index: &usize| place.is_none() && pinned.binary_search(index).is_ok();
     let needle = query.trim().to_lowercase();
     let held = |index: &usize| place.is_none_or(|members| members.binary_search(index).is_ok());
     let in_place = (0..entries.len()).filter(held).count();
@@ -410,9 +413,9 @@ pub fn build_in(
         })
         .collect();
     items.sort_by(|a, b| {
+        let pin = leads(b).cmp(&leads(a));
         let (a, b) = (&entries[*a], &entries[*b]);
-        is_fresh(fresh, &b.path)
-            .cmp(&is_fresh(fresh, &a.path))
+        pin.then_with(|| is_fresh(fresh, &b.path).cmp(&is_fresh(fresh, &a.path)))
             .then_with(|| match state.direction {
                 SortDirection::Ascending => compare(a, b, state.sort),
                 SortDirection::Descending => compare(b, a, state.sort),
@@ -424,7 +427,11 @@ pub fn build_in(
     let groups = state.sort == SortKey::Date && state.view == ViewMode::Grid;
     let mut sections: Vec<Section> = Vec::new();
     for index in items.iter().copied() {
-        let group = groups.then(|| clock.group_of(entries[index].created_millis));
+        let group = if leads(&index) {
+            Some(DateGroup::Pinned)
+        } else {
+            groups.then(|| clock.group_of(entries[index].created_millis))
+        };
         match sections.iter_mut().find(|section| section.group == group) {
             Some(section) => section.items.push(index),
             None => sections.push(Section {
@@ -809,6 +816,40 @@ mod tests {
     }
 
     #[test]
+    fn pinned_items_lead_all_items_in_their_own_group() {
+        let entries = library();
+        let view = build_in(
+            &entries,
+            &ViewState::default(),
+            "",
+            &[],
+            &clock(),
+            None,
+            &[3],
+        );
+        assert_eq!(view.sections[0].group, Some(DateGroup::Pinned));
+        assert_eq!(names(&view, &entries), ["Archive", "demo", "Bug", "shot"]);
+        let list = ViewState {
+            view: ViewMode::List,
+            sort: SortKey::Name,
+            ..ViewState::default()
+        };
+        let view = build_in(&entries, &list, "", &[], &clock(), None, &[3]);
+        assert_eq!(names(&view, &entries)[0], "Archive");
+        let folder = [0, 3];
+        let view = build_in(
+            &entries,
+            &ViewState::default(),
+            "",
+            &[],
+            &clock(),
+            Some(&folder),
+            &[3],
+        );
+        assert_ne!(view.sections[0].group, Some(DateGroup::Pinned));
+    }
+
+    #[test]
     fn date_order_is_newest_first_in_date_groups() {
         let entries = library();
         let view = build(&entries, &ViewState::default(), "", &[], &clock());
@@ -1021,6 +1062,7 @@ mod tests {
             &[],
             &clock(),
             Some(&in_place),
+            &[],
         );
         assert_eq!(names(&view, &entries), ["demo", "Bug"]);
         assert_eq!(view.tab_count(Tab::All), 4);
@@ -1028,7 +1070,7 @@ mod tests {
             tab: Tab::Instant,
             ..ViewState::default()
         };
-        let view = build_in(&entries, &state, "", &[], &clock(), Some(&in_place));
+        let view = build_in(&entries, &state, "", &[], &clock(), Some(&in_place), &[]);
         assert_eq!(names(&view, &entries), ["Bug"]);
         let view = build_in(
             &entries,
@@ -1037,6 +1079,7 @@ mod tests {
             &[],
             &clock(),
             Some(&in_place),
+            &[],
         );
         assert_eq!(names(&view, &entries), ["demo"]);
     }
@@ -1051,6 +1094,7 @@ mod tests {
             &[],
             &clock(),
             Some(&[]),
+            &[],
         );
         assert_eq!(view.surface(false), Surface::EmptyPlace);
         let view = build_in(
@@ -1060,6 +1104,7 @@ mod tests {
             &[],
             &clock(),
             Some(&[2]),
+            &[],
         );
         assert_eq!(view.surface(false), Surface::NoMatch);
     }

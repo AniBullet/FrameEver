@@ -690,13 +690,20 @@ class MainWindow {
 		if (sort !== "date")
 			return `${line}<div class="group-title"></div><div class="grid">${list.map((item) => this.tile(item)).join("")}</div>`;
 		const groups = Object.keys(GROUP);
+		const leads = (item) =>
+			this.s.place === "all" && this.s.pins.includes(item.id);
+		const pinned = list.filter(leads);
+		const rest = list.filter((item) => !leads(item));
 		return (
 			line +
+			(pinned.length
+				? `<div class="group-title">${L("Pinned", "已置顶")}</div><div class="grid">${pinned.map((item) => this.tile(item)).join("")}</div>`
+				: "") +
 			(dir === 1 ? groups.reverse() : groups)
-				.filter((g) => list.some((item) => item.group === g))
+				.filter((g) => rest.some((item) => item.group === g))
 				.map(
 					(g) =>
-						`<div class="group-title">${L(...GROUP[g])}</div><div class="grid">${list
+						`<div class="group-title">${L(...GROUP[g])}</div><div class="grid">${rest
 							.filter((item) => item.group === g)
 							.map((item) => this.tile(item))
 							.join("")}</div>`,
@@ -2283,8 +2290,8 @@ const folderRows = [
 	[
 		"Pin, unpin",
 		"置顶、取消置顶",
-		"Right-click › Pin. Pinned shows in the sidebar once anything is pinned; pinned cards carry a small mark.",
-		"右键 ›“置顶”。有置顶条目时侧栏出现“已置顶”；置顶的卡片带一个小标记。",
+		"Right-click › Pin. Pinned items lead All items as their own group, Pinned shows in the sidebar once anything is pinned, and pinned cards carry a small mark.",
+		"右键 ›“置顶”。置顶条目在“全部”里排在最前面，自成一组；有置顶条目时侧栏出现“已置顶”；置顶的卡片带一个小标记。",
 	],
 	[
 		"Rename, delete a folder",

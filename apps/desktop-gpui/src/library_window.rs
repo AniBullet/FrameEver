@@ -966,6 +966,7 @@ fn day_label(clock: &Clock, millis: f64) -> SharedString {
 
 fn group_label(group: DateGroup) -> SharedString {
     match group {
+        DateGroup::Pinned => t!("Pinned").into(),
         DateGroup::Today => t!("Today").into(),
         DateGroup::Yesterday => t!("Yesterday").into(),
         DateGroup::ThisWeek => t!("This week").into(),
@@ -1135,6 +1136,10 @@ impl LibraryWindow {
             &page.fresh,
             &clock,
             organizer.places.members(&organizer.place),
+            organizer
+                .places
+                .members(&library::places::Place::Pinned)
+                .unwrap_or(&[]),
         );
         page.order = page.view.order(entries);
         page.selection.retain(&page.order);
