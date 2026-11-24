@@ -463,6 +463,9 @@ const defaults = () => ({
 	smartEditor: null,
 	renaming: null,
 	sideMenu: null,
+	sideHidden: false,
+	sideShown: false,
+	narrow: false,
 });
 
 class MainWindow {
@@ -612,7 +615,9 @@ class MainWindow {
 			menu === "import"
 				? `<div class="menu"><button data-a="import">${L("Import video", "导入视频")}</button><button data-a="import">${L("Import audio", "导入音频")}</button><button data-a="import">${L("Import image", "导入图片")}</button></div>`
 				: "";
+		const sideOpen = !this.s.sideHidden && (!this.s.narrow || this.s.sideShown);
 		return `<div class="toolbar">
+			<button class="btn ghost icon" data-a="toggle-side" title="${pick(sideOpen ? "Hide sidebar" : "Show sidebar", sideOpen ? "隐藏侧栏" : "显示侧栏")}  Ctrl+\\">${icon("panel-left")}</button>
 			<div class="seg">${tabs.map(([id, en, zh]) => `<button class="${type === id ? "on" : ""}" data-a="type" data-v="${id}">${L(en, zh)} <em class="tnum">${count(id)}</em></button>`).join("")}</div>
 			<div class="pop-anchor"><button class="btn ghost" data-a="menu" data-v="status">${icon("list-filter")}${L("Status", "状态")}${status.length ? `<span class="badge klein">${status.length}</span>` : ""}</button>${statusMenu}</div>
 			<span class="spacer"></span>
@@ -843,7 +848,7 @@ class MainWindow {
 	}
 
 	library() {
-		return `<div class="library">${this.toolbar()}${this.filterRow()}<div class="lib-body">${this.sidebar()}<div class="lib-main">${this.placeTitle()}<div class="items" tabindex="-1" style="--tile:${this.s.tile}px">${this.items()}</div>${this.statusBar()}</div>${this.detail()}</div></div>`;
+		return `<div class="library">${this.toolbar()}${this.filterRow()}<div class="lib-body">${!this.s.sideHidden && (!this.s.narrow || this.s.sideShown) ? this.sidebar() : ""}<div class="lib-main">${this.placeTitle()}<div class="items" tabindex="-1" style="--tile:${this.s.tile}px">${this.items()}</div>${this.statusBar()}</div>${this.detail()}</div></div>`;
 	}
 
 	preview() {
@@ -1103,7 +1108,7 @@ class MainWindow {
 		const keep = document.activeElement?.dataset?.keep;
 		const had = this.host.contains(document.activeElement);
 		const scroll = this.host.querySelector(".items")?.scrollTop ?? 0;
-		this.host.innerHTML = `<div class="win ${expanded ? "expanded" : ""}" tabindex="0">${this.titlebar()}<div class="win-body">${expanded ? this.library() : this.recording()}</div>${this.preview()}${this.palette()}${this.dialog()}${this.toast()}${this.contextOverlay()}</div>`;
+		this.host.innerHTML = `<div class="win ${expanded ? "expanded" : ""} ${this.s.narrow ? "narrow" : ""}" tabindex="0">${this.titlebar()}<div class="win-body">${expanded ? this.library() : this.recording()}</div>${this.preview()}${this.palette()}${this.dialog()}${this.toast()}${this.contextOverlay()}</div>`;
 		if (this.s.palette) this.s.palette.fresh = false;
 		const items = this.host.querySelector(".items");
 		if (items) items.scrollTop = scroll;
@@ -1228,6 +1233,10 @@ class MainWindow {
 		)
 			close.sideMenu = null;
 		switch (a) {
+			case "toggle-side":
+				return this.s.narrow
+					? this.set({ sideShown: !this.s.sideShown, ...close })
+					: this.set({ sideHidden: !this.s.sideHidden, ...close });
 			case "place":
 				return this.set({ place: v, selected: [], ...close });
 			case "new-folder": {
@@ -2226,6 +2235,7 @@ const folderPresets = {
 	cards: { selected: [8], anchor: 8, type: "studio" },
 	side: { place: "f:tutorials", sideMenu: { id: "tutorials", y: 210 } },
 	empty: { folders: [], smart: [], pins: [] },
+	narrow: { narrow: true },
 };
 const folderHost = document.getElementById("folders-stage");
 const showFolders = (key) => {
@@ -2245,6 +2255,7 @@ tabRow(
 		["cards", "Cards and a rebuilt item", "卡片和重建的条目"],
 		["side", "Folder menu", "文件夹菜单"],
 		["empty", "No folders yet", "还没有文件夹"],
+		["narrow", "Narrow window", "窄窗口"],
 	],
 	showFolders,
 );
@@ -2304,6 +2315,12 @@ const folderRows = [
 		"重建的条目",
 		"A warning mark on the card; the details say the recording is intact and show the kept copy of the old file.",
 		"卡片上有警告标记；详情里说明录制内容完好，并可显示旧文件留下的副本。",
+	],
+	[
+		"Window size",
+		"窗口大小",
+		"The library first opens at 1440 × 860, shrunk to fit a smaller screen, and then remembers its size. It can go down to 900 × 600. Below about 1100 wide the sidebar folds away by itself; the sidebar button at the left of the toolbar (Ctrl+\) shows or hides it, and that choice is remembered.",
+		"资源库第一次打开是 1440 × 860，屏幕小就缩到放得下，之后记住你调的大小。最小可以到 900 × 600。窗口窄于约 1100 时侧栏自动收起；工具条最左边的侧栏按钮（Ctrl+\）显示或隐藏它，并记住你的选择。",
 	],
 	[
 		"Not taken from upstream",

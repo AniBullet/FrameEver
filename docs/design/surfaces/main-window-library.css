@@ -88,8 +88,13 @@ main > section .seg {
 }
 
 .win.expanded {
-	width: 1200px;
-	height: 760px;
+	width: 1440px;
+	height: 860px;
+}
+
+.win.expanded.narrow {
+	width: 1000px;
+	height: 680px;
 }
 
 .titlebar {
