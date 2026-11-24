@@ -826,11 +826,65 @@ fn paused_redraw_size(sharpens: bool, canvas: [u32; 2], interactive: XY<u32>) ->
 
 pub(crate) type PreviewCanvasPx = Rc<std::cell::Cell<Option<[u32; 2]>>>;
 
+#[derive(Default)]
+pub(crate) struct PreviewPaints {
+    painted: std::cell::Cell<u64>,
+    waiting: std::cell::Cell<bool>,
+}
+
+struct WaitingFrame<T> {
+    waiting: Option<T>,
+    since_collision: u32,
+}
+
+const COLLISION_WINDOW: u32 = 60;
+
+impl<T> Default for WaitingFrame<T> {
+    fn default() -> Self {
+        Self {
+            waiting: None,
+            since_collision: u32::MAX,
+        }
+    }
+}
+
+impl<T> WaitingFrame<T> {
+    fn arrive(&mut self, frame: T, may_wait: bool, previous_unpainted: bool) -> [Option<T>; 2] {
+        let earlier = self.waiting.take();
+        if !may_wait {
+            self.since_collision = u32::MAX;
+            return [earlier, Some(frame)];
+        }
+        let collided = previous_unpainted || earlier.is_some();
+        let repeated = earlier.is_some() || self.since_collision < COLLISION_WINDOW;
+        self.since_collision = if collided {
+            0
+        } else {
+            self.since_collision.saturating_add(1)
+        };
+        if collided && repeated {
+            self.waiting = Some(frame);
+            [earlier, None]
+        } else {
+            [earlier, Some(frame)]
+        }
+    }
+
+    fn take(&mut self) -> Option<T> {
+        self.waiting.take()
+    }
+
+    fn is_some(&self) -> bool {
+        self.waiting.is_some()
+    }
+}
+
 struct PreviewFrameView {
     frame: Option<EditorPreviewFrame>,
     frame_size: (f32, f32),
     frame_rect: crate::editor_canvas::CanvasRect,
     canvas_px: PreviewCanvasPx,
+    paints: Rc<PreviewPaints>,
     editor: WeakEntity<EditorWindow>,
     stats: Option<Arc<PumpStats>>,
     frame_sequence: u64,
@@ -841,6 +895,7 @@ impl PreviewFrameView {
     fn new(
         frame_rect: crate::editor_canvas::CanvasRect,
         canvas_px: PreviewCanvasPx,
+        paints: Rc<PreviewPaints>,
         editor: WeakEntity<EditorWindow>,
     ) -> Self {
         Self {
@@ -848,6 +903,7 @@ impl PreviewFrameView {
             frame_size: (1920., 1080.),
             frame_rect,
             canvas_px,
+            paints,
             editor,
             stats: None,
             frame_sequence: 0,
@@ -890,6 +946,7 @@ impl Render for PreviewFrameView {
         let frame_size = self.frame_size;
         let frame_rect = self.frame_rect.clone();
         let canvas_px = self.canvas_px.clone();
+        let paints = self.paints.clone();
         let editor = self.editor.clone();
         let painted = self.stats.clone();
         let frame_sequence = self.frame_sequence;
@@ -950,6 +1007,15 @@ impl Render for PreviewFrameView {
                     frame_number,
                     frame_sequence,
                 );
+                paints.painted.set(frame_sequence);
+                if paints.waiting.get() {
+                    let editor = editor.clone();
+                    window.defer(cx, move |window, cx| {
+                        let _ = editor.update(cx, |editor, cx| {
+                            editor.show_waiting_frame(window, cx);
+                        });
+                    });
+                }
             },
         )
         .size_full()
@@ -1622,6 +1688,8 @@ pub struct EditorWindow {
     #[cfg(not(target_os = "macos"))]
     preview_stream: gpui::StreamingImage,
     preview: Entity<PreviewFrameView>,
+    preview_paints: Rc<PreviewPaints>,
+    waiting_frame: WaitingFrame<(std::sync::Weak<EditorInstance>, EditorFrame)>,
     preview_canvas_px: PreviewCanvasPx,
     sharp_preview: Option<gpui::Task<()>>,
     paused_requests: Option<PreviewRequests>,
@@ -2294,11 +2362,13 @@ impl EditorWindow {
         ));
         let player_frame_rect = crate::editor_canvas::canvas_rect_cell();
         let preview_canvas_px = PreviewCanvasPx::default();
+        let preview_paints = Rc::new(PreviewPaints::default());
         let preview = cx.new({
             let frame_rect = player_frame_rect.clone();
             let canvas_px = preview_canvas_px.clone();
+            let paints = preview_paints.clone();
             let editor = cx.entity().downgrade();
-            move |_| PreviewFrameView::new(frame_rect, canvas_px, editor)
+            move |_| PreviewFrameView::new(frame_rect, canvas_px, paints, editor)
         });
         let editor = cx.entity();
         let header = cx.new({
@@ -2348,6 +2418,8 @@ impl EditorWindow {
             #[cfg(not(target_os = "macos"))]
             preview_stream: gpui::StreamingImage::new(gpui::StreamingImageFormat::Rgba8),
             preview,
+            preview_paints,
+            waiting_frame: WaitingFrame::default(),
             preview_canvas_px,
             sharp_preview: None,
             paused_requests: None,
@@ -7713,7 +7785,39 @@ impl EditorWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.display_frame(frame, true, window, cx);
+        let Some(instance) = self.instance.as_ref() else {
+            self.display_frame(frame, true, window, cx);
+            return;
+        };
+        let may_wait = self.playing
+            && self.ordinary_handoff_frame.is_none()
+            && self.preparing_candidate_frame.is_none()
+            && instance.preparing_adoption().is_none();
+        let previous_unpainted = {
+            let preview = self.preview.read(cx);
+            preview.frame.is_some() && preview.frame_sequence != self.preview_paints.painted.get()
+        };
+        let frame = (Arc::downgrade(instance), frame);
+        let show = self
+            .waiting_frame
+            .arrive(frame, may_wait, previous_unpainted);
+        self.preview_paints
+            .waiting
+            .set(self.waiting_frame.is_some());
+        for (instance, frame) in show.into_iter().flatten() {
+            if self.holds_instance(&instance) {
+                self.display_frame(frame, true, window, cx);
+            }
+        }
+    }
+
+    fn show_waiting_frame(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.preview_paints.waiting.set(false);
+        if let Some((instance, frame)) = self.waiting_frame.take()
+            && self.holds_instance(&instance)
+        {
+            self.display_frame(frame, true, window, cx);
+        }
     }
 
     fn accepted_picture(&mut self, frame: ArrivingFrame) -> Option<EditorPreviewFrame> {
@@ -15516,6 +15620,89 @@ mod tests {
             noisy_paints.report(10.0).starts_with("playback fps=60.0 "),
             "paints must not inflate the frame rate"
         );
+    }
+
+    #[test]
+    fn a_lone_collision_replaces_the_unpainted_frame_as_before() {
+        let mut waiting = WaitingFrame::default();
+        assert_eq!(waiting.arrive(1, true, false), [None, Some(1)]);
+        assert_eq!(waiting.arrive(2, true, true), [None, Some(2)]);
+        assert!(!waiting.is_some());
+        for frame in 3..3 + COLLISION_WINDOW {
+            assert_eq!(waiting.arrive(frame, true, false), [None, Some(frame)]);
+        }
+        let later = 3 + COLLISION_WINDOW;
+        assert_eq!(waiting.arrive(later, true, true), [None, Some(later)]);
+        assert!(!waiting.is_some());
+        assert_eq!(
+            waiting.arrive(later + 1, true, false),
+            [None, Some(later + 1)]
+        );
+        assert_eq!(waiting.arrive(later + 2, true, true), [None, None]);
+        assert!(waiting.is_some());
+    }
+
+    #[test]
+    fn a_repeated_collision_waits_for_the_paint() {
+        let mut waiting = WaitingFrame::default();
+        assert_eq!(waiting.arrive(1, true, true), [None, Some(1)]);
+        assert_eq!(waiting.arrive(2, true, false), [None, Some(2)]);
+        assert_eq!(waiting.arrive(3, true, true), [None, None]);
+        assert!(waiting.is_some());
+        assert_eq!(waiting.take(), Some(3));
+        assert_eq!(waiting.arrive(4, true, true), [None, None]);
+        assert_eq!(waiting.take(), Some(4));
+        assert_eq!(waiting.take(), None);
+    }
+
+    #[test]
+    fn a_third_arrival_shows_the_waiting_frame_and_waits_in_its_place() {
+        let mut waiting = WaitingFrame::default();
+        assert_eq!(waiting.arrive(1, true, true), [None, Some(1)]);
+        assert_eq!(waiting.arrive(2, true, true), [None, None]);
+        assert_eq!(waiting.arrive(3, true, true), [Some(2), None]);
+        assert_eq!(waiting.arrive(4, true, false), [Some(3), None]);
+        assert_eq!(waiting.take(), Some(4));
+    }
+
+    #[test]
+    fn frames_that_may_not_wait_follow_the_waiting_one_and_forget_collisions() {
+        let mut waiting = WaitingFrame::default();
+        assert_eq!(waiting.arrive(1, true, true), [None, Some(1)]);
+        assert_eq!(waiting.arrive(2, true, true), [None, None]);
+        assert_eq!(waiting.arrive(3, false, true), [Some(2), Some(3)]);
+        assert!(!waiting.is_some());
+        assert_eq!(waiting.arrive(4, true, true), [None, Some(4)]);
+        assert!(!waiting.is_some());
+    }
+
+    #[test]
+    fn waiting_never_reorders_duplicates_or_loses_frames() {
+        let mut waiting = WaitingFrame::default();
+        let mut shown = Vec::new();
+        let mut unpainted = false;
+        let mut state = 0x9e37_79b9_u32;
+        for frame in 0..10_000_u32 {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            if state >> 30 != 0 {
+                unpainted = false;
+                if let Some(next) = waiting.take() {
+                    shown.push(next);
+                    unpainted = true;
+                }
+            }
+            let may_wait = (state >> 20) & 7 != 0;
+            for next in waiting
+                .arrive(frame, may_wait, unpainted)
+                .into_iter()
+                .flatten()
+            {
+                shown.push(next);
+                unpainted = true;
+            }
+        }
+        shown.extend(waiting.take());
+        assert_eq!(shown, (0..10_000).collect::<Vec<_>>());
     }
 
     #[test]
