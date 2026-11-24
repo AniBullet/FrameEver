@@ -108,6 +108,10 @@ const ITEMS = [
 		time: "16:20",
 		art: 3,
 		tracks: ["Camera, microphone", "摄像头、麦克风"],
+		caption: [
+			"Welcome! In the next few minutes I'll walk you through",
+			"欢迎！接下来几分钟，我带你走一遍",
+		],
 		exports: [],
 	},
 	{
@@ -177,6 +181,23 @@ const ITEMS = [
 		time: "09:47",
 		art: 4,
 		tracks: ["Camera, microphone", "摄像头、麦克风"],
+		rebuilt: true,
+		exports: [],
+	},
+	{
+		id: 11,
+		name: "Podcast intro",
+		kind: "studio",
+		audioOnly: true,
+		dur: "12:30",
+		size: "24 MB",
+		mb: 24,
+		res: "48 kHz",
+		group: "week",
+		time: "08:15",
+		art: 0,
+		wave: 3,
+		tracks: ["Microphone, system audio", "麦克风、系统声音"],
 		exports: [],
 	},
 	{
@@ -249,6 +270,119 @@ const statusFilters = [
 		(i) => Boolean(i.compressedOnly),
 	],
 ];
+const AGE = { today: 0, yesterday: 1, week: 4, oct: 43 };
+const FOLDERS = [
+	{ id: "launch", name: ["Launch", "发布"], members: [1, 7, 3, 11] },
+	{ id: "support", name: ["Support", "支持"], members: [2, 9, 10, 6] },
+	{ id: "tutorials", name: ["Tutorials", "教程"], members: [4, 8] },
+];
+const SMART = [
+	{
+		id: "to-export",
+		name: ["To export this week", "本周待导出"],
+		match: "all",
+		rules: [
+			{ field: "export", op: "is", value: "unexported" },
+			{ field: "date", op: "last", value: "7" },
+		],
+	},
+	{
+		id: "shots",
+		name: ["Screenshots", "截图"],
+		match: "all",
+		rules: [{ field: "kind", op: "is", value: "screenshot" }],
+	},
+];
+const RULE_FIELDS = {
+	kind: {
+		name: ["Type", "类型"],
+		ops: [
+			["is", "is", "是"],
+			["not", "is not", "不是"],
+		],
+		values: [
+			["studio", "Studio", "工作室"],
+			["instant", "Instant", "即时"],
+			["screenshot", "Screenshot", "截图"],
+			["audio", "Audio only", "仅音频"],
+		],
+	},
+	date: {
+		name: ["Date", "日期"],
+		ops: [
+			["last", "in the last", "最近"],
+			["before", "older than", "早于"],
+		],
+		values: [
+			["1", "1 day", "1 天"],
+			["7", "7 days", "7 天"],
+			["30", "30 days", "30 天"],
+			["365", "1 year", "1 年"],
+		],
+	},
+	export: {
+		name: ["Export state", "导出状态"],
+		ops: [
+			["is", "is", "是"],
+			["not", "is not", "不是"],
+		],
+		values: statusFilters.map(([id, en, zh]) => [id, en, zh]),
+	},
+	title: {
+		name: ["Title", "标题"],
+		ops: [
+			["contains", "contains", "包含"],
+			["lacks", "does not contain", "不包含"],
+			["is", "is", "是"],
+			["starts", "starts with", "开头是"],
+		],
+		values: null,
+	},
+};
+const ruleMatches = (rule, item) => {
+	switch (rule.field) {
+		case "kind": {
+			const kind = item.audioOnly ? "audio" : item.kind;
+			return (kind === rule.value) === (rule.op === "is");
+		}
+		case "date": {
+			const inside = AGE[item.group] < Number(rule.value);
+			return rule.op === "last" ? inside : !inside;
+		}
+		case "export": {
+			const test = statusFilters.find(([id]) => id === rule.value)?.[3];
+			return Boolean(test?.(item)) === (rule.op === "is");
+		}
+		case "title": {
+			const name = item.name.toLowerCase();
+			const value = (rule.value ?? "").trim().toLowerCase();
+			if (!value) return true;
+			return {
+				contains: name.includes(value),
+				lacks: !name.includes(value),
+				is: name === value,
+				starts: name.startsWith(value),
+			}[rule.op];
+		}
+		default:
+			return true;
+	}
+};
+const smartMatches = (smart, item) =>
+	smart.rules.length === 0 ||
+	(smart.match === "all"
+		? smart.rules.every((rule) => ruleMatches(rule, item))
+		: smart.rules.some((rule) => ruleMatches(rule, item)));
+const wave = (seed) => {
+	const bars = Array.from({ length: 44 }, (_, i) => {
+		const h =
+			18 +
+			Math.abs(Math.sin(i * 0.61 + seed) * 46) +
+			Math.abs(Math.sin(i * 1.7 + seed * 2) * 22);
+		return `<rect x="${18 + i * 6.6}" y="${90 - h / 2}" width="3.6" height="${h}" rx="1.8"/>`;
+	}).join("");
+	return `<svg class="art wave" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><rect width="320" height="180" class="wave-bg"/><g class="wave-bars">${bars}</g></svg>`;
+};
 const seconds = (item) => {
 	if (!item.dur) return 0;
 	const [m, s] = item.dur.split(":").map(Number);
@@ -322,6 +456,13 @@ const defaults = () => ({
 	playing: false,
 	firstRun: false,
 	firstLine: false,
+	place: "all",
+	pins: [1, 9],
+	folders: FOLDERS,
+	smart: SMART,
+	smartEditor: null,
+	renaming: null,
+	sideMenu: null,
 });
 
 class MainWindow {
@@ -335,6 +476,12 @@ class MainWindow {
 		host.addEventListener("contextmenu", (e) => this.contextMenu(e));
 		host.addEventListener("keydown", (e) => this.key(e));
 		host.addEventListener("input", (e) => this.input(e));
+		host.addEventListener("change", (e) => {
+			if (e.target.tagName === "SELECT") this.ruleChange(e);
+		});
+		host.addEventListener("focusout", (e) => {
+			if (e.target.dataset?.keep === "rename") this.set({ renaming: null });
+		});
 		host.addEventListener("mousemove", (e) => this.scrub(e));
 		this.render();
 	}
@@ -350,11 +497,24 @@ class MainWindow {
 		return doodle(name, { width, still });
 	}
 
+	inPlace(item, place = this.s.place) {
+		if (place === "all") return true;
+		if (place === "pinned") return this.s.pins.includes(item.id);
+		const [kind, id] = place.split(":");
+		if (kind === "f")
+			return Boolean(
+				this.s.folders.find((f) => f.id === id)?.members.includes(item.id),
+			);
+		const smart = this.s.smart.find((f) => f.id === id);
+		return smart ? smartMatches(smart, item) : false;
+	}
+
 	visible() {
 		const { items, type, query, status, sort, dir } = this.s;
 		const needle = query.trim().toLowerCase();
 		const filters = statusFilters.filter(([id]) => status.includes(id));
 		const list = items.filter((item) => {
+			if (!this.inPlace(item)) return false;
 			if (type !== "all" && item.kind !== type) return false;
 			if (
 				needle &&
@@ -477,14 +637,22 @@ class MainWindow {
 			)}<button class="clear" data-a="clear-filters">${L("Clear filters", "清除筛选")}</button></div>`;
 	}
 
+	cover(item) {
+		if (item.audioOnly) return wave(item.wave ?? 1);
+		if (item.caption)
+			return `${art(item.art)}<span class="caption-band">${pick(...item.caption)}</span>`;
+		return art(item.art);
+	}
+
 	tile(item) {
 		const on = this.s.selected.includes(item.id);
 		const k = KIND[item.kind];
 		const job = this.s.jobs?.[item.id];
-		return `<div class="tile ${on ? "on" : ""} ${item.fresh ? "fresh" : ""}" data-a="item" data-id="${item.id}">
-			<span class="thumb">${art(item.art)}<span class="corner tl">${icon(k.icon, "sm")}</span>${item.exports.length ? `<span class="corner tr" title="${pick("Exported", "已导出")}">${icon("check", "sm")}</span>` : ""}${item.dur ? `<span class="corner br tnum">${item.dur}</span>` : ""}${item.kind === "screenshot" ? "" : '<span class="scrub"></span>'}${item.fresh ? `<span class="tick-mark">${this.doodle("TICK", 20, `tick-${item.id}`)}</span>` : ""}${job === undefined ? "" : `<span class="job-bar"><b style="width:${job}%"></b></span>`}</span>
+		const pinned = this.s.pins.includes(item.id);
+		return `<div class="tile ${on ? "on" : ""} ${item.fresh ? "fresh" : ""}" data-a="item" data-id="${item.id}" draggable="true">
+			<span class="thumb">${this.cover(item)}<span class="corner tl">${icon(item.audioOnly ? "volume-2" : k.icon, "sm")}${pinned ? icon("flag", "sm") : ""}</span>${item.rebuilt ? `<span class="corner tr warn" title="${pick("Rebuilt from a damaged project file", "项目文件损坏，已重建")}">${icon("triangle-alert", "sm")}</span>` : item.exports.length ? `<span class="corner tr" title="${pick("Exported", "已导出")}">${icon("check", "sm")}</span>` : ""}${item.dur ? `<span class="corner br tnum">${item.dur}</span>` : ""}${item.kind === "screenshot" ? "" : '<span class="scrub"></span>'}${item.fresh ? `<span class="tick-mark">${this.doodle("TICK", 20, `tick-${item.id}`)}</span>` : ""}${job === undefined ? "" : `<span class="job-bar"><b style="width:${job}%"></b></span>`}</span>
 			<span class="name">${item.name}</span>
-			<span class="meta tnum">${job === undefined ? L(`${k.name[0]} · ${item.size}`, `${k.name[1]} · ${item.size}`) : job === 0 ? L("Waiting", "等待中") : L(`Compressing… ${job}%`, `正在压缩… ${job}%`)}</span>
+			<span class="meta tnum">${job === undefined ? L(`${item.audioOnly ? "Audio" : k.name[0]} · ${item.size}`, `${item.audioOnly ? "音频" : k.name[1]} · ${item.size}`) : job === 0 ? L("Waiting", "等待中") : L(`Compressing… ${job}%`, `正在压缩… ${job}%`)}</span>
 		</div>`;
 	}
 
@@ -587,6 +755,11 @@ class MainWindow {
 			],
 			item.tracks && [["Tracks", "轨道"], L(...item.tracks)],
 		].filter(Boolean);
+		const holders = this.s.folders.filter((f) => f.members.includes(item.id));
+		const folderList = `<div><div class="subhead">${L("Folders", "文件夹")}</div><div class="chips">${holders.map((f) => `<span class="chip">${icon("folder", "sm")}${L(...f.name)}<button title="${pick("Remove from this folder", "移出此文件夹")}">${icon("x", "sm")}</button></span>`).join("")}<button class="chip add" data-a="folder-menu">${icon("plus", "sm")}${holders.length ? "" : L("Add to folder", "加入文件夹")}</button></div></div>`;
+		const rebuilt = item.rebuilt
+			? `<div class="rebuilt-note">${icon("triangle-alert", "sm")}<span class="grow"><b>${L("Rebuilt from a damaged project file", "项目文件损坏，已重建")}</b><small>${L("Its recording is intact. Edits saved in the old file may be missing; FrameEver kept a copy of it.", "录制内容完好。旧文件里保存的编辑可能丢失，帧刻留了一份副本。")}</small></span><button class="btn ghost sq" title="${pick("Show the copy in folder", "在文件夹中显示副本")}">${icon("folder-open", "sm")}</button></div>`
+			: "";
 		const details = `<div><div class="subhead">${L("Details", "详细信息")}</div><dl class="info tnum">${info.map(([label, val]) => `<dt>${L(...label)}</dt><dd>${val}</dd>`).join("")}</dl></div>`;
 		const version =
 			item.kind !== "instant"
@@ -600,11 +773,11 @@ class MainWindow {
 		const tool = (name, en, zh, extra = "") =>
 			`<button class="btn ghost icon ${extra}" title="${pick(en, zh)}" aria-label="${pick(en, zh)}" ${extra === "del" ? 'data-a="delete"' : ""}>${icon(name)}</button>`;
 		return `<aside class="detail"><div class="detail-scroll">
-			<div class="player">${this.s.playFailed ? `<div class="play-failed"><b>${L("Couldn't play this video", "无法播放此视频")}</b><span>${L("The file may be damaged. Try opening it in another player.", "文件可能已损坏。换个播放器打开试试。")}</span><button class="btn">${L("Try again", "再试一次")}</button></div>` : `<span class="thumb" data-a="preview">${art(item.art)}${unedited ? `<span class="corner tl">${L("Unedited", "未编辑")}</span>` : ""}<span class="corner tr" title="${pick("Preview  Space", "预览  空格")}">${icon("maximize-2", "sm")}</span></span>`}${video ? `<div class="player-bar tnum"><button class="play-btn" data-a="play">${icon(this.s.playing ? "pause" : "play", "sm")}</button><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><span>0:53 / ${item.dur}</span><button class="play-btn">${icon("volume-2", "sm")}</button></div>` : ""}</div>
+			<div class="player">${this.s.playFailed ? `<div class="play-failed"><b>${L("Couldn't play this video", "无法播放此视频")}</b><span>${L("The file may be damaged. Try opening it in another player.", "文件可能已损坏。换个播放器打开试试。")}</span><button class="btn">${L("Try again", "再试一次")}</button></div>` : `<span class="thumb" data-a="preview">${this.cover(item)}${unedited ? `<span class="corner tl">${L("Unedited", "未编辑")}</span>` : ""}<span class="corner tr" title="${pick("Preview  Space", "预览  空格")}">${icon("maximize-2", "sm")}</span></span>`}${video ? `<div class="player-bar tnum"><button class="play-btn" data-a="play">${icon(this.s.playing ? "pause" : "play", "sm")}</button><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><span>0:53 / ${item.dur}</span><button class="play-btn">${icon("volume-2", "sm")}</button></div>` : ""}</div>
 			<div class="head"><input class="name-edit" value="${item.name}" aria-label="${pick("Name", "名称")}"><div class="meta tnum">${meta}</div></div>
 			<div class="actions">${primary.map(([id, en, zh], i) => `<button class="btn ${i === 0 ? "primary" : ""}" ${id === "gif" ? 'data-a="gif"' : ""}>${L(en, zh)}</button>`).join("")}</div>
 			<div class="detail-tools">${tool("copy", "Copy file  Ctrl C", "复制文件  Ctrl C")}${tool("folder-open", "Show in folder", "在文件夹中显示")}${tool("external-link", "Open in default app", "用默认应用打开")}<span class="grow"></span>${tool("trash", "Delete…  Del", "删除…  Del", "del")}</div>
-			${version}${exports}${details}
+			${rebuilt}${version}${exports}${folderList}${details}
 		</div></aside>`;
 	}
 
@@ -629,8 +802,48 @@ class MainWindow {
 		</div></aside>`;
 	}
 
+	sidebar() {
+		const { place, items, pins, folders, smart, renaming, sideMenu } = this.s;
+		const count = (p) => items.filter((item) => this.inPlace(item, p)).length;
+		const row = (p, ic, label, extra = "") =>
+			`<button class="side-row ${place === p ? "on" : ""}" data-a="place" data-v="${p}" ${extra}>${icon(ic, "sm")}<span class="grow">${label}</span><em class="tnum">${count(p)}</em></button>`;
+		const folderRow = (f) =>
+			renaming === f.id
+				? `<label class="side-row editing">${icon("folder", "sm")}<input data-keep="rename" value="${pick(...f.name)}" aria-label="${pick("Folder name", "文件夹名称")}"></label>`
+				: row(`f:${f.id}`, "folder", L(...f.name), `data-side="${f.id}"`);
+		const menu =
+			sideMenu &&
+			`<div class="menu side-menu" style="top:${sideMenu.y}px"><button data-a="rename-folder" data-v="${sideMenu.id}">${L("Rename", "重命名")}</button>${sideMenu.smart ? `<button data-a="edit-smart" data-v="${sideMenu.id}">${L("Edit rules…", "编辑规则…")}</button>` : ""}<hr><button class="danger" data-a="delete-folder" data-v="${sideMenu.id}">${sideMenu.smart ? L("Delete smart folder", "删除智能文件夹") : L("Delete folder", "删除文件夹")}</button></div>`;
+		return `<nav class="lib-side">
+			${row("all", "layout-grid", L("All items", "全部"))}
+			${pins.length ? row("pinned", "flag", L("Pinned", "已置顶")) : ""}
+			<div class="side-head"><span class="grow">${L("Folders", "文件夹")}</span><button class="btn ghost sq" data-a="new-folder" title="${pick("New folder", "新建文件夹")}">${icon("plus", "sm")}</button></div>
+			${folders.map(folderRow).join("")}
+			${folders.length ? "" : `<div class="side-empty">${L("Drop items here to group them", "把条目拖到这里归类")}</div>`}
+			<div class="side-head"><span class="grow">${L("Smart folders", "智能文件夹")}</span><button class="btn ghost sq" data-a="new-smart" title="${pick("New smart folder…", "新建智能文件夹…")}">${icon("plus", "sm")}</button></div>
+			${smart.map((f) => row(`s:${f.id}`, "list-filter", L(...f.name), `data-side="${f.id}" data-smart="1"`)).join("")}
+			${menu || ""}
+		</nav>`;
+	}
+
+	placeTitle() {
+		const { place, folders, smart } = this.s;
+		if (place === "all") return "";
+		const [kind, id] = place.split(":");
+		const name =
+			place === "pinned"
+				? ["Pinned", "已置顶"]
+				: (kind === "f" ? folders : smart).find((f) => f.id === id)?.name;
+		if (!name) return "";
+		const edit =
+			kind === "s"
+				? `<button class="btn ghost" data-a="edit-smart" data-v="${id}">${icon("sliders-horizontal", "sm")}${L("Edit rules", "编辑规则")}</button>`
+				: "";
+		return `<div class="place-title"><b>${L(...name)}</b>${kind === "s" ? `<span class="dim">${L("Updates by itself", "自动更新")}</span>` : ""}<span class="spacer"></span>${edit}</div>`;
+	}
+
 	library() {
-		return `<div class="library">${this.toolbar()}${this.filterRow()}<div class="lib-body"><div class="lib-main"><div class="items" tabindex="-1" style="--tile:${this.s.tile}px">${this.items()}</div>${this.statusBar()}</div>${this.detail()}</div></div>`;
+		return `<div class="library">${this.toolbar()}${this.filterRow()}<div class="lib-body">${this.sidebar()}<div class="lib-main">${this.placeTitle()}<div class="items" tabindex="-1" style="--tile:${this.s.tile}px">${this.items()}</div>${this.statusBar()}</div>${this.detail()}</div></div>`;
 	}
 
 	preview() {
@@ -810,8 +1023,42 @@ class MainWindow {
 		return `<div class="scrim" data-a="palette-close"></div><div class="palette ${palette.fresh ? "opening" : ""}"><div class="palette-input">${icon("search")}${scopeName ? `<span class="tag on">${L(...scopeName)}</span>` : ""}<input data-keep="palette" value="${palette.q}" placeholder="${pick("Search commands, projects and settings", "搜索命令、项目和设置")}" data-ph-en="Search commands, projects and settings" data-ph-zh="搜索命令、项目和设置"></div><div class="palette-list">${list || `<div class="palette-empty">${L("No results", "没有结果")}</div>`}</div><div class="palette-foot">${flat.length ? hints : ""}${prefixes}</div></div>`;
 	}
 
+	smartDialog() {
+		const draft = this.s.smartEditor;
+		const preview = { ...draft, rules: draft.rules };
+		const matching = this.s.items.filter((item) =>
+			smartMatches(preview, item),
+		).length;
+		const option = (value, [id, en, zh]) =>
+			`<option value="${id}" ${value === id ? "selected" : ""}>${pick(en, zh)}</option>`;
+		const rows = draft.rules
+			.map((rule, i) => {
+				const field = RULE_FIELDS[rule.field];
+				const value = field.values
+					? `<select class="select" data-rule="${i}" data-part="value">${field.values.map((v) => option(rule.value, v)).join("")}</select>`
+					: `<input class="text-input" data-rule="${i}" data-part="value" data-keep="rule-${i}" value="${rule.value ?? ""}" placeholder="${pick("Text", "文字")}">`;
+				return `<div class="rule-row"><select class="select" data-rule="${i}" data-part="field">${Object.entries(
+					RULE_FIELDS,
+				)
+					.map(([id, f]) => option(rule.field, [id, ...f.name]))
+					.join(
+						"",
+					)}</select><select class="select" data-rule="${i}" data-part="op">${field.ops.map((o) => option(rule.op, o)).join("")}</select>${value}<button class="btn ghost sq" data-a="rule-remove" data-v="${i}" title="${pick("Remove rule", "删除规则")}">${icon("minus", "sm")}</button></div>`;
+			})
+			.join("");
+		return `<div class="scrim center"><div class="dialog smart-dialog">
+			<h3>${draft.id ? L("Edit smart folder", "编辑智能文件夹") : L("New smart folder", "新建智能文件夹")}</h3>
+			<label class="field-row"><span>${L("Name", "名称")}</span><input class="text-input" data-keep="smart-name" data-part="name" value="${draft.name}"></label>
+			<div class="match-row">${L("Items that match", "符合")}<div class="seg"><button class="${draft.match === "all" ? "on" : ""}" data-a="smart-match" data-v="all">${L("all", "全部")}</button><button class="${draft.match === "any" ? "on" : ""}" data-a="smart-match" data-v="any">${L("any", "任一")}</button></div>${L("of these rules", "规则的条目")}</div>
+			<div class="rules">${rows}</div>
+			<button class="btn ghost" data-a="rule-add">${icon("plus", "sm")}${L("Add rule", "添加规则")}</button>
+			<div class="actions"><span class="grow dim tnum">${L(`${matching} ${matching === 1 ? "item matches" : "items match"} now`, `现在有 ${matching} 项符合`)}</span><button class="btn" data-a="smart-cancel">${L("Cancel", "取消")}</button><button class="btn primary" data-a="smart-save" ${draft.name.trim() ? "" : "disabled"}>${L("Save", "保存")}</button></div>
+		</div></div>`;
+	}
+
 	dialog() {
 		const { dialog, gif } = this.s;
+		if (this.s.smartEditor) return this.smartDialog();
 		const items = this.selectedItems();
 		if (gif && items[0])
 			return `<div class="scrim center">${gifDialog(items[0], gif, true)}</div>`;
@@ -837,9 +1084,18 @@ class MainWindow {
 			return `<div class="menu context" style="${style}"><button><span class="grow">${L("Sort by", "排序方式")}</span>${icon("chevron-right", "sm")}</button><button><span class="grow">${L("View", "视图")}</span>${icon("chevron-right", "sm")}</button><button>${L("Refresh", "刷新")}</button><hr><button>${L("Open storage folder", "打开存储文件夹")}</button></div>`;
 		}
 		const many = this.s.selected.length > 1;
+		if (context.folders) {
+			const chosen = this.s.selected;
+			return `<div class="menu context" style="${style}"><div class="menu-title">${L("Add to folder", "加入文件夹")}</div>${this.s.folders.map((f) => `<button data-a="toggle-member" data-v="${f.id}"><span class="check ${chosen.every((id) => f.members.includes(id)) ? "on" : ""}">${icon("check", "sm")}</span><span class="grow">${L(...f.name)}</span></button>`).join("")}<hr><button data-a="new-folder">${L("New folder…", "新建文件夹…")}</button></div>`;
+		}
+		const pinned = this.s.selected.every((id) => this.s.pins.includes(id));
+		const [kind, id] = this.s.place.split(":");
+		const inFolder =
+			kind === "f" ? this.s.folders.find((f) => f.id === id) : null;
+		const organize = `<button data-a="pin"><span class="grow">${pinned ? L("Unpin", "取消置顶") : L("Pin", "置顶")}</span></button><button data-a="folder-menu"><span class="grow">${L("Add to folder", "加入文件夹")}</span>${icon("chevron-right", "sm")}</button>${inFolder ? `<button data-a="remove-member" data-v="${inFolder.id}">${L(`Remove from ${inFolder.name[0]}`, `移出“${inFolder.name[1]}”`)}</button>` : ""}<hr>`;
 		if (many)
-			return `<div class="menu context" style="${style}"><button>${L("Compress", "压缩")}</button><button>${L("Copy files", "复制文件")}</button><button>${L("Show in folder", "在文件夹中显示")}</button><hr><button class="danger" data-a="delete">${L("Delete…", "删除…")}</button></div>`;
-		return `<div class="menu context" style="${style}"><button><span class="grow">${L("Open", "打开")}</span>${kbd("Enter")}</button><button data-a="preview"><span class="grow">${L("Preview", "预览")}</span>${kbd("Space")}</button><hr><button>${L("Export…", "导出…")}</button><button>${L("Compress", "压缩")}</button>${this.selectedItems()[0]?.kind === "instant" ? `<button data-a="gif">${L("Save as GIF…", "存为 GIF…")}</button>` : ""}<hr><button><span class="grow">${L("Rename", "重命名")}</span>${kbd("F2")}</button><button><span class="grow">${L("Copy file", "复制文件")}</span>${kbd("Ctrl", "C")}</button><button>${L("Show in folder", "在文件夹中显示")}</button><hr><button class="danger" data-a="delete"><span class="grow">${L("Delete…", "删除…")}</span>${kbd("Del")}</button></div>`;
+			return `<div class="menu context" style="${style}">${organize}<button>${L("Compress", "压缩")}</button><button>${L("Copy files", "复制文件")}</button><button>${L("Show in folder", "在文件夹中显示")}</button><hr><button class="danger" data-a="delete">${L("Delete…", "删除…")}</button></div>`;
+		return `<div class="menu context" style="${style}"><button><span class="grow">${L("Open", "打开")}</span>${kbd("Enter")}</button><button data-a="preview"><span class="grow">${L("Preview", "预览")}</span>${kbd("Space")}</button><hr>${organize}<button>${L("Export…", "导出…")}</button><button>${L("Compress", "压缩")}</button>${this.selectedItems()[0]?.kind === "instant" ? `<button data-a="gif">${L("Save as GIF…", "存为 GIF…")}</button>` : ""}<hr><button><span class="grow">${L("Rename", "重命名")}</span>${kbd("F2")}</button><button><span class="grow">${L("Copy file", "复制文件")}</span>${kbd("Ctrl", "C")}</button><button>${L("Show in folder", "在文件夹中显示")}</button><hr><button class="danger" data-a="delete"><span class="grow">${L("Delete…", "删除…")}</span>${kbd("Del")}</button></div>`;
 	}
 
 	render() {
@@ -964,7 +1220,146 @@ class MainWindow {
 		const close = { context: null };
 		if (this.s.menu && a !== "menu" && a !== "status" && a !== "sort")
 			close.menu = null;
+		if (
+			this.s.sideMenu &&
+			a !== "rename-folder" &&
+			a !== "edit-smart" &&
+			a !== "delete-folder"
+		)
+			close.sideMenu = null;
 		switch (a) {
+			case "place":
+				return this.set({ place: v, selected: [], ...close });
+			case "new-folder": {
+				const id = `folder-${this.s.folders.length + 1}`;
+				const folder = {
+					id,
+					name: ["Untitled folder", "未命名文件夹"],
+					members: this.s.context ? [...this.s.selected] : [],
+				};
+				return this.set({
+					folders: [...this.s.folders, folder],
+					renaming: id,
+					place: `f:${id}`,
+					...close,
+				});
+			}
+			case "rename-folder":
+				return this.set({ renaming: v, sideMenu: null });
+			case "delete-folder":
+				return this.set({
+					folders: this.s.folders.filter((f) => f.id !== v),
+					smart: this.s.smart.filter((f) => f.id !== v),
+					place: "all",
+					sideMenu: null,
+					toast: {
+						text: pick(
+							"Folder deleted. Its items stay in the library.",
+							"已删除文件夹，里面的条目仍在资源库中。",
+						),
+					},
+				});
+			case "new-smart":
+				return this.set({
+					smartEditor: {
+						name: pick("Untitled smart folder", "未命名智能文件夹"),
+						match: "all",
+						rules: [{ field: "date", op: "last", value: "7" }],
+					},
+					...close,
+				});
+			case "edit-smart": {
+				const smart = this.s.smart.find((f) => f.id === v);
+				return this.set({
+					smartEditor: {
+						id: smart.id,
+						name: pick(...smart.name),
+						match: smart.match,
+						rules: smart.rules.map((rule) => ({ ...rule })),
+					},
+					sideMenu: null,
+					...close,
+				});
+			}
+			case "smart-match":
+				return this.set({ smartEditor: { ...this.s.smartEditor, match: v } });
+			case "rule-add":
+				return this.set({
+					smartEditor: {
+						...this.s.smartEditor,
+						rules: [
+							...this.s.smartEditor.rules,
+							{ field: "kind", op: "is", value: "studio" },
+						],
+					},
+				});
+			case "rule-remove":
+				return this.set({
+					smartEditor: {
+						...this.s.smartEditor,
+						rules: this.s.smartEditor.rules.filter((_, i) => i !== Number(v)),
+					},
+				});
+			case "smart-cancel":
+				return this.set({ smartEditor: null });
+			case "smart-save": {
+				const draft = this.s.smartEditor;
+				const id = draft.id ?? `smart-${this.s.smart.length + 1}`;
+				const saved = {
+					id,
+					name: [draft.name, draft.name],
+					match: draft.match,
+					rules: draft.rules,
+				};
+				const smart = draft.id
+					? this.s.smart.map((f) => (f.id === id ? saved : f))
+					: [...this.s.smart, saved];
+				return this.set({ smart, smartEditor: null, place: `s:${id}` });
+			}
+			case "pin": {
+				const { selected, pins } = this.s;
+				const all = selected.every((id) => pins.includes(id));
+				return this.set({
+					pins: all
+						? pins.filter((id) => !selected.includes(id))
+						: [...new Set([...pins, ...selected])],
+					...close,
+				});
+			}
+			case "folder-menu":
+				return this.set({
+					context: { ...(this.s.context ?? { x: 640, y: 240 }), folders: true },
+				});
+			case "toggle-member": {
+				const { selected } = this.s;
+				return this.set({
+					folders: this.s.folders.map((f) => {
+						if (f.id !== v) return f;
+						const all = selected.every((id) => f.members.includes(id));
+						return {
+							...f,
+							members: all
+								? f.members.filter((id) => !selected.includes(id))
+								: [...new Set([...f.members, ...selected])],
+						};
+					}),
+					context: null,
+				});
+			}
+			case "remove-member":
+				return this.set({
+					folders: this.s.folders.map((f) =>
+						f.id === v
+							? {
+									...f,
+									members: f.members.filter(
+										(id) => !this.s.selected.includes(id),
+									),
+								}
+							: f,
+					),
+					...close,
+				});
 			case "mode":
 				return this.set({ mode: v, ...close });
 			case "target":
@@ -1077,6 +1472,20 @@ class MainWindow {
 	}
 
 	contextMenu(e) {
+		const side = e.target.closest("[data-side]");
+		if (side) {
+			e.preventDefault();
+			const nav = this.host.querySelector(".lib-side");
+			const y =
+				side.getBoundingClientRect().bottom - nav.getBoundingClientRect().top;
+			return this.set({
+				sideMenu: {
+					id: side.dataset.side,
+					smart: Boolean(side.dataset.smart),
+					y,
+				},
+			});
+		}
 		const inItems = e.target.closest(".items");
 		if (!inItems) return;
 		e.preventDefault();
@@ -1118,6 +1527,20 @@ class MainWindow {
 	input(e) {
 		const keep = e.target.dataset.keep;
 		if (keep === "search") this.set({ query: e.target.value });
+		if (keep === "rename") {
+			const value = e.target.value;
+			this.s.folders = this.s.folders.map((f) =>
+				f.id === this.s.renaming ? { ...f, name: [value, value] } : f,
+			);
+			return;
+		}
+		if (e.target.dataset.part === "name" && this.s.smartEditor) {
+			this.s.smartEditor = { ...this.s.smartEditor, name: e.target.value };
+			const save = this.host.querySelector('[data-a="smart-save"]');
+			if (save) save.disabled = !e.target.value.trim();
+			return;
+		}
+		if (e.target.dataset.rule !== undefined) return this.ruleChange(e);
 		if (keep === "palette") {
 			const typed = e.target.value;
 			const scope = { ">": "command", "@": "project", $: "setting" }[typed];
@@ -1125,6 +1548,22 @@ class MainWindow {
 				this.set({ palette: { q: "", scope, index: 0 } });
 			else this.set({ palette: { ...this.s.palette, q: typed, index: 0 } });
 		}
+	}
+
+	ruleChange(e) {
+		const i = Number(e.target.dataset.rule);
+		const part = e.target.dataset.part;
+		const rules = this.s.smartEditor.rules.map((rule, at) => {
+			if (at !== i) return rule;
+			if (part !== "field") return { ...rule, [part]: e.target.value };
+			const field = RULE_FIELDS[e.target.value];
+			return {
+				field: e.target.value,
+				op: field.ops[0][0],
+				value: field.values ? field.values[0][0] : "",
+			};
+		});
+		this.set({ smartEditor: { ...this.s.smartEditor, rules } });
 	}
 
 	scrub(e) {
@@ -1137,6 +1576,13 @@ class MainWindow {
 
 	key(e) {
 		const s = this.s;
+		if (
+			e.target.dataset?.keep === "rename" &&
+			(e.key === "Enter" || e.key === "Escape")
+		) {
+			e.preventDefault();
+			return this.set({ renaming: null });
+		}
 		const typing = e.target.tagName === "INPUT";
 		const ctrl = e.ctrlKey || e.metaKey;
 		if (ctrl && e.key.toLowerCase() === "k") {
@@ -1365,6 +1811,12 @@ const titles = {
 		"GIF is only an export format. An Instant recording gets it from its details or its right-click menu: choose a stretch with the two handles, pick a size and a quality, and read the estimate before saving. Large keeps the recording's size up to 1080 px on the long side; Medium and Small are a half and a quarter of that. Quality is Low, Medium or High, the same three the editor's GIF export offers; High is the default. It is always 15 FPS; anything finer is the editor's export. While it saves, the Save button shows the progress and Cancel stops the save and leaves no file. The GIF joins the recording's exports, and the toast offers Copy and Show in folder. A Studio recording gets a GIF from the editor's export, which can also export only the selected stretch.",
 		"GIF 只是一种导出格式。即时录制从详情或右键菜单进入：用两个把手选一段，选尺寸和画质，保存前先看预估大小。“大”保持录制的尺寸，长边最多 1080 px；“中”和“小”是它的一半和四分之一。画质分低、中、高，与编辑器的 GIF 导出相同，默认为高。固定 15 帧/秒，要细调就用编辑器的导出。保存时“存为 GIF”按钮上显示进度，“取消”会停止保存，不留下文件。生成的 GIF 列在这条录制的导出里，提示里可以直接复制或在文件夹中显示。工作室录制在编辑器的导出里得到 GIF，那里也可以只导出选中的一段。",
 	],
+	folders: [
+		"Folders, pins and smart folders",
+		"文件夹、置顶和智能文件夹",
+		"The sidebar groups items without moving a file. A library folder is a list: an item can be in several, and deleting a folder leaves its items in the library. Pinned items sit together at the top of the sidebar. A smart folder is a saved set of rules (type, date, export state, title) and fills itself; it is worked out again whenever the library changes and when the day changes. Folders, pins and rules live in one file in the storage folder, so they move with it. Cards are drawn from what an item holds: a wave for audio, the first caption words when it has captions, a frame otherwise. A warning mark means the project file could not be read and was rebuilt.",
+		"侧栏只归类，不移动任何文件。资源库文件夹是一份清单：一个条目可以在好几个文件夹里，删掉文件夹，条目还在资源库里。置顶的条目集中在侧栏最上面。智能文件夹是一组保存下来的规则（类型、日期、导出状态、标题），会自己装满；资源库一有变化、日期一变，就重新算一遍。文件夹、置顶和规则存在存储文件夹里的一个文件中，跟着存储文件夹走。卡片按条目里有什么来画：音频画波形，有字幕就显示第一句字幕，其他显示画面。带警告标记的条目，说明它的项目文件读不出，已经重建。",
+	],
 	keys: [
 		"Keyboard",
 		"键盘",
@@ -1388,6 +1840,7 @@ shell({
 		["palette", "Command palette", "命令面板"],
 		["delete", "Delete", "删除"],
 		["gif", "Save as GIF", "存为 GIF"],
+		["folders", "Folders", "文件夹"],
 		["keys", "Keyboard", "键盘"],
 	],
 });
@@ -1742,3 +2195,122 @@ onChange(() => {
 	liveMain.render();
 	liveLibrary.render();
 });
+
+const folderPresets = {
+	folder: { place: "f:launch", selected: [1], anchor: 1 },
+	smart: { place: "s:to-export" },
+	editor: {
+		place: "s:to-export",
+		smartEditor: {
+			id: "to-export",
+			name: "To export this week",
+			match: "all",
+			rules: [
+				{ field: "export", op: "is", value: "unexported" },
+				{ field: "date", op: "last", value: "7" },
+				{ field: "title", op: "lacks", value: "draft" },
+			],
+		},
+	},
+	add: {
+		selected: [4],
+		anchor: 4,
+		context: { x: 520, y: 220, folders: true },
+	},
+	menu: {
+		place: "f:support",
+		selected: [2],
+		anchor: 2,
+		context: { x: 520, y: 200 },
+	},
+	cards: { selected: [8], anchor: 8, type: "studio" },
+	side: { place: "f:tutorials", sideMenu: { id: "tutorials", y: 210 } },
+	empty: { folders: [], smart: [], pins: [] },
+};
+const folderHost = document.getElementById("folders-stage");
+const showFolders = (key) => {
+	folderHost.replaceChildren();
+	const host = document.createElement("div");
+	folderHost.append(host);
+	new MainWindow(host, { expanded: true, ...folderPresets[key] });
+};
+tabRow(
+	"folders-tabs",
+	[
+		["folder", "A folder", "文件夹"],
+		["smart", "A smart folder", "智能文件夹"],
+		["editor", "Editing rules", "编辑规则"],
+		["add", "Add to folder", "加入文件夹"],
+		["menu", "Right-click in a folder", "文件夹里右键"],
+		["cards", "Cards and a rebuilt item", "卡片和重建的条目"],
+		["side", "Folder menu", "文件夹菜单"],
+		["empty", "No folders yet", "还没有文件夹"],
+	],
+	showFolders,
+);
+showFolders("folder");
+
+const folderRows = [
+	[
+		"New folder",
+		"新建文件夹",
+		"+ beside Folders, or Add to folder › New folder… on a selection (the selection goes in). It opens named, ready to rename.",
+		"“文件夹”旁边的 +，或者对选中的条目用“加入文件夹 › 新建文件夹…”（选中的条目放进去）。建好后直接进入重命名。",
+	],
+	[
+		"Add to a folder",
+		"加入文件夹",
+		"Drag items onto a folder in the sidebar; right-click › Add to folder; or + under Folders in the details. Items can be in several folders.",
+		"把条目拖到侧栏的文件夹上；右键 ›“加入文件夹”；或在详情的“文件夹”下点 +。一个条目可以在几个文件夹里。",
+	],
+	[
+		"Take out of a folder",
+		"移出文件夹",
+		"Right-click › Remove from (the folder) while that folder is open, or the × on its chip in the details. The item stays in the library.",
+		"打开那个文件夹时右键 ›“移出”，或点详情里文件夹标签上的 ×。条目仍在资源库里。",
+	],
+	[
+		"Pin, unpin",
+		"置顶、取消置顶",
+		"Right-click › Pin. Pinned shows in the sidebar once anything is pinned; pinned cards carry a small mark.",
+		"右键 ›“置顶”。有置顶条目时侧栏出现“已置顶”；置顶的卡片带一个小标记。",
+	],
+	[
+		"Rename, delete a folder",
+		"重命名、删除文件夹",
+		"Right-click the folder, or F2 and Delete while it has focus. Deleting a folder never deletes items.",
+		"右键文件夹，或者它获得焦点时按 F2、Delete。删除文件夹不会删除条目。",
+	],
+	[
+		"Smart folder rules",
+		"智能文件夹规则",
+		"Type (Studio, Instant, Screenshot, Audio only), Date (in the last / older than), Export state (the Status filters), Title (contains, does not contain, is, starts with). Match all or any. The dialog counts matches as you edit.",
+		"类型（工作室、即时、截图、仅音频）、日期（最近／早于）、导出状态（即“状态”筛选的几项）、标题（包含、不包含、是、开头是）。符合全部或任一。编辑时对话框实时显示有几项符合。",
+	],
+	[
+		"Search, type tabs, Status, sort",
+		"搜索、类型标签、状态、排序",
+		"Work inside whatever the sidebar shows.",
+		"在侧栏当前选中的范围里生效。",
+	],
+	[
+		"Where it is stored",
+		"存在哪里",
+		"One library file in the storage folder. A renamed or moved project keeps its folders; a project that is gone drops out quietly. A scan that fails or stops early never removes memberships.",
+		"存储文件夹里的一个资源库文件。项目改名或移动后仍在原来的文件夹里；不在了的项目悄悄移出。扫描失败或中途停下时，不会删掉任何归属。",
+	],
+	[
+		"Rebuilt items",
+		"重建的条目",
+		"A warning mark on the card; the details say the recording is intact and show the kept copy of the old file.",
+		"卡片上有警告标记；详情里说明录制内容完好，并可显示旧文件留下的副本。",
+	],
+	[
+		"Not taken from upstream",
+		"没有从 upstream 拿来的",
+		"The magazine layout (we keep grid and list), and notes, people and meeting app icons (ADR-0012).",
+		"杂志式布局（我们保留网格和列表），以及笔记、人物和会议应用图标（ADR-0012）。",
+	],
+];
+document.getElementById("folders-table").innerHTML =
+	`<table class="table folder-table"><thead><tr><th>${L("What", "操作")}</th><th>${L("Where", "在哪里")}</th></tr></thead><tbody>${folderRows.map(([en, zh, wen, wzh]) => `<tr><td>${L(en, zh)}</td><td>${L(wen, wzh)}</td></tr>`).join("")}</tbody></table><p class="note">${L("New glyphs for the app: pin (shown here as flag) and folder-search for smart folders (shown here as list-filter).", "应用需要的新图标：pin（这里暂用 flag）和智能文件夹用的 folder-search（这里暂用 list-filter）。")}</p>`;
