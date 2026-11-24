@@ -2,8 +2,8 @@ use crate::store::{MainWindowMemory, MainWindowStartBehaviour};
 
 pub const COMPACT_WIDTH: f64 = crate::MAIN_WINDOW_WIDTH as f64;
 pub const COMPACT_HEIGHT: f64 = crate::MAIN_WINDOW_HEIGHT as f64;
-pub const FIRST_LIBRARY_WIDTH: f64 = 1200.;
-pub const FIRST_LIBRARY_HEIGHT: f64 = 760.;
+pub const FIRST_LIBRARY_WIDTH: f64 = 1440.;
+pub const FIRST_LIBRARY_HEIGHT: f64 = 860.;
 pub const MIN_LIBRARY_WIDTH: f64 = 900.;
 pub const MIN_LIBRARY_HEIGHT: f64 = 600.;
 const WORK_AREA_MARGIN: f64 = 12.;
@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn the_first_library_is_1200_by_760_centred_and_an_ordinary_window() {
+    fn the_first_library_is_1440_by_860_centred_and_an_ordinary_window() {
         let placement = library_placement(
             &MainWindowMemory::default(),
             display(area(2560., 1400.), 1.),
@@ -443,10 +443,10 @@ mod tests {
         assert_eq!(
             placement.frame,
             Frame {
-                x: 680.,
-                y: 320.,
-                width: 1200.,
-                height: 760.
+                x: 560.,
+                y: 270.,
+                width: 1440.,
+                height: 860.
             }
         );
         assert!(!placement.on_top);
@@ -470,8 +470,8 @@ mod tests {
                 &MainWindowMemory::default(),
                 display(area(3840., 2100.), scale),
             );
-            assert_eq!(placement.frame.width, 1200. * scale);
-            assert_eq!(placement.frame.height, 760. * scale);
+            assert_eq!(placement.frame.width, 1440. * scale);
+            assert_eq!(placement.frame.height, 860. * scale);
         }
     }
 
@@ -544,8 +544,8 @@ mod tests {
             ..Default::default()
         };
         let placement = library_placement(&memory, display(area(1920., 1040.), 1.));
-        assert_eq!(placement.frame.x, (1920. - 1200.) / 2.);
-        assert_eq!(placement.frame.y, (1040. - 760.) / 2.);
+        assert_eq!(placement.frame.x, (1920. - 1440.) / 2.);
+        assert_eq!(placement.frame.y, (1040. - 860.) / 2.);
     }
 
     #[test]
@@ -555,8 +555,8 @@ mod tests {
             ..Default::default()
         };
         let placement = library_placement(&memory, display(area(1920., 1040.), 1.));
-        assert_eq!(placement.frame.x, 1920. - 12. - 1200.);
-        assert_eq!(placement.frame.y, 1040. - 12. - 760.);
+        assert_eq!(placement.frame.x, 1920. - 12. - 1440.);
+        assert_eq!(placement.frame.y, 1040. - 12. - 860.);
     }
 
     #[test]
@@ -572,8 +572,8 @@ mod tests {
             ..Default::default()
         };
         let placement = library_placement(&memory, display(work, 1.));
-        assert_eq!(placement.frame.x, -12. - 1200.);
-        assert_eq!(placement.frame.y, -200. + 1040. - 12. - 760.);
+        assert_eq!(placement.frame.x, -12. - 1440.);
+        assert_eq!(placement.frame.y, -200. + 1040. - 12. - 860.);
     }
 
     #[test]
