@@ -607,3 +607,84 @@ index a635bc4..e565dfd 100644
          };
          textures.textures.get(id.index as usize)?.as_ref()
      }
+diff --git a/crates/gpui_apple/src/text_system.rs b/crates/gpui_apple/src/text_system.rs
+index 3c0e17d..cca7b2c 100644
+--- a/crates/gpui_apple/src/text_system.rs
++++ b/crates/gpui_apple/src/text_system.rs
+@@ -38,7 +38,7 @@ use gpui::{
+     Result, SUBPIXEL_VARIANTS_X, ShapedGlyph, ShapedRun, SharedString, Size, TextRenderingMode,
+     point, px, size, swap_rgba_pa_to_bgra,
+ };
+-use parking_lot::{RwLock, RwLockUpgradableReadGuard};
++use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
+ use pathfinder_geometry::{
+     rect::{RectF, RectI},
+     transform2d::Transform2F,
+@@ -77,8 +77,11 @@ struct AppleTextSystemState {
+     font_ids_by_postscript_name: HashMap<String, FontId>,
+     font_ids_by_font_key: HashMap<FontKey, SmallVec<[FontId; 4]>>,
+     postscript_names_by_font_id: HashMap<FontId, String>,
++    sized_fonts: Mutex<HashMap<(FontId, u32), CTFont>>,
+ }
+ 
++const MAX_SIZED_FONTS: usize = 512;
++
+ impl AppleTextSystem {
+     /// Create a new AppleTextSystem.
+     pub fn new() -> Self {
+@@ -90,6 +93,7 @@ impl AppleTextSystem {
+             font_ids_by_postscript_name: HashMap::default(),
+             font_ids_by_font_key: HashMap::default(),
+             postscript_names_by_font_id: HashMap::default(),
++            sized_fonts: Mutex::default(),
+         }))
+     }
+ }
+@@ -426,6 +430,21 @@ impl AppleTextSystemState {
+             })
+     }
+ 
++    fn sized_font(&self, font_id: FontId, font_size: f32) -> CTFont {
++        let mut sized = self.sized_fonts.lock();
++        if let Some(font) = sized.get(&(font_id, font_size.to_bits())) {
++            return font.clone();
++        }
++        if sized.len() >= MAX_SIZED_FONTS {
++            sized.clear();
++        }
++        let font = self.fonts[font_id.0]
++            .native_font()
++            .clone_with_font_size(font_size as CGFloat);
++        sized.insert((font_id, font_size.to_bits()), font.clone());
++        font
++    }
++
+     fn raster_bounds(&self, params: &RenderGlyphParams) -> Result<Bounds<DevicePixels>> {
+         let font = &self.fonts[params.font_id.0];
+         let scale = Transform2F::from_scale(params.scale_factor);
+@@ -514,9 +533,7 @@ impl AppleTextSystemState {
+             } else {
+                 cx.set_gray_fill_color(0.0, 1.0);
+             }
+-            self.fonts[params.font_id.0]
+-                .native_font()
+-                .clone_with_font_size(f32::from(params.font_size) as CGFloat)
++            self.sized_font(params.font_id, f32::from(params.font_size))
+                 .draw_glyphs(
+                     &[params.glyph_id.0 as CGGlyph],
+                     &[CGPoint::new(
+@@ -569,12 +586,9 @@ impl AppleTextSystemState {
+                 } else {
+                     font_size
+                 };
++                let sized = self.sized_font(run.font_id, f32::from(font_size));
+                 unsafe {
+-                    string.set_attribute(
+-                        cf_range,
+-                        kCTFontAttributeName,
+-                        &font.native_font().clone_with_font_size(font_size.into()),
+-                    );
++                    string.set_attribute(cf_range, kCTFontAttributeName, &sized);
+                 }
+                 break_ligature = !break_ligature;
+             }
