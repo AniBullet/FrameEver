@@ -16,7 +16,7 @@ use std::{
 #[cfg(test)]
 mod tests;
 
-const JOURNAL: &str = "unused-media-journal.json";
+const JOURNAL: &str = storage::UNUSED_MEDIA_JOURNAL;
 const BACKUPS: &str = "backups";
 const STAGING: &str = "content/removed-media";
 const SEGMENTS: &str = "content/segments/";

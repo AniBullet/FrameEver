@@ -89,7 +89,19 @@ fn keep_typed_text(
     }
 }
 
+const INTERRUPTED_CLEANUP: &str = "an unused clip media clean-up of this project was interrupted";
+
+pub(crate) fn require_settled(project_path: &Path) -> Result<(), String> {
+    if frameever_utils::storage::unused_media_cleanup_interrupted(project_path) {
+        return Err(format!(
+            "{INTERRUPTED_CLEANUP}. Open the project in FrameEver to finish it, then try again"
+        ));
+    }
+    Ok(())
+}
+
 pub fn config_get(project_path: PathBuf) -> Result<(), String> {
+    require_settled(&project_path)?;
     let config = match frameever_project::ProjectConfiguration::load(&project_path) {
         Ok(config) => config,
         // Instant and un-edited studio recordings have no project-config.json; return the
@@ -106,6 +118,7 @@ pub fn config_set(
     settings_json: &str,
     format: OutputFormat,
 ) -> Result<(), String> {
+    require_settled(&project_path)?;
     let mut incoming: serde_json::Value = serde_json::from_str(settings_json)
         .map_err(|e| format!("Invalid project config JSON: {e}"))?;
     if let Ok(existing) = frameever_project::ProjectConfiguration::load(&project_path) {
@@ -124,6 +137,7 @@ pub fn config_set(
 }
 
 pub fn inspect(project_path: PathBuf, format: OutputFormat) -> Result<(), String> {
+    require_settled(&project_path)?;
     let meta = RecordingMeta::load_for_project(&project_path)
         .map_err(|e| format!("Failed to load recording meta: {e}"))?;
     let output_path = meta.output_path();
@@ -293,7 +307,7 @@ fn build_report(project_path: &Path, meta: &RecordingMeta) -> ValidationReport {
         project_path.join("project-config.json"),
     ));
 
-    let problems = match &meta.inner {
+    let mut problems = match &meta.inner {
         RecordingMetaInner::Studio(studio) => {
             checks.extend(studio_checks(meta, studio));
             checks.push(optional_check("output", meta.output_path()));
@@ -304,6 +318,9 @@ fn build_report(project_path: &Path, meta: &RecordingMeta) -> ValidationReport {
             instant_problems(instant)
         }
     };
+    if frameever_utils::storage::unused_media_cleanup_interrupted(project_path) {
+        problems.push(INTERRUPTED_CLEANUP.to_string());
+    }
 
     let missing: Vec<PathBuf> = checks
         .iter()

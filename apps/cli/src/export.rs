@@ -453,6 +453,7 @@ impl Export {
     ) -> Result<(), String> {
         let output = self.resolve_output()?;
         frameever_export::validate_output_path(&self.project_path)?;
+        crate::project::require_settled(&self.project_path)?;
         if let Some(tracks) = self.tracks.clone() {
             return self
                 .run_tracks(&tracks, output, progress_json, completion_json, stdout)
@@ -1106,6 +1107,7 @@ impl ExportPreview {
     }
 
     async fn run_inner(self) -> Result<(), String> {
+        crate::project::require_settled(&self.project_path)?;
         let settings = serde_json::from_str::<frameever_export::preview::ExportPreviewSettings>(
             &self.settings_json,
         )

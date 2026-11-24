@@ -210,6 +210,14 @@ pub fn is_project(path: &Path) -> bool {
 
 pub const FORMAT_VERSION: u64 = 2;
 pub const PROJECT_FILE_NAME: &str = "frameever.json";
+pub const UNUSED_MEDIA_JOURNAL: &str = "unused-media-journal.json";
+
+pub fn unused_media_cleanup_interrupted(project: &Path) -> bool {
+    project
+        .join(UNUSED_MEDIA_JOURNAL)
+        .symlink_metadata()
+        .is_ok()
+}
 const FORMAT_VERSION_KEY: &str = "formatVersion";
 const EXPORTS_KEY: &str = "exports";
 const CHAPTER_MARKERS_KEY: &str = "chapterMarkers";

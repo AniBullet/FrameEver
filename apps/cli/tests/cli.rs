@@ -292,6 +292,52 @@ fn project_validate_complete_project_is_valid() {
 }
 
 #[test]
+fn a_project_with_an_interrupted_unused_media_cleanup_is_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("recording.ever");
+    let content = project.join("content");
+    std::fs::create_dir_all(&content).unwrap();
+    std::fs::write(content.join("display.mp4"), b"fake").unwrap();
+    write_single_segment_meta(&project);
+    std::fs::write(project.join("project-config.json"), b"{}").unwrap();
+    std::fs::write(project.join("unused-media-journal.json"), b"{}").unwrap();
+    let path = project.to_str().unwrap();
+    let output_file = dir.path().join("out.mp4");
+
+    for args in [
+        vec!["export", path, "--output", output_file.to_str().unwrap()],
+        vec!["project", "inspect", path],
+        vec!["project", "config", "get", path],
+        vec!["project", "config", "set", path, "--settings-json", "{}"],
+    ] {
+        let output = run(&args);
+        assert!(!output.status.success(), "{args:?} succeeded");
+        assert!(
+            stderr(&output).contains("Open the project in FrameEver"),
+            "{args:?} stderr: {}",
+            stderr(&output)
+        );
+    }
+    assert_eq!(
+        std::fs::read(project.join("project-config.json")).unwrap(),
+        b"{}"
+    );
+    assert!(!output_file.exists());
+
+    let output = run(&["project", "validate", path, "--format", "json"]);
+    let json = parse_json(&output);
+    assert_eq!(json["valid"], false);
+    assert!(
+        json["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|problem| problem.as_str().unwrap().contains("clean-up")),
+        "{json}"
+    );
+}
+
+#[test]
 fn project_validate_detects_missing_media() {
     let dir = tempfile::tempdir().unwrap();
     let project = dir.path().join("recording.ever");
