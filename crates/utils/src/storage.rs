@@ -123,6 +123,7 @@ pub const SETTINGS_FILE_ENV: &str = "FRAMEEVER_GPUI_TAURI_STORE";
 pub const STORAGE_DIR_ENV: &str = "FRAMEEVER_GPUI_STORAGE_DIR";
 const SETTINGS_FILE_NAME: &str = "store";
 const INPUT_PRESETS_DIR_NAME: &str = "input-presets";
+const CAPTION_MODELS_DIR_NAME: &str = "transcription_models";
 
 fn env_path(name: &str) -> Option<PathBuf> {
     std::env::var(name)
@@ -146,6 +147,32 @@ fn app_data_root() -> PathBuf {
         std::env::var_os("APPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."))
+    }
+}
+
+fn local_data_root() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        app_data_root()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(app_data_root)
+    }
+}
+
+pub fn caption_models_dir() -> PathBuf {
+    caption_models_dir_from(env_path(APP_DATA_DIR_ENV), &local_data_root())
+}
+
+fn caption_models_dir_from(test_profile: Option<PathBuf>, local_root: &Path) -> PathBuf {
+    match test_profile {
+        Some(profile) => profile.join(CAPTION_MODELS_DIR_NAME),
+        None => local_root
+            .join(crate::brand::APP_ID)
+            .join(CAPTION_MODELS_DIR_NAME),
     }
 }
 
@@ -559,6 +586,24 @@ fn dedupe_existing_dirs(dirs: Vec<PathBuf>) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn caption_models_live_in_our_own_local_data_folder() {
+        let local = Path::new("local");
+        let models = caption_models_dir_from(None, local);
+        assert_eq!(
+            models,
+            local
+                .join(crate::brand::APP_ID)
+                .join(CAPTION_MODELS_DIR_NAME)
+        );
+        assert!(!models.to_string_lossy().contains("so.cap"));
+        let profile = Path::new("profile");
+        assert_eq!(
+            caption_models_dir_from(Some(profile.to_path_buf()), local),
+            profile.join(CAPTION_MODELS_DIR_NAME)
+        );
+    }
 
     struct Tree(tempfile::TempDir);
 

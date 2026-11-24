@@ -427,9 +427,7 @@ mod mac {
     /// *other* Cap windows and is deliberately not reproduced here.
     const NS_GLASS_EFFECT_VIEW_STYLE_REGULAR: isize = 0;
 
-    /// `LIQUID_GLASS_IDENTIFIER`, kept byte-identical to the Tauri app so the
-    /// two view hierarchies read the same in a debugger.
-    const LIQUID_GLASS_IDENTIFIER: &str = "so.cap.liquid-glass-background";
+    const LIQUID_GLASS_IDENTIFIER: &str = "io.github.anibullet.frameever.liquid-glass-background";
 
     const TITLED_WINDOW_RADIUS: f64 = 16.;
 

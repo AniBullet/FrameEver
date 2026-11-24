@@ -67,9 +67,6 @@ mod verbatim;
 // Model catalogue & shared paths
 // ---------------------------------------------------------------------------
 
-/// `CAPTION_MODEL_FOLDER` (`captions.ts:25`).
-pub const CAPTION_MODEL_FOLDER: &str = "transcription_models";
-
 /// Every model the catalogue can name, for the disk scan.
 const MODEL_NAMES: [&str; 4] = ["best", "best-max", "small", "medium"];
 
@@ -226,17 +223,8 @@ fn caption_engine(
         .ok_or_else(|| format!("{PARAKEET_UNSUPPORTED_LANGUAGE} {language}"))
 }
 
-/// Tauri's `appLocalDataDir()` for the `so.cap.desktop` identifier: on macOS
-/// `~/Library/Application Support`, on Windows `%LOCALAPPDATA%` (deliberately
-/// *not* the roaming dir [`store::app_data_dir`] uses).
-fn app_local_data_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("so.cap.desktop")
-}
-
 pub fn models_dir() -> PathBuf {
-    app_local_data_dir().join(CAPTION_MODEL_FOLDER)
+    frameever_utils::storage::caption_models_dir()
 }
 
 /// `getModelPath` (`captions.ts:529-535`): Parakeet models are directories
@@ -3683,9 +3671,9 @@ mod tests {
     }
 
     #[test]
-    fn model_paths_match_the_tauri_layout() {
+    fn model_paths_sit_in_the_caption_models_folder() {
         let base = models_dir();
-        assert!(base.ends_with("so.cap.desktop/transcription_models"));
+        assert_eq!(base, frameever_utils::storage::caption_models_dir());
         assert_eq!(model_path("best"), base.join("parakeet-best"));
         assert_eq!(model_path("best-max"), base.join("parakeet-best-max"));
         assert_eq!(model_path("small"), base.join("small.bin"));
