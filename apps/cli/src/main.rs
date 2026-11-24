@@ -479,12 +479,7 @@ fn main() {
             let result = runtime.block_on(run(cli));
             drop(_diagnostic_guard);
             if exit_after_success && result.is_ok() {
-                // Successful export/preview workers have already written their output by here.
-                // Exiting directly avoids Windows GPU/MediaFoundation teardown crashes in the
-                // short-lived sidecar process.
-                let _ = stdout().flush();
-                let _ = stderr().flush();
-                std::process::exit(0);
+                std::mem::forget(runtime);
             }
 
             result
@@ -510,6 +505,11 @@ fn main() {
     let outcome = runtime_thread.join();
 
     match outcome {
+        Ok(Ok(())) if exit_after_success => {
+            let _ = stdout().flush();
+            let _ = stderr().flush();
+            std::process::exit(0);
+        }
         Ok(Ok(())) => {}
         Ok(Err(message)) => {
             eprintln!("error: {message}");

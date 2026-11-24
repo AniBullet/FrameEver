@@ -337,6 +337,62 @@ fn a_project_with_an_interrupted_unused_media_cleanup_is_not_read() {
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn a_software_encoded_and_decoded_export_exits_cleanly() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("synthetic.ever");
+    let content = project.join("content");
+    std::fs::create_dir_all(&content).unwrap();
+    let made = Command::new("ffmpeg")
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=640x360:rate=30:duration=2",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+        ])
+        .arg(content.join("display.mp4"))
+        .output()
+        .expect("ffmpeg from target/ffmpeg/bin is on PATH");
+    assert!(
+        made.status.success(),
+        "{}",
+        String::from_utf8_lossy(&made.stderr)
+    );
+    write_single_segment_meta(&project);
+    std::fs::write(project.join("project-config.json"), b"{}").unwrap();
+
+    for attempt in 0..8 {
+        let output = dir.path().join(format!("out-{attempt}.mp4"));
+        let result = run(&[
+            "export",
+            project.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--fps",
+            "30",
+            "--resolution",
+            "320x180",
+            "--optimize-filesize",
+            "--force-ffmpeg-decoder",
+        ]);
+        assert_eq!(
+            result.status.code(),
+            Some(0),
+            "attempt {attempt}: {}",
+            stderr(&result)
+        );
+        assert!(output.is_file());
+    }
+}
+
 #[test]
 fn project_validate_detects_missing_media() {
     let dir = tempfile::tempdir().unwrap();
