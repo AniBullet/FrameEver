@@ -3128,6 +3128,8 @@ pub struct ProjectConfiguration {
     pub auto_zoom_pending: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_visuals: Option<Box<crate::AudioVisualsConfiguration>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera_picture: Option<String>,
 }
 
 fn is_zero(value: &u32) -> bool {
@@ -3191,6 +3193,7 @@ impl Default for ProjectConfiguration {
             auto_zoom_version: 0,
             auto_zoom_pending: false,
             audio_visuals: None,
+            camera_picture: None,
         }
     }
 }
@@ -3243,6 +3246,7 @@ impl ProjectConfiguration {
         preset.input_display = self.input_display.clone();
         preset.enhance_quality = self.enhance_quality;
         preset.clips = self.clips.clone();
+        preset.camera_picture = self.camera_picture.clone();
         preset
     }
 
@@ -3692,6 +3696,27 @@ fn keep_unreadable_config(config_path: &Path, contents: &[u8]) {
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn a_preset_keeps_the_projects_own_camera_picture() {
+        let project = ProjectConfiguration {
+            camera_picture: Some("camera-picture.png".into()),
+            ..Default::default()
+        };
+        let preset = ProjectConfiguration {
+            camera_picture: Some("other.png".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            project.with_preset(preset).camera_picture.as_deref(),
+            Some("camera-picture.png")
+        );
+        let none = ProjectConfiguration::default().with_preset(ProjectConfiguration {
+            camera_picture: Some("other.png".into()),
+            ..Default::default()
+        });
+        assert_eq!(none.camera_picture, None);
+    }
 
     #[test]
     fn an_unreadable_config_is_kept_before_callers_fall_back_to_defaults() {

@@ -43,6 +43,7 @@ async fn fixture(screen: XY<u32>) -> Fixture {
                 .clone(),
             recording_meta,
             frozen_recorded_cursors: None,
+            camera_picture: Default::default(),
             audio_levels: Default::default(),
             background_textures: Arc::new(BackgroundTextureCache::default()),
             is_software_adapter: false,
