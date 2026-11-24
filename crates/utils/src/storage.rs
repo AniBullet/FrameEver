@@ -237,6 +237,9 @@ pub fn is_project(path: &Path) -> bool {
 
 pub const FORMAT_VERSION: u64 = 2;
 pub const PROJECT_FILE_NAME: &str = "frameever.json";
+pub const LIBRARY_FILE_NAME: &str = "library.json";
+const KEPT_COPY_MARK: &str = ".unreadable-";
+const KEPT_COPY_SOURCES: [&str; 2] = [PROJECT_FILE_NAME, "project-config.json"];
 pub const UNUSED_MEDIA_JOURNAL: &str = "unused-media-journal.json";
 
 pub fn unused_media_cleanup_interrupted(project: &Path) -> bool {
@@ -246,6 +249,7 @@ pub fn unused_media_cleanup_interrupted(project: &Path) -> bool {
         .is_ok()
 }
 const FORMAT_VERSION_KEY: &str = "formatVersion";
+const PROJECT_ID_KEY: &str = "id";
 const EXPORTS_KEY: &str = "exports";
 const CHAPTER_MARKERS_KEY: &str = "chapterMarkers";
 const LEGACY_PROJECT_EXTENSION: &str = "cap";
@@ -298,13 +302,96 @@ fn write_project_file(
     document: &serde_json::Map<String, serde_json::Value>,
 ) -> std::io::Result<()> {
     let bytes = serde_json::to_vec_pretty(document).map_err(std::io::Error::other)?;
-    std::fs::write(project.join(PROJECT_FILE_NAME), bytes)
+    let staged = project.join(format!(".{PROJECT_FILE_NAME}.{}.tmp", uuid::Uuid::new_v4()));
+    std::fs::write(&staged, bytes)
+        .and_then(|()| std::fs::rename(&staged, project.join(PROJECT_FILE_NAME)))
+        .inspect_err(|_| {
+            if let Err(error) = std::fs::remove_file(&staged) {
+                tracing::debug!(%error, "no staged project file to remove");
+            }
+        })
+}
+
+fn insert_project_id(document: &mut serde_json::Map<String, serde_json::Value>) -> String {
+    if let Some(id) = document
+        .get(PROJECT_ID_KEY)
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| !id.is_empty())
+    {
+        return id.to_owned();
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    document.insert(PROJECT_ID_KEY.into(), id.clone().into());
+    id
 }
 
 pub fn stamp_format_version(project: &Path) -> std::io::Result<()> {
     let mut document = read_project_file(project);
     document.insert(FORMAT_VERSION_KEY.into(), FORMAT_VERSION.into());
+    insert_project_id(&mut document);
     write_project_file(project, &document)
+}
+
+pub fn project_id(project: &Path) -> Option<String> {
+    read_project_file(project)
+        .get(PROJECT_ID_KEY)
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+}
+
+pub fn ensure_project_id(project: &Path) -> std::io::Result<String> {
+    let path = project.join(PROJECT_FILE_NAME);
+    let mut document = match std::fs::read(&path) {
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(document) => document,
+            Err(error) => {
+                tracing::warn!(project = %project.display(), %error, "rebuilding an unreadable project file");
+                keep_unreadable_copy(&path, &bytes)?;
+                serde_json::Map::from_iter([(FORMAT_VERSION_KEY.into(), FORMAT_VERSION.into())])
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::Map::from_iter([(FORMAT_VERSION_KEY.into(), FORMAT_VERSION.into())])
+        }
+        Err(error) => return Err(error),
+    };
+    let before = document.clone();
+    let id = insert_project_id(&mut document);
+    if document != before {
+        write_project_file(project, &document)?;
+    }
+    Ok(id)
+}
+
+fn keep_unreadable_copy(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let copy = path.with_file_name(format!("{name}{KEPT_COPY_MARK}{:016x}", hasher.finish()));
+    if copy.symlink_metadata().is_ok() {
+        return Ok(());
+    }
+    std::fs::write(copy, bytes)
+}
+
+pub fn kept_copy(project: &Path) -> Option<PathBuf> {
+    std::fs::read_dir(project)
+        .ok()?
+        .flatten()
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            KEPT_COPY_SOURCES
+                .iter()
+                .any(|source| name.starts_with(&format!("{source}{KEPT_COPY_MARK}")))
+        })
+        .max_by_key(|entry| entry.metadata().and_then(|meta| meta.modified()).ok())
+        .map(|entry| entry.path())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -540,6 +627,10 @@ impl Storage {
 
     pub fn exports_dir(&self) -> PathBuf {
         self.storage_dir().join(EXPORTS_DIR_NAME)
+    }
+
+    pub fn library_file(&self) -> PathBuf {
+        self.storage_dir().join(LIBRARY_FILE_NAME)
     }
 
     pub fn export_dialog_folder(&self, last_export_folder: Option<&Path>) -> PathBuf {
@@ -895,6 +986,102 @@ mod tests {
 
         assert_eq!(exports(&project), vec![record]);
         assert_eq!(format_version(&project), Some(FORMAT_VERSION));
+    }
+
+    #[test]
+    fn a_new_project_carries_an_id_that_a_rename_keeps() {
+        let tree = Tree::new();
+        let project = create_project(&tree.dir("Recordings"), "Demo").unwrap();
+        let id = project_id(&project).expect("a new project has an id");
+        let renamed = tree.path("Recordings/Renamed.ever");
+        std::fs::rename(&project, &renamed).unwrap();
+        assert_eq!(project_id(&renamed), Some(id.clone()));
+        assert_eq!(ensure_project_id(&renamed).unwrap(), id);
+    }
+
+    #[test]
+    fn an_older_project_gets_an_id_once_and_keeps_what_its_file_held() {
+        let tree = Tree::new();
+        let project = tree.dir("Old.ever");
+        std::fs::write(
+            project.join(PROJECT_FILE_NAME),
+            r#"{"formatVersion":2,"exports":[],"chapterMarkers":[{"recordedAt":1.5}]}"#,
+        )
+        .unwrap();
+        assert_eq!(project_id(&project), None);
+        let id = ensure_project_id(&project).unwrap();
+        assert_eq!(ensure_project_id(&project).unwrap(), id);
+        assert_eq!(project_id(&project), Some(id));
+        assert_eq!(chapter_markers(&project).len(), 1);
+        assert_eq!(format_version(&project), Some(FORMAT_VERSION));
+        assert_eq!(kept_copy(&project), None);
+    }
+
+    #[test]
+    fn a_project_without_a_project_file_gets_one_with_an_id() {
+        let tree = Tree::new();
+        let project = tree.dir("Bare.ever");
+        let id = ensure_project_id(&project).unwrap();
+        assert_eq!(project_id(&project), Some(id));
+        assert_eq!(kept_copy(&project), None);
+    }
+
+    #[test]
+    fn an_unreadable_project_file_is_kept_aside_and_rebuilt_with_an_id() {
+        let tree = Tree::new();
+        let project = tree.dir("Damaged.ever");
+        std::fs::write(project.join(PROJECT_FILE_NAME), b"{ not json").unwrap();
+        assert_eq!(kept_copy(&project), None);
+
+        let id = ensure_project_id(&project).unwrap();
+
+        assert_eq!(project_id(&project), Some(id));
+        assert_eq!(format_version(&project), Some(FORMAT_VERSION));
+        let copy = kept_copy(&project).expect("the unreadable file is kept");
+        assert_eq!(std::fs::read(&copy).unwrap(), b"{ not json");
+        assert!(
+            copy.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("frameever.json.unreadable-")
+        );
+    }
+
+    #[test]
+    fn a_kept_copy_of_an_unreadable_project_config_marks_the_project_too() {
+        let tree = Tree::new();
+        let project = tree.dir("Edited.ever");
+        std::fs::write(project.join("project-config.json"), b"{}").unwrap();
+        assert_eq!(kept_copy(&project), None);
+        let copy = project.join("project-config.json.unreadable-00000000000000ab");
+        std::fs::write(&copy, b"{ cut").unwrap();
+        assert_eq!(kept_copy(&project), Some(copy));
+    }
+
+    #[test]
+    fn project_file_writes_leave_no_temporary_files_behind() {
+        let tree = Tree::new();
+        let project = create_project(&tree.dir("Recordings"), "Demo").unwrap();
+        record_export(
+            &project,
+            &export_record(tree.path("Demo.mp4"), "mp4", None, 1),
+        )
+        .unwrap();
+        let names: Vec<String> = std::fs::read_dir(&project)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, [PROJECT_FILE_NAME]);
+    }
+
+    #[test]
+    fn the_library_file_lives_in_the_storage_folder() {
+        let tree = Tree::new();
+        let storage = Storage::new(tree.path("Videos/FrameEver"), StorageSettings::default());
+        assert_eq!(
+            storage.library_file(),
+            tree.path("Videos/FrameEver").join(LIBRARY_FILE_NAME)
+        );
     }
 
     #[test]
