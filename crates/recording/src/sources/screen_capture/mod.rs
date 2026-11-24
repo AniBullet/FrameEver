@@ -329,6 +329,16 @@ pub struct Config {
 #[cfg(target_os = "macos")]
 pub type CropBounds = LogicalBounds;
 
+#[cfg(target_os = "macos")]
+pub fn even_pixel_crop(bounds: CropBounds, scale: f64) -> CropBounds {
+    let size = bounds.size();
+    let pixels = |points: f64| ensure_even((points * scale).floor() as u32) as f64 / scale;
+    LogicalBounds::new(
+        bounds.position(),
+        LogicalSize::new(pixels(size.width()), pixels(size.height())),
+    )
+}
+
 #[cfg(windows)]
 pub type CropBounds = PhysicalBounds;
 
@@ -450,6 +460,9 @@ impl<TCaptureFormat: ScreenCaptureFormat> ScreenCaptureConfig<TCaptureFormat> {
 
         let target_refresh = validated_refresh_rate(display.refresh_rate());
         let fps = std::cmp::max(1, std::cmp::min(max_fps, target_refresh));
+        #[cfg(target_os = "macos")]
+        let crop_bounds = crop_bounds
+            .map(|bounds| even_pixel_crop(bounds, display.raw_handle().scale().unwrap_or(1.0)));
 
         let native_output_size: PhysicalSize = {
             #[cfg(target_os = "macos")]
@@ -457,8 +470,8 @@ impl<TCaptureFormat: ScreenCaptureFormat> ScreenCaptureConfig<TCaptureFormat> {
                 crop_bounds.and_then(|b| {
                     let logical_size = b.size();
                     let scale = display.raw_handle().scale()?;
-                    let width = ensure_even((logical_size.width() * scale) as u32) as f64;
-                    let height = ensure_even((logical_size.height() * scale) as u32) as f64;
+                    let width = ensure_even((logical_size.width() * scale).round() as u32) as f64;
+                    let height = ensure_even((logical_size.height() * scale).round() as u32) as f64;
                     Some(PhysicalSize::new(width, height))
                 })
             }
@@ -680,6 +693,22 @@ fn list_windows_inner(_include_accessory_panels: bool) -> Vec<(CaptureWindow, Wi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_crops_read_whole_even_pixels() {
+        let odd = LogicalBounds::new(LogicalPosition::new(8., 8.), LogicalSize::new(1690., 753.));
+        let even = even_pixel_crop(odd, 1.0);
+        assert_eq!(even.size().width(), 1690.);
+        assert_eq!(even.size().height(), 752.);
+        assert_eq!(even.position().x(), 8.);
+        let retina = even_pixel_crop(
+            LogicalBounds::new(LogicalPosition::new(0., 0.), LogicalSize::new(845.5, 753.5)),
+            2.0,
+        );
+        assert_eq!(retina.size().width() * 2.0, 1690.);
+        assert_eq!(retina.size().height() * 2.0, 1506.);
+    }
 
     #[test]
     fn h264_bounded_capture_matches_the_encoder_downscale() {

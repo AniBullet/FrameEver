@@ -3108,11 +3108,17 @@ async fn create_segment_pipeline(
                     (fragmented && keyboard_capture).then(|| input_output_path.clone());
 
                 let cursor_display = cursor_display.ok_or(CreateSegmentPipelineError::NoDisplay)?;
+                let followed_window =
+                    crate::window_only_target(&base_inputs.capture_target, base_inputs.window_only);
+                #[cfg(target_os = "macos")]
+                let followed_window =
+                    followed_window.filter(|window| !base_inputs.excluded_windows.contains(window));
 
                 let cursor = spawn_cursor_recorder(
                     crate::cursor::CursorCaptureTarget {
                         crop_bounds: cursor_crop_bounds,
                         display: cursor_display,
+                        window: followed_window,
                     },
                     cursors_dir.to_path_buf(),
                     prev_cursors,

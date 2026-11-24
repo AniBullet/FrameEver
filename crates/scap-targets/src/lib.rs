@@ -152,6 +152,11 @@ impl Window {
         Some(Self(WindowImpl::from_id_direct(&id.0)))
     }
 
+    #[cfg(windows)]
+    pub fn from_id_direct(id: &WindowId) -> Option<Self> {
+        WindowImpl::from_id_direct(&id.0).map(Self)
+    }
+
     pub fn physical_size(&self) -> Option<PhysicalSize> {
         self.0.physical_size()
     }

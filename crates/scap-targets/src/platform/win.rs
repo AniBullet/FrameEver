@@ -46,7 +46,7 @@ use windows::{
                 GWL_EXSTYLE, GWL_STYLE, GetClassLongPtrW, GetClassNameW, GetClientRect,
                 GetCursorPos, GetIconInfo, GetLayeredWindowAttributes, GetWindow,
                 GetWindowLongPtrW, GetWindowLongW, GetWindowRect, GetWindowTextLengthW,
-                GetWindowTextW, GetWindowThreadProcessId, HICON, ICONINFO, IsIconic,
+                GetWindowTextW, GetWindowThreadProcessId, HICON, ICONINFO, IsIconic, IsWindow,
                 IsWindowVisible, PrivateExtractIconsW, SendMessageW, WM_GETICON, WS_CHILD,
                 WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WindowFromPoint,
             },
@@ -331,6 +331,17 @@ fn get_cursor_position() -> Option<PhysicalPosition> {
 pub struct WindowImpl(HWND);
 
 impl WindowImpl {
+    pub fn from_id_direct(id: &WindowIdImpl) -> Option<Self> {
+        let hwnd = HWND(id.0 as _);
+        unsafe { IsWindow(Some(hwnd)) }
+            .as_bool()
+            .then_some(Self(hwnd))
+    }
+
+    pub fn is_minimized(&self) -> bool {
+        unsafe { IsIconic(self.0) }.as_bool()
+    }
+
     pub fn list() -> Vec<Self> {
         struct EnumContext {
             list: Vec<WindowImpl>,
