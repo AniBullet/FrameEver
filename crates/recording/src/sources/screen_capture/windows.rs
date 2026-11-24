@@ -201,6 +201,11 @@ impl WindowsFrameScaler {
         }
     }
 
+    fn replace_device(&mut self, d3d_device: ID3D11Device) {
+        self.d3d_device = d3d_device;
+        self.state = None;
+    }
+
     fn scale_frame(&mut self, frame: &scap_direct3d::Frame) -> Option<ScreenFrame> {
         let src_width = frame.width();
         let src_height = frame.height();
@@ -858,6 +863,10 @@ impl output_pipeline::VideoSource for VideoSource {
                                 Ok(new_device) => {
                                     info!("Recreated D3D device after device-lost");
                                     d3d_device = new_device;
+                                    frame_scaler
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                        .replace_device(d3d_device.clone());
                                 }
                                 Err(e) => {
                                     error!(error = %e, "Failed to recreate D3D device");

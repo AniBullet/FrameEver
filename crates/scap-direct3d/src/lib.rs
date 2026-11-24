@@ -158,6 +158,35 @@ struct PooledStagingTexture {
     height: u32,
 }
 
+struct RecyclePool<T> {
+    free: Mutex<Vec<T>>,
+}
+
+impl<T> Default for RecyclePool<T> {
+    fn default() -> Self {
+        Self {
+            free: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl<T> RecyclePool<T> {
+    fn take<E>(&self, create: impl FnOnce() -> Result<T, E>) -> Result<T, E> {
+        let free = self.free.lock().unwrap_or_else(PoisonError::into_inner).pop();
+        match free {
+            Some(item) => Ok(item),
+            None => create(),
+        }
+    }
+
+    fn give(&self, item: T) {
+        self.free
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(item);
+    }
+}
+
 pub struct StagingTexturePool {
     textures: Mutex<Vec<PooledStagingTexture>>,
     d3d_device: ID3D11Device,
@@ -538,15 +567,18 @@ impl Capturer {
                 .map_err(NewCapturerError::Other)?;
         }
 
-        let crop_data = settings
-            .crop
-            .map(|crop| {
+        let crop_data = settings.crop;
+        let crop_pool = Arc::new(RecyclePool::<ID3D11Texture2D>::default());
+        let create_crop_texture = {
+            let d3d_device = d3d_device.clone();
+            let pixel_format = settings.pixel_format;
+            move |crop: D3D11_BOX| -> windows::core::Result<ID3D11Texture2D> {
                 let desc = D3D11_TEXTURE2D_DESC {
-                    Width: (crop.right - crop.left),
-                    Height: (crop.bottom - crop.top),
+                    Width: crop.right - crop.left,
+                    Height: crop.bottom - crop.top,
                     MipLevels: 1,
                     ArraySize: 1,
-                    Format: settings.pixel_format.as_dxgi(),
+                    Format: pixel_format.as_dxgi(),
                     SampleDesc: DXGI_SAMPLE_DESC {
                         Count: 1,
                         Quality: 0,
@@ -558,16 +590,13 @@ impl Capturer {
                 };
 
                 let mut texture = None;
-                unsafe { d3d_device.CreateTexture2D(&desc, None, Some(&mut texture)) }
-                    .map_err(NewCapturerError::CropTexture)?;
-
-                let texture = texture.ok_or_else(|| {
-                    NewCapturerError::CropTexture(windows::core::Error::from_thread())
-                })?;
-
-                Ok::<_, NewCapturerError>((texture, crop))
-            })
-            .transpose()?;
+                unsafe { d3d_device.CreateTexture2D(&desc, None, Some(&mut texture)) }?;
+                texture.ok_or_else(windows::core::Error::from_thread)
+            }
+        };
+        if let Some(crop) = crop_data {
+            crop_pool.give(create_crop_texture(crop).map_err(NewCapturerError::CropTexture)?);
+        }
 
         let frame_arrived_token = frame_pool
             .FrameArrived(
@@ -577,6 +606,7 @@ impl Capturer {
                     let stop_flag = stop_flag.clone();
                     let staging_pool = staging_pool.clone();
                     let callback_activity = callback_activity.clone();
+                    let crop_pool = crop_pool.clone();
 
                     move |frame_pool, _| {
                         let _activity_guard = callback_activity.enter();
@@ -597,7 +627,9 @@ impl Capturer {
                         let dxgi_interface = surface.cast::<IDirect3DDxgiInterfaceAccess>()?;
                         let texture = unsafe { dxgi_interface.GetInterface::<ID3D11Texture2D>() }?;
 
-                        let frame = if let Some((cropped_texture, crop)) = crop_data.clone() {
+                        let frame = if let Some(crop) = crop_data {
+                            let cropped_texture =
+                                crop_pool.take(|| create_crop_texture(crop))?;
                             unsafe {
                                 d3d_context.CopySubresourceRegion(
                                     &cropped_texture,
@@ -620,6 +652,7 @@ impl Capturer {
                                 d3d_context: d3d_context.clone(),
                                 d3d_device: d3d_device.clone(),
                                 staging_pool: staging_pool.clone(),
+                                recycle: Some(crop_pool.clone()),
                             }
                         } else {
                             Frame {
@@ -631,6 +664,7 @@ impl Capturer {
                                 d3d_context: d3d_context.clone(),
                                 d3d_device: d3d_device.clone(),
                                 staging_pool: staging_pool.clone(),
+                                recycle: None,
                             }
                         };
 
@@ -732,6 +766,15 @@ pub struct Frame {
     d3d_device: ID3D11Device,
     d3d_context: ID3D11DeviceContext,
     staging_pool: Arc<StagingTexturePool>,
+    recycle: Option<Arc<RecyclePool<ID3D11Texture2D>>>,
+}
+
+impl Drop for Frame {
+    fn drop(&mut self) {
+        if let Some(pool) = self.recycle.take() {
+            pool.give(self.texture.clone());
+        }
+    }
 }
 
 impl std::fmt::Debug for Frame {
@@ -849,5 +892,29 @@ impl FrameBuffer<'_> {
 
     pub fn pixel_format(&self) -> PixelFormat {
         self.pixel_format
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RecyclePool;
+
+    #[test]
+    fn a_held_item_is_never_handed_out_again() {
+        let pool = RecyclePool::<u32>::default();
+        let mut next = 0;
+        let mut create = || -> Result<u32, ()> {
+            next += 1;
+            Ok(next)
+        };
+
+        let first = pool.take(&mut create).unwrap();
+        let second = pool.take(&mut create).unwrap();
+        assert_ne!(first, second);
+
+        pool.give(first);
+        let third = pool.take(&mut create).unwrap();
+        assert_eq!(third, first);
+        assert_ne!(third, second);
     }
 }
