@@ -943,6 +943,10 @@ pub fn system_settings_frame() -> Option<(f64, f64, f64, f64)> {
     None
 }
 
+pub fn app_control_prompt_visible() -> bool {
+    false
+}
+
 pub fn system_settings_frontmost() -> bool {
     false
 }

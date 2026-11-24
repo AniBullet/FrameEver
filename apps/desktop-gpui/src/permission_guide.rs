@@ -67,10 +67,11 @@ fn preview() -> bool {
 
 pub fn eligible(permission: OSPermission) -> bool {
     cfg!(target_os = "macos")
-        && matches!(
-            permission,
-            OSPermission::ScreenRecording | OSPermission::Accessibility
-        )
+        && match permission {
+            OSPermission::ScreenRecording | OSPermission::Accessibility => true,
+            OSPermission::InputMonitoring => crate::permissions::grants_are_settings_only(),
+            OSPermission::Microphone | OSPermission::Camera => false,
+        }
         && std::path::Path::new("/System/Applications/System Settings.app").exists()
         && app_bundle().is_some()
 }
@@ -139,7 +140,8 @@ pub fn start(permission: OSPermission, cx: &mut App) {
                         gpui::ImageFormat::Png,
                         APP_ICON.to_vec(),
                     )),
-                    add_with_plus: crate::permissions::grants_are_settings_only(),
+                    add_with_plus: crate::permissions::grants_are_settings_only()
+                        || permission == OSPermission::InputMonitoring,
                 }
             })
         },
@@ -286,9 +288,8 @@ fn granted(permission: OSPermission) -> bool {
         return false;
     };
     match permission {
-        OSPermission::ScreenRecording => raw.screen_granted,
-        OSPermission::Accessibility => raw.accessibility_granted,
         OSPermission::Microphone | OSPermission::Camera => true,
+        _ => crate::permissions::raw_granted(&raw, permission),
     }
 }
 
@@ -301,21 +302,42 @@ fn panel_origin((x, y, width, height): (f64, f64, f64, f64)) -> (f64, f64) {
     let inset = SHADOW_INSET as f64;
     let left = (x + sidebar + (width - sidebar - panel_w) / 2.).round();
     let below = y + height - inset + 10.;
-    let screen_bottom = scap_targets::Display::list()
-        .into_iter()
-        .filter_map(|display| display.raw_handle().logical_bounds())
-        .find(|bounds| {
-            let (bx, by) = (bounds.position().x(), bounds.position().y());
-            let (bw, bh) = (bounds.size().width(), bounds.size().height());
-            let (cx, cy) = (x + width / 2., y + height / 2.);
-            cx >= bx && cx < bx + bw && cy >= by && cy < by + bh
-        })
-        .map(|bounds| bounds.position().y() + bounds.size().height());
+    let screen_bottom = visible_bottom(x + width / 2., y + height / 2.).or_else(|| {
+        scap_targets::Display::list()
+            .into_iter()
+            .filter_map(|display| display.raw_handle().logical_bounds())
+            .find(|bounds| {
+                let (bx, by) = (bounds.position().x(), bounds.position().y());
+                let (bw, bh) = (bounds.size().width(), bounds.size().height());
+                let (cx, cy) = (x + width / 2., y + height / 2.);
+                cx >= bx && cx < bx + bw && cy >= by && cy < by + bh
+            })
+            .map(|bounds| bounds.position().y() + bounds.size().height())
+    });
     let top = match screen_bottom {
         Some(bottom) if below + panel_h > bottom - 4. => y + height - panel_h - 14.,
         _ => below,
     };
     (left, top.round())
+}
+
+fn visible_bottom(px: f64, py: f64) -> Option<f64> {
+    #[cfg(target_os = "macos")]
+    {
+        let screens = platform::screen_geometries();
+        let primary_height = screens.first()?.frame.3;
+        screens.iter().find_map(|screen| {
+            let (fx, fy, fw, fh) = screen.frame;
+            let top = primary_height - (fy + fh);
+            (px >= fx && px < fx + fw && py >= top && py < top + fh)
+                .then(|| primary_height - screen.visible.1)
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (px, py);
+        None
+    }
 }
 
 impl Render for PermissionGuide {
@@ -330,7 +352,21 @@ impl Render for PermissionGuide {
             _ => t!("Screen & System Audio Recording"),
         };
         let add_with_plus = self.add_with_plus;
-        let (title, body) = if add_with_plus {
+        let (title, body) = if add_with_plus && self.permission == OSPermission::Accessibility {
+            (
+                t!("Add FrameEver, then choose apps").to_string(),
+                t!(
+                    "Click + above and choose FrameEver. Then pick Choose Apps and add the apps FrameEver should resize."
+                )
+                .to_string(),
+            )
+        } else if self.permission == OSPermission::InputMonitoring {
+            (
+                t!("Add FrameEver with the + button").to_string(),
+                t!("Click + under the Input Monitoring list above, then choose FrameEver.")
+                    .to_string(),
+            )
+        } else if add_with_plus {
             (
                 t!("Add FrameEver with the + button").to_string(),
                 t!(

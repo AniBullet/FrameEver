@@ -338,6 +338,41 @@ enum Arrangement {
     PutBack(ArrangedWindow),
 }
 
+async fn wait_for_app_control_prompt(cx: &mut gpui::AsyncApp) -> bool {
+    let poll = |cx: &mut gpui::AsyncApp| {
+        cx.background_executor()
+            .spawn(async { crate::platform::app_control_prompt_visible() })
+    };
+    let mut seen = false;
+    for _ in 0..8 {
+        if poll(cx).await {
+            seen = true;
+            break;
+        }
+        cx.background_executor()
+            .timer(Duration::from_millis(150))
+            .await;
+    }
+    if !seen {
+        return false;
+    }
+    cx.update(|cx| app_windows::lower_target_overlays(true, cx));
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while Instant::now() < deadline && poll(cx).await {
+        cx.background_executor()
+            .timer(Duration::from_millis(250))
+            .await;
+    }
+    true
+}
+
+fn resize_needs_app_choice(arrangement: &Arrangement) -> bool {
+    cfg!(target_os = "macos")
+        && matches!(arrangement, Arrangement::Frame(_))
+        && crate::permissions::grants_are_settings_only()
+        && crate::foreign_window::can_arrange()
+}
+
 const FOCUS_SUPPORTED: bool = cfg!(any(target_os = "macos", windows));
 
 fn saved_focus() -> bool {
@@ -2518,9 +2553,37 @@ impl OverlayWindow {
             }
             BarBody::Window { name, size } => {
                 let focus = self.select.read(cx).focus_window;
+                let arrangeable = crate::foreign_window::can_arrange();
+                let app = self
+                    .select
+                    .read(cx)
+                    .active_window()
+                    .map(|window| window.app_name.clone())
+                    .filter(|name| !name.is_empty());
                 bar = bar
                     .child(self.bar_info(name.clone().into(), Some(size.clone())))
-                    .when(crate::foreign_window::can_arrange(), |bar| {
+                    .when(!arrangeable && cfg!(target_os = "macos"), |bar| {
+                        bar.child(
+                            self.bar_menu_button(
+                                "bar-window-size-permission",
+                                None,
+                                Some(tc!("window menu", "Size").into()),
+                                t!("Click to see how to let FrameEver resize windows.").into(),
+                                false,
+                            )
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                let app = app.clone();
+                                cx.defer(move |cx| {
+                                    crate::permission_help::show_from_picker(
+                                        crate::permission_help::Need::WindowControl { app },
+                                        cx,
+                                    )
+                                });
+                            }),
+                        )
+                    })
+                    .when(arrangeable, |bar| {
                         bar.child(
                             self.bar_menu_button(
                                 "bar-window-size",
@@ -3486,6 +3549,16 @@ impl OverlayWindow {
         raise: bool,
         cx: &mut Context<Self>,
     ) {
+        self.arrange_active_window_after(arrangement, raise, false, cx);
+    }
+
+    fn arrange_active_window_after(
+        &mut self,
+        arrangement: Arrangement,
+        raise: bool,
+        after_prompt: bool,
+        cx: &mut Context<Self>,
+    ) {
         let Some(window) = self.select.read(cx).active_window().cloned() else {
             return;
         };
@@ -3498,6 +3571,11 @@ impl OverlayWindow {
         let before = window.bounds;
         let requested = id.clone();
         let select = self.select.clone();
+        let needs_app_choice = resize_needs_app_choice(&arrangement);
+        let retry_frame = match &arrangement {
+            Arrangement::Frame(frame) => Some(*frame),
+            Arrangement::PutBack(_) => None,
+        };
         cx.spawn(async move |this, cx| {
             let moved = crate::foreign_window::in_order(move || {
                 let arranged = match arrangement {
@@ -3530,6 +3608,51 @@ impl OverlayWindow {
             let (arranged, fresh) = moved;
             if !arranged {
                 tracing::warn!("the picked window could not be arranged");
+                if needs_app_choice {
+                    if !after_prompt && let Some(frame) = retry_frame {
+                        let asked = wait_for_app_control_prompt(cx).await;
+                        cx.update(|cx| app_windows::lower_target_overlays(false, cx));
+                        if asked {
+                            let same = requested.clone();
+                            this.update(cx, |this, cx| {
+                                let still_picked = this
+                                    .select
+                                    .read(cx)
+                                    .active_window()
+                                    .is_some_and(|window| window.id == same);
+                                if still_picked {
+                                    this.arrange_active_window_after(
+                                        Arrangement::Frame(frame),
+                                        raise,
+                                        true,
+                                        cx,
+                                    );
+                                }
+                            })
+                            .ok();
+                            return;
+                        }
+                    }
+                    let still_picked = this
+                        .update(cx, |_, cx| {
+                            select
+                                .read(cx)
+                                .active_window()
+                                .is_some_and(|window| window.id == requested)
+                        })
+                        .unwrap_or(false);
+                    if !still_picked {
+                        return;
+                    }
+                    let app = Some(window.app_name.clone()).filter(|name| !name.is_empty());
+                    cx.update(|cx| {
+                        crate::permission_help::show_from_picker(
+                            crate::permission_help::Need::WindowControl { app },
+                            cx,
+                        )
+                    });
+                    return;
+                }
             }
             let still_picked = this
                 .update(cx, |_, cx| {

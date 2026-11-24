@@ -87,6 +87,7 @@ mod onboarding_window;
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 mod parakeet_split;
 mod permission_guide;
+mod permission_help;
 mod permissions;
 mod permissions_ui;
 #[cfg(test)]
@@ -467,6 +468,9 @@ fn main() {
         }
         // The store's global shortcuts, after the registry they dispatch into.
         hotkeys::init(cx);
+        cx.background_executor()
+            .spawn(async { crate::permissions::note_launch_grants() })
+            .detach();
         // The gate's TCC queries (screen recording preflight, AXIsProcessTrusted)
         // are ~30ms of synchronous XPC on this Mac -- the whole startup delta
         // between the 08-17 and 08-18 builds. Both are thread-safe reads, so

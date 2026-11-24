@@ -41,6 +41,102 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Screen & System Audio Recording", "录屏与系统录音"),
     ("Drag FrameEver into the list", "把帧刻拖进列表"),
     ("Add FrameEver with the + button", "用 + 按钮添加帧刻"),
+    ("Input Monitoring", "输入监控"),
+    (
+        "FrameEver can show the keys you press in your recordings. macOS calls this Input Monitoring. Skip it if you don't need it.",
+        "帧刻可以在录制中显示你按下的键。macOS 称之为“输入监控”。不需要的话可以跳过。",
+    ),
+    ("Keystrokes are on", "按键显示已开启"),
+    (
+        "Your recordings can show the keys you press.",
+        "你的录制可以显示按下的键。",
+    ),
+    ("Set up keystrokes", "设置按键显示"),
+    (
+        "macOS turns on keystrokes once FrameEver restarts. You'll pick up right here.",
+        "帧刻重启后，macOS 会开启按键显示。你会回到这里继续。",
+    ),
+    (
+        "Click + under the Input Monitoring list in System Settings, then choose FrameEver. Already listed? Just switch it on.",
+        "在系统设置中，点按“输入监控”列表下的 +，然后选择帧刻。已经在列表里了？直接打开即可。",
+    ),
+    (
+        "Click to see how to let FrameEver resize windows.",
+        "点按查看如何允许帧刻调整窗口大小。",
+    ),
+    ("Add FrameEver, then choose apps", "添加帧刻，然后选择 App"),
+    (
+        "Click + above and choose FrameEver. Then pick Choose Apps and add the apps FrameEver should resize.",
+        "点按上方的 + 并选择帧刻。然后点按“选择 App”，添加需要帧刻调整大小的 App。",
+    ),
+    (
+        "Click + under the Input Monitoring list above, then choose FrameEver.",
+        "点按上方“输入监控”列表下的 +，然后选择帧刻。",
+    ),
+    (
+        "Click Open System Settings below.",
+        "点按下方的“打开系统设置”。",
+    ),
+    ("Click ⓘ next to FrameEver.", "点按帧刻旁边的 ⓘ。"),
+    ("Click + and add {app}.", "点按 + 并添加 {app}。"),
+    (
+        "Click + and add the app you're recording.",
+        "点按 + 并添加你要录制的 App。",
+    ),
+    (
+        "Set it to At Any Time so macOS doesn't ask again every day.",
+        "设为“任何时候”，macOS 就不会每天再问。",
+    ),
+    ("Click + under Input Monitoring.", "点按“输入监控”下的 +。"),
+    (
+        "Choose FrameEver and enter your Mac password.",
+        "选择帧刻，然后输入你的 Mac 密码。",
+    ),
+    (
+        "Click + in the pane that opens and choose FrameEver.",
+        "在打开的面板中点按 +，然后选择帧刻。",
+    ),
+    (
+        "Pick Choose Apps, then add {app}.",
+        "点按“选择 App”，然后添加 {app}。",
+    ),
+    (
+        "Pick Choose Apps, then add the app you're recording.",
+        "点按“选择 App”，然后添加你要录制的 App。",
+    ),
+    (
+        "Find FrameEver under Accessibility and switch it on.",
+        "在“辅助功能”中找到帧刻并打开。",
+    ),
+    ("Show your keystrokes", "显示你的按键"),
+    (
+        "macOS needs your OK before FrameEver can see the keys you press while recording.",
+        "帧刻需要你在 macOS 中允许，才能在录制时看到你按下的键。",
+    ),
+    (
+        "Your next recording will include the keys you press.",
+        "你的下一次录制会包含你按下的键。",
+    ),
+    ("Let FrameEver resize windows", "允许帧刻调整窗口大小"),
+    (
+        "macOS needs your OK before FrameEver can move or resize another app's window.",
+        "帧刻需要你在 macOS 中允许，才能移动或调整其他 App 的窗口。",
+    ),
+    (
+        "FrameEver can resize windows now.",
+        "帧刻现在可以调整窗口大小了。",
+    ),
+    (
+        "macOS turns on keystrokes once FrameEver restarts.",
+        "帧刻重启后，macOS 会开启按键显示。",
+    ),
+    ("Not now", "以后再说"),
+    ("Keystrokes aren't being recorded", "未录制按键"),
+    (
+        "Give FrameEver your OK so your next recordings include the keys you press.",
+        "允许帧刻后，你之后的录制就会包含按下的键。",
+    ),
+    ("Show me how", "查看方法"),
     (
         "Click + under the Screen & System Audio Recording list above, then choose FrameEver.",
         "点按上方“录屏与系统录音”列表下的 +，然后选择帧刻。",

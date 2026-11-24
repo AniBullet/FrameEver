@@ -2344,6 +2344,29 @@ fn picker_start_visibility(
     }
 }
 
+pub fn lower_target_overlays(lowered: bool, cx: &mut App) {
+    let overlays: Vec<_> = cx
+        .global::<AppWindows>()
+        .overlays
+        .iter()
+        .map(|(_, handle)| *handle)
+        .collect();
+    let level = if lowered {
+        0
+    } else {
+        platform::target_overlay_level()
+    };
+    for handle in overlays {
+        let native = handle
+            .update(cx, |_, window, _| platform::native_window(window))
+            .ok()
+            .flatten();
+        if let Some(native) = native {
+            platform::set_panel_level(&native, level);
+        }
+    }
+}
+
 /// Close the overlays and disarm the cursor probe, leaving the main window's
 /// selection alone.
 pub fn close_target_overlays(cx: &mut App) {

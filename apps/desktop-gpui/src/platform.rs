@@ -1331,6 +1331,36 @@ mod mac {
         best
     }
 
+    pub fn app_control_prompt_visible() -> bool {
+        use core_foundation::array::{CFArray, CFArrayRef};
+        use core_foundation::base::{CFType, TCFType};
+        use core_foundation::dictionary::CFDictionary;
+        use core_foundation::string::{CFString, CFStringRef};
+
+        #[link(name = "CoreGraphics", kind = "framework")]
+        unsafe extern "C" {
+            fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFArrayRef;
+            static kCGWindowOwnerName: CFStringRef;
+        }
+        const ON_SCREEN_ONLY: u32 = 1 << 0;
+        const EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
+
+        let list = unsafe {
+            let raw = CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP_ELEMENTS, 0);
+            if raw.is_null() {
+                return false;
+            }
+            CFArray::<CFDictionary<CFString, CFType>>::wrap_under_create_rule(raw)
+        };
+        let owner_key = unsafe { CFString::wrap_under_get_rule(kCGWindowOwnerName) };
+        list.iter().any(|window| {
+            window
+                .find(&owner_key)
+                .and_then(|value| value.downcast::<CFString>())
+                .is_some_and(|owner| owner.to_string() == "universalAccessAuthWarn")
+        })
+    }
+
     /// Whether the user is in System Settings or one of the authentication
     /// sheets a privacy-list change raises.
     pub fn system_settings_frontmost() -> bool {
