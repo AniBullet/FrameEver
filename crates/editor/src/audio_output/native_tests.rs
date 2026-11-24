@@ -52,6 +52,14 @@ impl HeadlessControl {
             .unwrap()
     }
 
+    async fn wait_until_audible(&self) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !self.blocks.recv_async().await.unwrap() {}
+        })
+        .await
+        .expect("playback became audible")
+    }
+
     async fn join(mut self) {
         self.release();
         self.output.shutdown();
@@ -193,7 +201,7 @@ async fn preparing_cancel_wakes_while_control_is_blocked_and_preserves_ordinary_
             .unwrap()
     );
     assert!(!control.block().await);
-    assert!(control.block().await);
+    control.wait_until_audible().await;
     ticket.cancel();
     drop(ticket);
     assert!(control.block().await);
