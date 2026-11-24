@@ -273,62 +273,63 @@ pub fn recording_started(project_dir: &Path) {
     });
 }
 
-pub fn studio_recording_finished(project_dir: PathBuf) {
+pub fn studio_recording_finished(project_dir: PathBuf, elapsed: Duration) {
     spawn_run(
         Trigger::StudioRecordingFinished,
         event_key(&project_dir),
-        move |store| studio_context(project_dir, store),
+        move |_| studio_context(&project_dir, elapsed),
     );
 }
 
-fn studio_context(project_dir: PathBuf, store: &AutomationsStore) -> TriggerContext {
+fn studio_context(project_dir: &Path, elapsed: Duration) -> TriggerContext {
     let ctx = TriggerContext::new()
-        .with_project_path(project_dir.clone())
+        .with_project_path(project_dir.to_path_buf())
         .with_recording_mode(AutomationRecordingMode::Studio);
-    if !rules_use_duration(store, Trigger::StudioRecordingFinished) {
-        return ctx;
-    }
-    match studio_duration_secs(&project_dir) {
-        Some(duration) if duration > 0.0 => ctx.with_duration(duration),
-        _ => ctx,
+    if elapsed.is_zero() {
+        ctx
+    } else {
+        ctx.with_duration(elapsed.as_secs_f64())
     }
 }
 
-fn rules_use_duration(store: &AutomationsStore, trigger: Trigger) -> bool {
-    store.rules.iter().any(|rule| {
-        rule.enabled
-            && rule.trigger == trigger
-            && rule.conditions.iter().any(|condition| {
-                matches!(
-                    condition,
-                    Condition::DurationAtLeast { .. } | Condition::DurationAtMost { .. }
-                )
-            })
-    })
+fn instant_context(project_dir: &Path) -> TriggerContext {
+    TriggerContext::new()
+        .with_project_path(project_dir.to_path_buf())
+        .with_recording_mode(AutomationRecordingMode::Instant)
 }
 
-fn studio_duration_secs(project_dir: &Path) -> Option<f64> {
-    let meta = frameever_project::RecordingMeta::load_for_project(project_dir).ok()?;
-    let studio = meta.studio_meta()?;
-    let owned = project_dir.to_path_buf();
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        frameever_rendering::ProjectRecordingsMeta::new(&owned, studio)
-            .ok()
-            .map(|recordings| recordings.duration())
-    }))
-    .ok()
-    .flatten()
+pub fn instant_behaviour(
+    project_dir: &Path,
+    default: crate::store::PostInstantBehaviour,
+) -> crate::store::PostInstantBehaviour {
+    match store_for(Trigger::InstantRecordingFinished) {
+        Some(store) => instant_behaviour_for(&store, project_dir, default),
+        None => default,
+    }
+}
+
+fn instant_behaviour_for(
+    store: &AutomationsStore,
+    project_dir: &Path,
+    default: crate::store::PostInstantBehaviour,
+) -> crate::store::PostInstantBehaviour {
+    let matched = frameever_automation::evaluate(
+        store,
+        &Trigger::InstantRecordingFinished,
+        &instant_context(project_dir),
+    );
+    if matched.iter().any(|(_, actions)| can_delete(actions)) {
+        crate::store::PostInstantBehaviour::DoNothing
+    } else {
+        default
+    }
 }
 
 pub fn instant_recording_finished(project_dir: PathBuf, hold: Option<InstantRulesHold>) {
     let run = spawn_run(
         Trigger::InstantRecordingFinished,
         event_key(&project_dir),
-        move |_| {
-            TriggerContext::new()
-                .with_project_path(project_dir)
-                .with_recording_mode(AutomationRecordingMode::Instant)
-        },
+        move |_| instant_context(&project_dir),
     );
     if let (Some(run), Some(runtime)) = (run, RUNTIME.get()) {
         runtime.handle.spawn(async move {
@@ -370,11 +371,14 @@ pub struct InstantRulesHold {
 }
 
 fn hold_key(project_dir: &Path) -> String {
-    event_key(
-        &project_dir
+    let folder = match (project_dir.parent(), project_dir.file_name()) {
+        (Some(parent), Some(name)) => parent
             .canonicalize()
+            .map(|parent| parent.join(name))
             .unwrap_or_else(|_| project_dir.to_path_buf()),
-    )
+        _ => project_dir.to_path_buf(),
+    };
+    event_key(&folder)
 }
 
 impl InstantRulesHold {
@@ -557,12 +561,7 @@ fn studio_editor_behaviour_for(
     elapsed: Duration,
     default: crate::store::PostStudioBehaviour,
 ) -> crate::store::PostStudioBehaviour {
-    let mut ctx = TriggerContext::new()
-        .with_project_path(project_dir.to_path_buf())
-        .with_recording_mode(AutomationRecordingMode::Studio);
-    if !elapsed.is_zero() {
-        ctx = ctx.with_duration(elapsed.as_secs_f64());
-    }
+    let ctx = studio_context(project_dir, elapsed);
     match editor_choice(store, Trigger::StudioRecordingFinished, &ctx) {
         Some(false) => crate::store::PostStudioBehaviour::DoNothing,
         Some(true) => crate::store::PostStudioBehaviour::OpenEditor,

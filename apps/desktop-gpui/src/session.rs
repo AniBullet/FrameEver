@@ -294,6 +294,7 @@ pub struct RecordingSession {
     /// (`openEditor` by default) the way the Tauri app does.
     pub finished_studio: Option<std::path::PathBuf>,
     pub studio_behaviour: Option<crate::store::PostStudioBehaviour>,
+    pub instant_behaviour: Option<crate::store::PostInstantBehaviour>,
     pub finished_instant: Option<std::path::PathBuf>,
     pub deleted_recording: bool,
     preparing_studio_editor: Option<PreparingStudioEditor>,
@@ -363,6 +364,7 @@ impl RecordingSession {
             input_failures: InputFailures::default(),
             finished_studio: None,
             studio_behaviour: None,
+            instant_behaviour: None,
             finished_instant: None,
             deleted_recording: false,
             preparing_studio_editor: None,
@@ -1613,14 +1615,22 @@ impl RecordingSession {
         let instant_rules_hold = (self.mode() == Some(recording::RecordingMode::Instant))
             .then(|| crate::automation::hold_instant_rules(&active.project_dir))
             .flatten();
+        let stop_elapsed = self.elapsed();
         let studio_behaviour = (self.mode() == Some(recording::RecordingMode::Studio)).then(|| {
             crate::automation::studio_editor_behaviour(
                 &active.project_dir,
-                self.elapsed(),
+                stop_elapsed,
                 crate::store::GeneralSettings::load().post_studio_recording_behaviour,
             )
         });
         self.studio_behaviour = studio_behaviour;
+        self.instant_behaviour =
+            (self.mode() == Some(recording::RecordingMode::Instant)).then(|| {
+                crate::automation::instant_behaviour(
+                    &active.project_dir,
+                    crate::store::GeneralSettings::load().post_instant_recording_behaviour,
+                )
+            });
         let camera_snapshot = self.last_config.as_ref().and_then(|config| {
             (config.mode == recording::RecordingMode::Studio && config.camera.is_some())
                 .then(|| crate::app_windows::studio_camera_snapshot(&config.target, cx))
@@ -1768,7 +1778,10 @@ impl RecordingSession {
                             match this.mode() {
                                 Some(crate::recording::RecordingMode::Studio) => {
                                     this.finished_studio = Some(project_dir.clone());
-                                    crate::automation::studio_recording_finished(project_dir);
+                                    crate::automation::studio_recording_finished(
+                                        project_dir,
+                                        stop_elapsed,
+                                    );
                                 }
                                 Some(crate::recording::RecordingMode::Instant) => {
                                     this.finished_instant = Some(project_dir.clone());

@@ -139,10 +139,6 @@ fn rules_saved_by_the_previous_app_still_run() {
     let parsed = parse_store(saved).unwrap();
     assert!(has_enabled_rule(&parsed, Trigger::StudioRecordingFinished));
     assert!(!has_enabled_rule(&parsed, Trigger::ScreenshotTaken));
-    assert!(rules_use_duration(
-        &parsed,
-        Trigger::StudioRecordingFinished
-    ));
 
     let ctx = TriggerContext::new()
         .with_project_path(PathBuf::from("/r/a.cap"))
@@ -325,6 +321,75 @@ fn skip_editor_and_open_editor_rules_override_the_setting() {
             PostStudioBehaviour::OpenEditor
         ),
         PostStudioBehaviour::DoNothing
+    );
+}
+
+#[test]
+fn an_instant_recording_a_rule_deletes_gets_no_card_and_no_copy() {
+    use crate::store::PostInstantBehaviour;
+    let project = Path::new("/recordings/a.cap");
+    let deleting = store(vec![rule(
+        "delete",
+        Trigger::InstantRecordingFinished,
+        true,
+        vec![
+            Action::SaveToLocation {
+                dir: "/saved".into(),
+                filename_template: None,
+            },
+            Action::DeleteLocalFiles,
+        ],
+    )]);
+    for setting in [
+        PostInstantBehaviour::ShowCard,
+        PostInstantBehaviour::CopyFile,
+    ] {
+        assert_eq!(
+            instant_behaviour_for(&deleting, project, setting),
+            PostInstantBehaviour::DoNothing
+        );
+    }
+    let keeping = store(vec![rule(
+        "save",
+        Trigger::InstantRecordingFinished,
+        true,
+        vec![Action::SaveToLocation {
+            dir: "/saved".into(),
+            filename_template: None,
+        }],
+    )]);
+    assert_eq!(
+        instant_behaviour_for(&keeping, project, PostInstantBehaviour::ShowCard),
+        PostInstantBehaviour::ShowCard
+    );
+}
+
+#[test]
+fn the_studio_run_sees_the_duration_the_editor_choice_saw() {
+    let project = Path::new("/recordings/a.cap");
+    let context = studio_context(project, Duration::from_secs(4));
+    let short_only = store(vec![AutomationRule {
+        conditions: vec![Condition::DurationAtMost { secs: 5.0 }],
+        ..rule(
+            "short",
+            Trigger::StudioRecordingFinished,
+            true,
+            vec![Action::SkipEditor],
+        )
+    }]);
+    assert_eq!(
+        frameever_automation::evaluate(&short_only, &Trigger::StudioRecordingFinished, &context)
+            .len(),
+        1
+    );
+    assert_eq!(
+        studio_editor_behaviour_for(
+            &short_only,
+            project,
+            Duration::from_secs(4),
+            crate::store::PostStudioBehaviour::OpenEditor
+        ),
+        crate::store::PostStudioBehaviour::DoNothing
     );
 }
 

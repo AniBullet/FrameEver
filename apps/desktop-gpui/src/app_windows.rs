@@ -490,16 +490,23 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
         if phase == Phase::Idle && last_phase != Phase::Idle {
             close_controls(&session, cx);
             close_target_overlays(cx);
-            let (finished_studio, studio_behaviour, finished_instant, preparing_editor, deleted) =
-                session.update(cx, |session, _| {
-                    (
-                        session.finished_studio.take(),
-                        session.studio_behaviour.take(),
-                        session.finished_instant.take(),
-                        session.take_preparing_studio_editor(),
-                        std::mem::take(&mut session.deleted_recording),
-                    )
-                });
+            let (
+                finished_studio,
+                studio_behaviour,
+                finished_instant,
+                instant_behaviour,
+                preparing_editor,
+                deleted,
+            ) = session.update(cx, |session, _| {
+                (
+                    session.finished_studio.take(),
+                    session.studio_behaviour.take(),
+                    session.finished_instant.take(),
+                    session.instant_behaviour.take(),
+                    session.take_preparing_studio_editor(),
+                    std::mem::take(&mut session.deleted_recording),
+                )
+            });
             // The in-editor re-record target is consumed first, before
             // `postStudioRecordingBehaviour` is even consulted -- the order
             // `apply_post_studio_editor_behaviour` checks them
@@ -536,9 +543,9 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
                     finished_studio.as_ref().map(|_| {
                         studio_behaviour.unwrap_or(settings.post_studio_recording_behaviour)
                     }),
-                    finished_instant
-                        .as_ref()
-                        .map(|_| settings.post_instant_recording_behaviour),
+                    finished_instant.as_ref().map(|_| {
+                        instant_behaviour.unwrap_or(settings.post_instant_recording_behaviour)
+                    }),
                     deleted.then_some(settings.post_deletion_behaviour),
                 );
                 if let Some(project) = finished_instant.as_ref().filter(|_| finish.copy_instant) {
