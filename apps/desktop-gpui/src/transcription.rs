@@ -828,6 +828,7 @@ async fn download_parakeet_model(model: &str) -> Result<(), String> {
         tracing::info!("Finalizing previously completed Parakeet model download");
         finalize_parakeet_model_download(&validated_dir, &staging_dir, model_files)?;
         invalidate_parakeet_cache_for_dir(&validated_dir);
+        split_after_download(validated_dir);
         return Ok(());
     }
 
@@ -931,7 +932,29 @@ async fn download_parakeet_model(model: &str) -> Result<(), String> {
 
     finalize_parakeet_model_download(&validated_dir, &staging_dir, model_files)?;
     invalidate_parakeet_cache_for_dir(&validated_dir);
+    split_after_download(validated_dir);
     Ok(())
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+fn split_parakeet_encoder(dir: &Path) {
+    if cfg!(test) && std::env::var_os("FRAMEEVER_PARAKEET_SPLIT_IN_TESTS").is_none() {
+        return;
+    }
+    let free_bytes = |dir: &Path| frameever_utils::disk_space::free_bytes_for_path(dir).ok();
+    if let Err(error) = crate::parakeet_split::ensure_split(dir, free_bytes) {
+        tracing::warn!(%error, "Parakeet encoder kept as downloaded");
+    }
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+fn split_after_download(dir: PathBuf) {
+    if let Err(error) = std::thread::Builder::new()
+        .name("frameever-parakeet-split".into())
+        .spawn(move || split_parakeet_encoder(&dir))
+    {
+        tracing::warn!(%error, "could not start the Parakeet encoder split");
+    }
 }
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
@@ -1872,6 +1895,7 @@ fn process_with_parakeet(audio_path: &Path, model_dir: &str) -> Result<HeardWord
         tracing::info!("Loading Parakeet TDT model from: {model_dir}");
         frameever_camera_effects::initialize_onnx_runtime()
             .map_err(|error| format!("{error:#}"))?;
+        split_parakeet_encoder(Path::new(model_dir));
         let model = ParakeetTDT::from_pretrained(model_dir, None).map_err(|e| format!("{e}"))?;
         let loaded_model = Arc::new(Mutex::new(model));
 

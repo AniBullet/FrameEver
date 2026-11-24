@@ -84,6 +84,8 @@ mod notifications;
 mod onboarding_audio;
 mod onboarding_doodles;
 mod onboarding_window;
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+mod parakeet_split;
 mod permission_guide;
 mod permissions;
 mod permissions_ui;
