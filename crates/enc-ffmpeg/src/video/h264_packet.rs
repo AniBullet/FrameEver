@@ -336,6 +336,7 @@ mod tests {
 
         let encoder = H264EncoderBuilder::new(test_video_info())
             .with_preset(H264Preset::Ultrafast)
+            .with_encoder_priority_override(&["libx264"])
             .build_standalone()
             .expect("standalone build succeeds");
 
@@ -346,9 +347,8 @@ mod tests {
 
         let extra = encoder.extradata();
         assert!(
-            !extra.is_empty() || encoder.codec_name() == "h264_videotoolbox",
-            "expected extradata on open with GLOBAL_HEADER for {}",
-            encoder.codec_name()
+            !extra.is_empty(),
+            "expected extradata on open with GLOBAL_HEADER"
         );
     }
 
@@ -358,6 +358,7 @@ mod tests {
 
         let mut encoder = H264EncoderBuilder::new(test_video_info())
             .with_preset(H264Preset::Ultrafast)
+            .with_encoder_priority_override(&["libx264"])
             .build_standalone()
             .expect("standalone build succeeds");
 

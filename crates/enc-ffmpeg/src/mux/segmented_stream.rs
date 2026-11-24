@@ -589,7 +589,7 @@ impl SegmentedVideoEncoder {
     }
 
     #[cfg(test)]
-    fn init_libx264(
+    pub(crate) fn init_libx264(
         base_path: PathBuf,
         video_config: VideoInfo,
         config: SegmentedVideoEncoderConfig,
@@ -1014,7 +1014,7 @@ mod tests {
         ffmpeg::init().unwrap();
         let temp = tempfile::tempdir().unwrap();
         let base_path = temp.path().to_path_buf();
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             base_path.clone(),
             test_video_info(),
             SegmentedVideoEncoderConfig::default(),
@@ -1077,7 +1077,7 @@ mod tests {
         ffmpeg::init().unwrap();
         let directory = tempfile::tempdir().unwrap();
         let base_path = directory.path().to_path_buf();
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             base_path.clone(),
             test_video_info(),
             SegmentedVideoEncoderConfig::default(),
@@ -1131,7 +1131,7 @@ mod tests {
 
         let (tx, _rx) = mpsc::channel::<SegmentCompletedEvent>();
 
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             base_path,
             test_video_info(),
             SegmentedVideoEncoderConfig {
@@ -1160,7 +1160,7 @@ mod tests {
 
         let (tx, rx) = mpsc::channel::<SegmentCompletedEvent>();
 
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             base_path.clone(),
             test_video_info(),
             SegmentedVideoEncoderConfig {
@@ -1207,7 +1207,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let base_path = temp.path().to_path_buf();
 
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             base_path.clone(),
             test_video_info(),
             SegmentedVideoEncoderConfig {
@@ -1296,7 +1296,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let base_path = temp.path().to_path_buf();
 
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             base_path.clone(),
             test_video_info(),
             SegmentedVideoEncoderConfig {
@@ -1386,7 +1386,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let base_path = temp.path().to_path_buf();
 
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             base_path.clone(),
             test_video_info(),
             SegmentedVideoEncoderConfig {
@@ -1427,7 +1427,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let base_path = temp.path().to_path_buf();
 
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             base_path,
             test_video_info(),
             SegmentedVideoEncoderConfig::default(),
@@ -1456,7 +1456,7 @@ mod tests {
 
         let (tx, rx) = mpsc::channel::<SegmentCompletedEvent>();
 
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             base_path.clone(),
             test_video_info(),
             SegmentedVideoEncoderConfig {
@@ -1496,7 +1496,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let base_path = temp.path().to_path_buf();
 
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             base_path.clone(),
             test_video_info(),
             SegmentedVideoEncoderConfig {
@@ -1570,7 +1570,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let base_path = temp.path().to_path_buf();
 
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             base_path.clone(),
             test_video_info(),
             SegmentedVideoEncoderConfig {
@@ -1678,7 +1678,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let base_path = temp.path().to_path_buf();
 
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             base_path.clone(),
             test_video_info(),
             SegmentedVideoEncoderConfig::default(),

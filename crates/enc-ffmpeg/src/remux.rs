@@ -1507,7 +1507,7 @@ mod tests {
         use crate::segmented_stream::{SegmentedVideoEncoder, SegmentedVideoEncoderConfig};
 
         ffmpeg::init().unwrap();
-        let mut encoder = SegmentedVideoEncoder::init(
+        let mut encoder = SegmentedVideoEncoder::init_libx264(
             directory.to_path_buf(),
             frameever_media_info::VideoInfo {
                 pixel_format: frameever_media_info::Pixel::NV12,
@@ -2150,7 +2150,11 @@ mod tests {
             "ladder-probe-test",
             path.clone(),
             false,
-            |o| H264Encoder::builder(video_info).build(o),
+            |o| {
+                H264Encoder::builder(video_info)
+                    .with_encoder_priority_override(&["libx264"])
+                    .build(o)
+            },
             |_| None,
         )
         .unwrap();
