@@ -549,16 +549,37 @@ impl EditorInstance {
             }
         }
 
-        let migrated = frameever_project::migrate_late_audio_alignment(&mut project, meta, || {
-            match &preloaded_recordings {
-                Some(recordings) => recordings
-                    .segments
-                    .iter()
-                    .map(|segment| segment.display.duration)
-                    .collect(),
-                None => display_durations(&recording_meta, meta),
+        let recording_durations = || match &preloaded_recordings {
+            Some(recordings) => recordings
+                .segments
+                .iter()
+                .map(|segment| segment.display.duration)
+                .collect(),
+            None => display_durations(&recording_meta, meta),
+        };
+        let late_audio_shifts = frameever_project::pending_late_audio_shifts(&project, meta);
+        let migrated = frameever_project::migrate_late_audio_alignment(
+            &mut project,
+            meta,
+            recording_durations,
+        );
+        if migrated {
+            let mut markers =
+                frameever_utils::storage::chapter_markers(&recording_meta.project_path);
+            if !markers.is_empty() {
+                frameever_utils::storage::shift_chapter_markers(
+                    &mut markers,
+                    &recording_durations(),
+                    &late_audio_shifts,
+                );
+                if let Err(e) = frameever_utils::storage::write_chapter_markers(
+                    &recording_meta.project_path,
+                    &markers,
+                ) {
+                    warn!("Failed to save late audio chapter marks: {}", e);
+                }
             }
-        });
+        }
 
         if project.clips.is_empty() {
             project.clips = initial_clip_configuration(&recording_meta.project_path, meta);

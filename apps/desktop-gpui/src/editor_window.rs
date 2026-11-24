@@ -554,6 +554,17 @@ pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
 
     let timeline = TimelineModel::build(&config, has_camera, multiple_recording_segments);
     let duration = timeline.total_duration;
+    let clip_display_durations: Vec<f64> = recordings
+        .segments
+        .iter()
+        .map(|segment| segment.display.duration)
+        .collect();
+    let mut chapter_markers = frameever_utils::storage::chapter_markers(path);
+    frameever_utils::storage::shift_chapter_markers(
+        &mut chapter_markers,
+        &clip_display_durations,
+        &frameever_project::pending_late_audio_shifts(&config, studio.as_ref()),
+    );
 
     Ok(ProjectSummary {
         recordings: recordings.clone(),
@@ -563,12 +574,8 @@ pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
         has_camera,
         has_cursor_data: has_recorded_cursor_data(&meta, studio.as_ref()),
         recorded_cursor_family: recorded_cursor_family(studio.as_ref()),
-        clip_display_durations: recordings
-            .segments
-            .iter()
-            .map(|segment| segment.display.duration)
-            .collect(),
-        chapter_markers: frameever_utils::storage::chapter_markers(path),
+        clip_display_durations,
+        chapter_markers,
         recording_duration: recordings.duration(),
         multiple_clips: multiple_recording_segments,
         has_microphone,

@@ -381,6 +381,32 @@ pub fn with_chapter_markers(
     serde_json::to_vec_pretty(&document).map_err(std::io::Error::other)
 }
 
+pub fn shift_chapter_markers(
+    markers: &mut [ChapterMarker],
+    clip_durations: &[f64],
+    shifts: &[(usize, f64)],
+) {
+    for marker in markers.iter_mut() {
+        let mut clip_start = 0.0;
+        let clip = clip_durations
+            .iter()
+            .enumerate()
+            .find_map(|(index, &duration)| {
+                let start = clip_start;
+                clip_start += duration;
+                (start..=start + duration)
+                    .contains(&marker.recorded_at)
+                    .then_some((index, start + duration))
+            });
+        let Some((index, clip_end)) = clip else {
+            continue;
+        };
+        if let Some(&(_, shift)) = shifts.iter().find(|(shifted, _)| *shifted == index) {
+            marker.recorded_at = (marker.recorded_at + shift).min(clip_end);
+        }
+    }
+}
+
 pub fn chapter_markers(project: &Path) -> Vec<ChapterMarker> {
     chapter_markers_of(read_project_file(project))
 }
@@ -925,6 +951,18 @@ mod tests {
             std::fs::read(project.join("frameever.json")).unwrap(),
             b"{ not json"
         );
+    }
+
+    #[test]
+    fn marks_on_a_late_clip_move_with_its_shift_and_stop_at_its_media_end() {
+        let mark = |recorded_at: f64| ChapterMarker {
+            recorded_at,
+            name: None,
+        };
+        let mut markers = vec![mark(3.0), mark(12.0), mark(17.0), mark(25.0)];
+        shift_chapter_markers(&mut markers, &[10.0, 10.0, 10.0], &[(1, 4.0)]);
+        let moved: Vec<f64> = markers.iter().map(|marker| marker.recorded_at).collect();
+        assert_eq!(moved, [3.0, 16.0, 20.0, 25.0]);
     }
 
     #[test]

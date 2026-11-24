@@ -21,7 +21,9 @@ pub use configuration::*;
 pub use cursor::*;
 pub use input_display::{InputDisplay, InputDisplayStyle};
 pub use keyboard::*;
-pub use late_audio::{late_audio_trim_limits, migrate_late_audio_alignment};
+pub use late_audio::{
+    late_audio_trim_limits, migrate_late_audio_alignment, pending_late_audio_shifts,
+};
 pub use meta::*;
 pub use shapes::*;
 

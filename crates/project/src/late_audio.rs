@@ -70,6 +70,16 @@ pub fn migrate_late_audio_alignment(
     true
 }
 
+pub fn pending_late_audio_shifts(
+    project: &ProjectConfiguration,
+    meta: &StudioRecordingMeta,
+) -> Vec<(usize, f64)> {
+    if project.clip_alignment_version >= CLIP_ALIGNMENT_VERSION {
+        return Vec::new();
+    }
+    late_audio_shifts(meta)
+}
+
 fn late_audio_shifts(meta: &StudioRecordingMeta) -> Vec<(usize, f64)> {
     let StudioRecordingMeta::MultipleSegments { inner } = meta else {
         return Vec::new();
