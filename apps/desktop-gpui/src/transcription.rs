@@ -540,12 +540,12 @@ fn heard_segments(
 /// the two Whisper entries the catalogue offers.
 async fn download_whisper_model(model: &str) -> Result<(), String> {
     let model_parts: &[&str] = match model {
-        "small" => &[
-            "https://github.com/CapSoftware/transcription-models/releases/download/whisper-v1/ggml-small.bin",
-        ],
+        "small" => {
+            &["https://github.com/AniBullet/FrameEver/releases/download/models-v1/ggml-small.bin"]
+        }
         "medium" => &[
-            "https://github.com/CapSoftware/transcription-models/releases/download/whisper-v1/ggml-medium.bin.part0",
-            "https://github.com/CapSoftware/transcription-models/releases/download/whisper-v1/ggml-medium.bin.part1",
+            "https://github.com/AniBullet/FrameEver/releases/download/models-v1/ggml-medium.bin.part0",
+            "https://github.com/AniBullet/FrameEver/releases/download/models-v1/ggml-medium.bin.part1",
         ],
         _ => return Err(format!("Unknown Whisper model: {model}")),
     };
@@ -698,20 +698,18 @@ const PARAKEET_TDT_INT8_MODEL_FILES: &[(&str, &[&str])] = &[
     (
         "encoder-model.onnx",
         &[
-            "https://github.com/CapSoftware/transcription-models/releases/download/parakeet-tdt-v2/encoder-model.q8.onnx",
+            "https://github.com/AniBullet/FrameEver/releases/download/models-v1/encoder-model.q8.onnx",
         ],
     ),
     (
         "decoder_joint-model.int8.onnx",
         &[
-            "https://github.com/CapSoftware/transcription-models/releases/download/parakeet-tdt-v1/decoder_joint-model.int8.onnx",
+            "https://github.com/AniBullet/FrameEver/releases/download/models-v1/decoder_joint-model.int8.onnx",
         ],
     ),
     (
         "vocab.txt",
-        &[
-            "https://github.com/CapSoftware/transcription-models/releases/download/parakeet-tdt-v1/vocab.txt",
-        ],
+        &["https://github.com/AniBullet/FrameEver/releases/download/models-v1/vocab.txt"],
     ),
 ];
 
@@ -720,28 +718,24 @@ const PARAKEET_TDT_INT8_MODEL_FILES: &[(&str, &[&str])] = &[
 const PARAKEET_TDT_FULL_MODEL_FILES: &[(&str, &[&str])] = &[
     (
         "encoder-model.onnx",
-        &[
-            "https://github.com/CapSoftware/transcription-models/releases/download/parakeet-tdt-v1/encoder-model.onnx",
-        ],
+        &["https://github.com/AniBullet/FrameEver/releases/download/models-v1/encoder-model.onnx"],
     ),
     (
         "encoder-model.onnx.data",
         &[
-            "https://github.com/CapSoftware/transcription-models/releases/download/parakeet-tdt-v1/encoder-model.onnx.data.part0",
-            "https://github.com/CapSoftware/transcription-models/releases/download/parakeet-tdt-v1/encoder-model.onnx.data.part1",
+            "https://github.com/AniBullet/FrameEver/releases/download/models-v1/encoder-model.onnx.data.part0",
+            "https://github.com/AniBullet/FrameEver/releases/download/models-v1/encoder-model.onnx.data.part1",
         ],
     ),
     (
         "decoder_joint-model.onnx",
         &[
-            "https://github.com/CapSoftware/transcription-models/releases/download/parakeet-tdt-v1/decoder_joint-model.onnx",
+            "https://github.com/AniBullet/FrameEver/releases/download/models-v1/decoder_joint-model.onnx",
         ],
     ),
     (
         "vocab.txt",
-        &[
-            "https://github.com/CapSoftware/transcription-models/releases/download/parakeet-tdt-v1/vocab.txt",
-        ],
+        &["https://github.com/AniBullet/FrameEver/releases/download/models-v1/vocab.txt"],
     ),
 ];
 
@@ -3659,6 +3653,34 @@ mod tests {
     }
 
     // -- Model paths ----------------------------------------------------------
+
+    #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+    #[test]
+    fn caption_models_come_from_frameever_releases_only() {
+        let source = include_str!("transcription.rs");
+        let urls: Vec<&str> = source
+            .split('"')
+            .filter(|part| part.starts_with("https://") && part.contains("/releases/download/"))
+            .collect();
+        assert!(urls.len() >= 11, "{urls:?}");
+        for url in urls {
+            assert!(
+                url.starts_with(
+                    "https://github.com/AniBullet/FrameEver/releases/download/models-v1/"
+                ),
+                "{url}"
+            );
+            assert!(crate::http::validate_url(url).is_ok(), "{url}");
+        }
+        for (_, urls) in PARAKEET_TDT_INT8_MODEL_FILES
+            .iter()
+            .chain(PARAKEET_TDT_FULL_MODEL_FILES)
+        {
+            for url in *urls {
+                assert!(parakeet_known_part_size(url).is_some(), "{url}");
+            }
+        }
+    }
 
     #[test]
     fn whisper_uses_its_own_default_counting_only_the_cores_it_may_use() {
