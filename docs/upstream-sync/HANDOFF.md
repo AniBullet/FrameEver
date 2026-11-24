@@ -7,18 +7,12 @@ The state of the work on one page. Keep it that short: when something here stops
 - Why something is the way it is: `docs/adr/`, `GLOSSARY.md`, `docs/design/README.md`.
 - Everything before 2026-11-20: `handoff-until-2026-11-20.md` (the old handoff, by ticket) and `0.6.1.md` (the upstream merge log).
 
-## Where things stand (2026-11-20)
+## Where things stand (2026-11-24)
 
-- FrameEver 1.0.0 was released on 2026-11-19 (`v1.0.0`, Windows installer, FrameEver Converter, macOS disk image, `latest.json`). macOS is built and tested in CI only; nothing has run on a real Mac. macOS CI was red from #217 to #230 and is green again from `d319d3c91`.
+- FrameEver 1.0.0 was released on 2026-11-19 (`v1.0.0`, Windows installer, FrameEver Converter, macOS disk image, `latest.json`). macOS is built and tested in CI only; nothing has run on a real Mac, so the macOS fixes of #196, #219, #238 and #239 have only been compiled.
 - `main` is the only branch that matters. Work is one ticket at a time in the main checkout.
-- The open work is the upstream comparison #192 (`5a8927de5..beb537fe6`). #193 and #194 are done. The next comparison starts at `beb537fe6`; do not start it until these tickets are closed.
-
-Suggested order, from the blocking links and from which tickets touch the same files:
-
-1. Fixes: #207 to #210 are done. #195 and #196 are done; the three largest ports of #195 became #216 (clip media clean-up), #217 (frozen-instance recovery) and #218 (area ratio snapping). All three are done; #234 (the CLI does not settle an interrupted clip media clean-up) came from the review of #216. #229 is done (audio only recording, MP3 and WAV export; the Audio target always records a Studio project); #235 and #236 came from its review. #230 is done (the editor's audio only view and visuals); importing audio files was split from it into #237, which is done. #219 is done (macOS Focused window recordings use a window filter and stop when the window closes); #238 and #239 came from its review and are done (2026-11-24, with #224, #235 and #236). #234, #226 and #240 (CLI export) are done too; the project lock is now a reader/writer lock (`UploadLock::acquire_shared`). #228 is done (a test timing fault, not the output). #231 is done (device switching leftovers; the Compatibility capture size finding was dropped, see its closing comment). Nothing is left to build under #192 except the owner's decisions below. The macOS fixes of #219, #238 and #239 have only been compiled in CI.
-2. #205, #206 and #202 are done. Studio switches camera to camera in place, on Windows too (`CameraFrameConformer`); the review findings left on #202 are listed in its closing comment.
-3. #197 (design) is done; #198 to #203, #229, #230 and #232 build against its pages (the closing comment of #197 lists which page holds what). #198 to #201, #221 and #222 are done. Audio-only recording was split from #202 into #229 (recording, MP3 and WAV export; upstream has neither Instant nor CLI for it, so both are ours to build) and #230 (editor and import), which #229 blocks. #203 is done (live draw), and so are #232 (the result card) and #233 (Export from a Studio card, with the last export settings); the audio only card and its Export audio came with #229.
-4. #204 is done: the app runs the Automations rules after its own recordings, screenshots, imports and deletes (`src/automation.rs`, without upload). #220 waits for the owner: whether chapter marks of a late-audio project move with the migration from #210.
+- The upstream comparison #192 (`5a8927de5..beb537fe6`) is closed: every child ticket is done, and each closing comment says what was ported and why. The last ones were #231 (device switching leftovers), #220 (chapter marks move with the late-audio migration) and #204 (the app runs the Automations rules after its own recordings, screenshots, imports and deletes, `src/automation.rs`, without upload).
+- Next: the next upstream comparison, starting at `beb537fe6`. No issue is open.
 
 ## Waiting for the owner in the running app
 
