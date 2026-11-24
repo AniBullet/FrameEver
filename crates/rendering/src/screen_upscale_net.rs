@@ -11,6 +11,7 @@ const DEEP_WEIGHTS: &[u8] = include_bytes!("models/screen-upscale.bin");
 const SHALLOW_WEIGHTS: &[u8] = include_bytes!("models/screen-upscale-shallow.bin");
 const _: () = assert!(DEEP_WEIGHTS.len() == parameters(DEEP_LAYERS) * 4);
 const _: () = assert!(SHALLOW_WEIGHTS.len() == parameters(SHALLOW_LAYERS) * 4);
+const _: () = assert!(SHALLOW_LAYERS >= 2 && DEEP_LAYERS >= 2);
 pub const DEEP_FROM_MAGNIFICATION: f32 = 1.8;
 
 const fn parameters(layers: usize) -> usize {
@@ -20,7 +21,9 @@ const fn parameters(layers: usize) -> usize {
 }
 
 pub const HALO: u32 = DEEP_LAYERS as u32;
-const MAX_STRIPE_BYTES: u64 = 32 << 20;
+const MAX_STRIPE_TEXELS: u64 = 1 << 20;
+const FEATURE_BYTES: u64 = 16;
+const RESIDUAL_BYTES: u64 = 8;
 const TILE: [u32; 2] = [16, 8];
 const FLAT_RANGE: f32 = 4.0 / 255.0;
 
@@ -51,14 +54,13 @@ impl Weights {
 }
 
 fn buffer_rows(width: u32, height: u32, budget: u64) -> u32 {
-    let fitting = (budget / (u64::from(width) * 32)).min(u64::from(u32::MAX)) as u32;
+    let fitting = (budget / u64::from(width)).min(u64::from(u32::MAX)) as u32;
     (height + 2 * HALO).min(fitting.max(2 * HALO + TILE[1]))
 }
 
 struct Stripes {
     texels: u64,
     tiles: u64,
-    image: wgpu::Buffer,
     features: [wgpu::Buffer; 2],
     residual: wgpu::Buffer,
     flat_tiles: wgpu::Buffer,
@@ -66,14 +68,13 @@ struct Stripes {
 
 pub struct ScreenUpscaleNet {
     classify: wgpu::ComputePipeline,
-    load: wgpu::ComputePipeline,
     first: wgpu::ComputePipeline,
     body: wgpu::ComputePipeline,
-    finish: wgpu::ComputePipeline,
+    last: wgpu::ComputePipeline,
     deep: Weights,
     shallow: Weights,
     stripes: Option<Stripes>,
-    max_stripe_bytes: u64,
+    max_stripe_texels: u64,
     flat_range: f32,
 }
 
@@ -199,14 +200,13 @@ impl ScreenUpscaleNet {
 
         Self {
             classify: pipeline("classify"),
-            load: pipeline("load"),
             first: pipeline("first"),
             body: pipeline("body"),
-            finish: pipeline("finish"),
+            last: pipeline("last"),
             deep: weights(DEEP_WEIGHTS, DEEP_LAYERS),
             shallow: weights(SHALLOW_WEIGHTS, SHALLOW_LAYERS),
             stripes: None,
-            max_stripe_bytes: MAX_STRIPE_BYTES,
+            max_stripe_texels: MAX_STRIPE_TEXELS,
             flat_range: FLAT_RANGE,
         }
     }
@@ -232,12 +232,11 @@ impl ScreenUpscaleNet {
         self.stripes = Some(Stripes {
             texels,
             tiles,
-            image: buffer("Screen upscale image", texels * 16),
             features: [
-                buffer("Screen upscale features", texels * 32),
-                buffer("Screen upscale features", texels * 32),
+                buffer("Screen upscale features", texels * FEATURE_BYTES),
+                buffer("Screen upscale features", texels * FEATURE_BYTES),
             ],
-            residual: buffer("Screen upscale residual", texels * 16),
+            residual: buffer("Screen upscale residual", texels * RESIDUAL_BYTES),
             flat_tiles: buffer("Screen upscale flat tiles", tiles * 4),
         });
     }
@@ -256,7 +255,7 @@ impl ScreenUpscaleNet {
         if width == 0 || height == 0 || source_size[0] == 0 || source_size[1] == 0 {
             return;
         }
-        let buffer_rows = buffer_rows(width, height, self.max_stripe_bytes);
+        let buffer_rows = buffer_rows(width, height, self.max_stripe_texels);
         let stripe_rows = buffer_rows - 2 * HALO;
         self.ensure_stripes(device, width, buffer_rows);
         let Some(stripes) = &self.stripes else {
@@ -277,8 +276,21 @@ impl ScreenUpscaleNet {
                 })
             };
         let classify_textures = texture_group(&self.classify, 0, source);
-        let load_textures = texture_group(&self.load, 0, source);
-        let finish_textures = texture_group(&self.finish, 1, target);
+        let first_textures = texture_group(&self.first, 0, source);
+        let finish_textures = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Screen upscale textures"),
+            layout: &self.last.get_bind_group_layout(1),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(source),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(target),
+                },
+            ],
+        });
 
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("Screen upscale network"),
@@ -340,45 +352,44 @@ impl ScreenUpscaleNet {
                 &group(&self.classify, &[(0, &shared), (7, &stripes.flat_tiles)]),
                 Some(&classify_textures),
             );
-            dispatch(
-                &self.load,
-                &group(&self.load, &[(0, &shared), (4, &stripes.image)]),
-                Some(&load_textures),
-            );
-            let mut input = &stripes.image;
+            let mut input: Option<&wgpu::Buffer> = None;
+            let count = weights.convs.len();
             for (layer, (layer_weights, bias)) in weights.convs.iter().enumerate() {
                 let output = &stripes.features[layer % 2];
                 let layer_params = params(layer);
-                let pipeline = if layer == 0 { &self.first } else { &self.body };
-                let bind = group(
-                    pipeline,
-                    &[
-                        (0, &layer_params),
-                        (1, layer_weights),
-                        (2, bias),
-                        (3, input),
-                        (4, output),
-                        (5, &weights.readout),
-                        (6, &stripes.residual),
-                        (7, &stripes.flat_tiles),
-                    ],
-                );
-                dispatch(pipeline, &bind, None);
-                input = output;
+                let last = layer + 1 == count;
+                let pipeline = if layer == 0 {
+                    &self.first
+                } else if last {
+                    &self.last
+                } else {
+                    &self.body
+                };
+                let mut entries = vec![
+                    (0, &layer_params),
+                    (1, layer_weights),
+                    (2, bias),
+                    (5, &weights.readout),
+                    (6, &stripes.residual),
+                    (7, &stripes.flat_tiles),
+                ];
+                if !last {
+                    entries.push((4, output));
+                }
+                if let Some(input) = input {
+                    entries.push((3, input));
+                }
+                let bind = group(pipeline, &entries);
+                let textures = if layer == 0 {
+                    Some(&first_textures)
+                } else if last {
+                    Some(&finish_textures)
+                } else {
+                    None
+                };
+                dispatch(pipeline, &bind, textures);
+                input = Some(output);
             }
-            dispatch(
-                &self.finish,
-                &group(
-                    &self.finish,
-                    &[
-                        (0, &shared),
-                        (3, &stripes.image),
-                        (6, &stripes.residual),
-                        (7, &stripes.flat_tiles),
-                    ],
-                ),
-                Some(&finish_textures),
-            );
             start = end;
         }
     }
@@ -389,7 +400,7 @@ mod tests {
     use super::*;
 
     fn upscale(
-        stripe_bytes: u64,
+        stripe_texels: u64,
         flat_range: f32,
         pixels: &[u8],
         size: [u32; 2],
@@ -441,7 +452,7 @@ mod tests {
             mapped_at_creation: false,
         });
         let mut net = ScreenUpscaleNet::new(&device);
-        net.max_stripe_bytes = stripe_bytes;
+        net.max_stripe_texels = stripe_texels;
         net.flat_range = flat_range;
         let mut encoder = device.create_command_encoder(&Default::default());
         net.encode(
@@ -619,11 +630,11 @@ mod tests {
         };
         let mut net = ScreenUpscaleNet::new(&device);
         for (width, height) in [(512u32, 1800u32), (3000, 512), (512, 1800)] {
-            let rows = buffer_rows(width, height, MAX_STRIPE_BYTES);
+            let rows = buffer_rows(width, height, MAX_STRIPE_TEXELS);
             net.ensure_stripes(&device, width, rows);
             let stripes = net.stripes.as_ref().expect("stripes");
             assert!(
-                stripes.features[0].size() <= MAX_STRIPE_BYTES,
+                stripes.features[0].size() <= MAX_STRIPE_TEXELS * FEATURE_BYTES,
                 "{width}x{height}"
             );
             assert!(stripes.texels >= u64::from(width) * u64::from(rows));

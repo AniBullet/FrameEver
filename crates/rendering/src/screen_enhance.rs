@@ -619,15 +619,6 @@ impl ScreenEnhancer {
                 PASS_TARGET_USAGE,
                 "Screen upscale texture",
             );
-            EnhanceTarget::ensure(
-                &mut self.sharpen_target,
-                device,
-                size[0],
-                size[1],
-                false,
-                PASS_TARGET_USAGE,
-                "Screen sharpen texture",
-            );
             let upscale_source = match (&self.deband_target, self.debanded) {
                 (Some(target), true) => &target.view,
                 _ => source,
@@ -693,8 +684,7 @@ impl ScreenEnhancer {
                 (Some(target), true) => &target.view,
                 _ => upscale_source,
             };
-            if let (Some(upscaled), Some(sharpened)) = (&self.upscale_target, &self.sharpen_target)
-            {
+            if let Some(upscaled) = &self.upscale_target {
                 self.pass(
                     device,
                     encoder,
@@ -705,17 +695,29 @@ impl ScreenEnhancer {
                 );
                 self.upscale_region = Some(region);
                 if network {
+                    self.sharpen_target = None;
                     return true;
                 }
-                self.sharpened = true;
-                self.pass(
+                EnhanceTarget::ensure(
+                    &mut self.sharpen_target,
                     device,
-                    encoder,
-                    &self.pipelines.rcas,
-                    &upscale_uniforms,
-                    &upscaled.view,
-                    (&sharpened.view, size),
+                    size[0],
+                    size[1],
+                    false,
+                    PASS_TARGET_USAGE,
+                    "Screen sharpen texture",
                 );
+                if let Some(sharpened) = &self.sharpen_target {
+                    self.sharpened = true;
+                    self.pass(
+                        device,
+                        encoder,
+                        &self.pipelines.rcas,
+                        &upscale_uniforms,
+                        &upscaled.view,
+                        (&sharpened.view, size),
+                    );
+                }
             }
         }
 
