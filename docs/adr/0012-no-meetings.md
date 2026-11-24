@@ -1,0 +1,3 @@
+# No meetings, notes or calendar features
+
+Upstream Cap added a meetings product in November 2026: calendar sync, joining meeting platforms, live captions, speaker separation, meeting notes and Ask questions answered by a model, in the `meetings`, `meeting-platform`, `calendar`, `diarize`, `notes` and `notes-ui` crates. FrameEver does not take any of it, not even a local-only version: it is a screen recorder and editor, and a meeting assistant is a different product that would widen the app beyond that. Upstream comparisons record these commits as not ported without reviewing them one by one, and a shared upstream change that only serves meetings is skipped the same way.

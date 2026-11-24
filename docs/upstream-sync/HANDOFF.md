@@ -12,7 +12,7 @@ The state of the work on one page. Keep it that short: when something here stops
 - FrameEver 1.0.0 was released on 2026-11-19 (`v1.0.0`, Windows installer, FrameEver Converter, macOS disk image, `latest.json`). macOS is built and tested in CI only; nothing has run on a real Mac, so the macOS fixes of #196, #219, #238 and #239 have only been compiled.
 - `main` is the only branch that matters. Work is one ticket at a time in the main checkout.
 - The upstream comparison #192 (`5a8927de5..beb537fe6`) is closed: every child ticket is done, and each closing comment says what was ported and why. The last ones were #231 (device switching leftovers), #220 (chapter marks move with the late-audio migration) and #204 (the app runs the Automations rules after its own recordings, screenshots, imports and deletes, `src/automation.rs`, without upload).
-- Next: the next upstream comparison, starting at `beb537fe6`. No issue is open.
+- Current round: upstream `beb537fe6..55a188028` (2026-11-20 to 2026-11-24), three tickets in this order: #241 (capture, rendering, export and caption fixes), #242 (camera picture), #243 (library folders, pins, smart folders and richer cards; design page first, which can be made during #241). The rest of the range is web, billing, iOS, Linux and the meetings product, not taken (ADR-0012). The next comparison starts at `55a188028`.
 
 ## Waiting for the owner in the running app
 

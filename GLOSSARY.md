@@ -44,6 +44,10 @@ _Avoid_: Audio mode, voice memo, podcast mode
 A named point in time the user drops while recording or adds in the editor, to find a moment again and split clips at it. 章节标记 in Chinese.
 _Avoid_: Marker, bookmark, recording marker
 
+**Camera picture**:
+A still picture kept with a Studio project and drawn where the camera would be, for recordings made without a camera or in place of it. 摄像头图片 in Chinese.
+_Avoid_: avatar, camera image, placeholder
+
 ## Editing
 
 **Editor preset**:
@@ -101,6 +105,18 @@ _Avoid_: Compressed version, compact file
 **Library**:
 The in-app list of the user's projects and screenshots.
 _Avoid_: Gallery, recordings list
+
+**Library folder**:
+A named group the user puts library items in; an item can sit in several, and nothing moves on disk. 文件夹 in Chinese.
+_Avoid_: Album, collection, tag
+
+**Smart folder**:
+A library folder whose members are whatever matches its rules (kind, date, export state, title), worked out again as the library changes. 智能文件夹 in Chinese.
+_Avoid_: Saved search, filter preset
+
+**Pinned**:
+A library item the user keeps at the top of the library and in its own sidebar entry. 置顶 in Chinese.
+_Avoid_: Favourite, starred
 
 ## Storage
 
