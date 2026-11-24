@@ -200,4 +200,36 @@ mod tests {
         assert_eq!(conformer.track_writable(), Some(false));
         assert!(conformer.conform(nv12(96, 54)).is_none());
     }
+
+    #[test]
+    #[ignore = "measurement: run with --ignored --optimized"]
+    fn conforming_a_switched_camera_to_a_1080p30_track_costs() {
+        ffmpeg::init().ok();
+        let frames = 300;
+        let cases = [
+            ("YUYV 1280x720", PixelFormat::YUYV422, 1280, 720, 2),
+            ("YUYV 1920x1080", PixelFormat::YUYV422, 1920, 1080, 2),
+            ("RGB32 1920x1080", PixelFormat::RGB32, 1920, 1080, 4),
+        ];
+        for (name, format, width, height, bytes_per_pixel) in cases {
+            let mut conformer = CameraFrameConformer::default();
+            conformer.conform(nv12(1920, 1080)).unwrap();
+            let bytes = vec![128; (width * height * bytes_per_pixel) as usize];
+            let inputs = (0..frames)
+                .map(|_| frame_from(format, width, height, &bytes))
+                .collect::<Vec<_>>();
+            conformer
+                .conform(frame_from(format, width, height, &bytes))
+                .unwrap();
+            let started = std::time::Instant::now();
+            for frame in inputs {
+                assert!(conformer.conform(frame).is_some());
+            }
+            let per_frame = started.elapsed().as_secs_f64() * 1000.0 / frames as f64;
+            println!(
+                "{name} -> NV12 1920x1080: {per_frame:.2} ms per frame, {:.0}% of one core at 30 fps",
+                per_frame * 30.0 / 10.0
+            );
+        }
+    }
 }

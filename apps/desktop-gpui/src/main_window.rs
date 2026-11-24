@@ -2696,11 +2696,14 @@ impl MainWindow {
 
     pub fn set_camera_selection(&mut self, camera: Option<CameraOption>, cx: &mut Context<Self>) {
         let id = camera.as_ref().map(|camera| {
-            camera
-                .model_id
-                .clone()
-                .map(recording::DeviceOrModelID::ModelID)
-                .unwrap_or_else(|| recording::DeviceOrModelID::DeviceID(camera.device_id.clone()))
+            recording::DeviceOrModelID::among(
+                &camera.device_id,
+                camera.model_id.as_ref(),
+                self.devices
+                    .cameras
+                    .iter()
+                    .map(|listed| listed.model_id.as_ref()),
+            )
         });
         self.pending_device_restore.camera_id = None;
         if !crate::store::set_recording_camera_id(id.as_ref()) {

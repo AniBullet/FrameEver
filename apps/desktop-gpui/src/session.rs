@@ -572,8 +572,21 @@ impl RecordingSession {
             && self.microphone_label().as_deref() == Some(label)
     }
 
-    pub(crate) fn records_camera(&self, id: &recording::DeviceOrModelID) -> bool {
-        !self.input_failures.is_off(InputKind::Camera) && self.camera_id().as_ref() == Some(id)
+    pub(crate) fn recorded_camera_device(&self, cx: &App) -> Option<String> {
+        if self.input_failures.is_off(InputKind::Camera) {
+            return None;
+        }
+        let id = self.camera_id()?;
+        crate::feeds::Feeds::global(cx)
+            .read(cx)
+            .camera
+            .as_ref()
+            .filter(|selection| selection.id == id)
+            .map(|selection| selection.device_id.clone())
+            .or(match id {
+                recording::DeviceOrModelID::DeviceID(device_id) => Some(device_id),
+                recording::DeviceOrModelID::ModelID(_) => None,
+            })
     }
 
     pub fn can_change_input(&self, kind: InputKind) -> bool {
@@ -1233,6 +1246,7 @@ impl RecordingSession {
             this.update(cx, |this, cx| {
                 let end = ticket.finish(this.input_change, this.phase);
                 if end == InputChangeEnd::Stale {
+                    keep_app_on(switched.ended_with(&choice, &previous), &choice, cx);
                     return;
                 }
                 let resumable = this
@@ -1291,14 +1305,15 @@ impl RecordingSession {
         cx.spawn(async move |this, cx| {
             let attached = tokio_spawn(cx, switching).await;
             this.update(cx, |this, cx| {
-                if ticket.finish(this.input_change, this.phase) == InputChangeEnd::Stale {
-                    return;
-                }
-                this.changing_input = false;
                 let switched = match attached {
                     Ok(()) => Switched::Attached(None),
                     Err(cause) => Switched::Unchanged { cause },
                 };
+                if ticket.finish(this.input_change, this.phase) == InputChangeEnd::Stale {
+                    keep_app_on(switched.ended_with(&choice, &previous), &choice, cx);
+                    return;
+                }
+                this.changing_input = false;
                 match (&choice, &switched, &previous) {
                     (InputChoice::Microphone(label), Switched::Attached(_), _) => {
                         crate::feeds::Feeds::global(cx).update(cx, |feeds, cx| {
@@ -1891,7 +1906,11 @@ impl RecordingSession {
         if !matches!(self.phase, Phase::Recording { .. }) {
             return;
         }
-        let Some(config) = self.last_config.clone() else {
+        let Some(config) = self
+            .last_config
+            .clone()
+            .and_then(|config| restart_config(config, &self.input_failures))
+        else {
             return;
         };
         #[cfg(any(target_os = "macos", windows))]
@@ -2095,7 +2114,18 @@ impl SwitchSteps for StudioSwitch<'_> {
                 InputKind::Camera => handle.set_camera_feed(None).await,
             }
         })
-        .await
+        .await?;
+        self.session
+            .update(self.cx, |session, _| {
+                if let Some(active) = session.active.as_mut() {
+                    match kind {
+                        InputKind::Microphone => active.release_owned_microphone(),
+                        InputKind::Camera => active.release_owned_camera(),
+                    }
+                }
+            })
+            .ok();
+        Ok(())
     }
 
     async fn attach(&mut self, device: &InputChoice) -> anyhow::Result<Self::Attached> {
@@ -2214,6 +2244,64 @@ impl InputChangeGate {
                 && self.phase == Phase::Recording { paused: false },
         })
     }
+}
+
+fn keep_app_on(ended: &InputChoice, requested: &InputChoice, cx: &mut App) {
+    let feeds = crate::feeds::Feeds::global(cx);
+    let left_by_switch = match (ended, requested) {
+        (InputChoice::Microphone(ended), InputChoice::Microphone(requested)) => feeds
+            .read(cx)
+            .microphone
+            .as_ref()
+            .is_some_and(|label| label == ended || label == requested),
+        (InputChoice::Camera(ended), InputChoice::Camera(requested)) => feeds
+            .read(cx)
+            .camera
+            .as_ref()
+            .is_some_and(|camera| camera == ended || camera == requested),
+        _ => false,
+    };
+    if !left_by_switch {
+        return;
+    }
+    let saved = match ended {
+        InputChoice::Microphone(label) => crate::store::set_recording_microphone_name(Some(label)),
+        InputChoice::Camera(selection) => {
+            crate::store::set_recording_camera_id(Some(&selection.id))
+        }
+    };
+    if !saved {
+        tracing::warn!("Could not save the recording input");
+    }
+    feeds.update(cx, |feeds, cx| match ended {
+        InputChoice::Microphone(ended) if feeds.microphone.as_ref() != Some(ended) => {
+            feeds.set_microphone(Some(ended.clone()), cx);
+        }
+        InputChoice::Camera(ended) if feeds.camera.as_ref() != Some(ended) => {
+            feeds.set_camera(Some(ended.clone()), cx);
+        }
+        _ => {}
+    });
+}
+
+fn restart_config(mut config: StartConfig, failures: &InputFailures) -> Option<StartConfig> {
+    if failures.is_off(InputKind::Microphone) {
+        config.microphone = None;
+        config.mic_feed = None;
+        config.device_settings.microphone = None;
+    }
+    if failures.is_off(InputKind::Camera) {
+        if matches!(
+            config.target,
+            frameever_recording::sources::screen_capture::ScreenCaptureTarget::CameraOnly
+        ) {
+            return None;
+        }
+        config.camera = None;
+        config.camera_feed = None;
+        config.device_settings.camera = None;
+    }
+    Some(config)
 }
 
 fn can_resume_after<T>(
@@ -2638,6 +2726,71 @@ mod countdown_event_tests {
 mod input_change_tests {
     use super::*;
     use crate::recording::RecordingMode;
+
+    fn started_with(
+        target: frameever_recording::sources::screen_capture::ScreenCaptureTarget,
+    ) -> StartConfig {
+        StartConfig {
+            mode: RecordingMode::Studio,
+            target,
+            microphone: Some("USB Microphone".into()),
+            camera: Some(recording::DeviceOrModelID::DeviceID("webcam".into())),
+            device_settings: Default::default(),
+            input_readiness: Default::default(),
+            system_audio: false,
+            excluded_windows: Vec::new(),
+            camera_feed: None,
+            mic_feed: None,
+            mic_meter: None,
+            start_gate: None,
+        }
+    }
+
+    fn off(kind: InputKind) -> InputFailures {
+        let mut failures = InputFailures::default();
+        failures.set(
+            kind,
+            Some(InputFailure {
+                device: "Other".into(),
+                cause: "busy".into(),
+                off: true,
+                attempt: 1,
+            }),
+        );
+        failures
+    }
+
+    #[test]
+    fn restart_leaves_out_an_input_that_is_off() {
+        use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
+
+        let display = || ScreenCaptureTarget::Display {
+            id: "1".parse().unwrap(),
+        };
+        let config = restart_config(started_with(display()), &off(InputKind::Microphone)).unwrap();
+        assert_eq!(config.microphone, None);
+        assert!(config.camera.is_some());
+
+        let config = restart_config(started_with(display()), &off(InputKind::Camera)).unwrap();
+        assert_eq!(config.camera, None);
+        assert!(config.microphone.is_some());
+
+        let config = restart_config(started_with(display()), &InputFailures::default()).unwrap();
+        assert!(config.microphone.is_some() && config.camera.is_some());
+    }
+
+    #[test]
+    fn restart_keeps_a_camera_only_take_whose_camera_is_off() {
+        use frameever_recording::sources::screen_capture::ScreenCaptureTarget;
+
+        assert!(
+            restart_config(
+                started_with(ScreenCaptureTarget::CameraOnly),
+                &off(InputKind::Camera)
+            )
+            .is_none()
+        );
+    }
 
     fn studio_recording() -> InputChangeGate {
         InputChangeGate {

@@ -841,7 +841,7 @@ impl Message<SetCameraFeed> for Actor {
                     bail!("Pause the recording before changing camera input")
                 };
                 input.attach(camera_feed.clone()).await?;
-                self.segment_factory.set_camera_feed(Some(camera_feed));
+                self.segment_factory.camera_switched_in_place(camera_feed);
                 Ok(())
             }
             Some(ActorState::Paused { .. }) => {
@@ -2613,6 +2613,7 @@ struct SegmentPipelineFactory {
     #[cfg(windows)]
     encoder_preferences: crate::capture_pipeline::EncoderPreferences,
     live_camera: Option<sources::CameraTrackInput>,
+    segment_cameras: Vec<String>,
 }
 
 impl SegmentPipelineFactory {
@@ -2646,6 +2647,7 @@ impl SegmentPipelineFactory {
             #[cfg(windows)]
             encoder_preferences: crate::capture_pipeline::EncoderPreferences::new(),
             live_camera: None,
+            segment_cameras: Vec::new(),
         }
     }
 
@@ -2727,20 +2729,34 @@ impl SegmentPipelineFactory {
         self.set_camera_feed(camera_feed);
     }
 
+    pub fn camera_switched_in_place(&mut self, camera_feed: Arc<CameraFeedLock>) {
+        let device_id = camera_feed.camera_info().device_id().to_string();
+        if !self.segment_cameras.contains(&device_id) {
+            self.segment_cameras.push(device_id);
+        }
+        self.set_camera_feed(Some(camera_feed));
+    }
+
     fn next_camera_input(&mut self) -> Option<sources::CameraTrackInput> {
         self.live_camera = self
             .base_inputs
             .camera_feed
             .clone()
             .map(sources::CameraTrackInput::new);
+        self.segment_cameras = self
+            .base_inputs
+            .camera_feed
+            .iter()
+            .map(|feed| feed.camera_info().device_id().to_string())
+            .collect();
         self.live_camera.clone()
     }
 
     pub fn camera_device_id(&self) -> Option<String> {
-        self.base_inputs
-            .camera_feed
-            .as_ref()
-            .map(|f| f.camera_info().device_id().to_string())
+        match self.segment_cameras.as_slice() {
+            [only] => Some(only.clone()),
+            _ => None,
+        }
     }
 
     pub fn mic_device_id(&self) -> Option<String> {
@@ -3946,6 +3962,54 @@ mod tests {
         assert!(camera.lock().await.is_err(), "the segment's input holds it");
         factory.set_next_segment_camera(None);
         assert!(camera.lock().await.is_ok());
+    }
+
+    #[cfg(any(target_os = "macos", windows))]
+    #[tokio::test]
+    async fn a_segment_names_the_camera_that_fed_it_and_none_after_an_in_place_switch() {
+        let info = VideoInfo::from_raw(frameever_media_info::RawVideoFormat::Nv12, 16, 16, 30);
+        let first = crate::feeds::camera::synthetic::SyntheticCamera::spawn("first", info);
+        let second = crate::feeds::camera::synthetic::SyntheticCamera::spawn("second", info);
+        let dir = tempfile::tempdir().unwrap();
+        let (completion_tx, _completion_rx) = watch::channel(None);
+        let mut factory = SegmentPipelineFactory::new(
+            dir.path().join("content/segments"),
+            dir.path().join("content/cursors"),
+            RecordingBaseInputs {
+                capture_target: screen_capture::ScreenCaptureTarget::CameraOnly,
+                window_only: false,
+                capture_system_audio: false,
+                mic_feed: None,
+                camera_feed: Some(Arc::new(first.lock().await.unwrap())),
+                start_gate: None,
+                #[cfg(target_os = "macos")]
+                shareable_content: None,
+                #[cfg(target_os = "macos")]
+                excluded_windows: Vec::new(),
+            },
+            false,
+            false,
+            false,
+            false,
+            30,
+            crate::StudioQuality::Balanced,
+            completion_tx,
+        );
+        drop(factory.next_camera_input());
+        assert_eq!(factory.camera_device_id().as_deref(), Some("first"));
+
+        factory.set_camera_feed(None);
+        assert_eq!(
+            factory.camera_device_id().as_deref(),
+            Some("first"),
+            "a switch that leaves the camera off keeps the camera the segment recorded"
+        );
+
+        factory.camera_switched_in_place(Arc::new(second.lock().await.unwrap()));
+        assert_eq!(factory.camera_device_id(), None);
+
+        drop(factory.next_camera_input());
+        assert_eq!(factory.camera_device_id().as_deref(), Some("second"));
     }
 
     mod failed_resume_tests {

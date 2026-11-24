@@ -42,7 +42,7 @@ pub struct ControlsWindow {
     options_open: bool,
     expanded: Option<InputKind>,
     microphones: Vec<String>,
-    cameras: Vec<(String, crate::recording::DeviceOrModelID)>,
+    cameras: Vec<crate::feeds::SelectedCamera>,
     options_header: Option<SharedString>,
     dismissed_issue: Option<IssueKey>,
     issue_details_open: bool,
@@ -542,18 +542,18 @@ impl ControlsWindow {
                         });
                         let microphones =
                             frameever_recording::feeds::microphone::MicrophoneFeed::list_names();
-                        let cameras = frameever_camera::list_cameras()
-                            .map(|camera| {
-                                let id = camera
-                                    .model_id()
-                                    .cloned()
-                                    .map(crate::recording::DeviceOrModelID::ModelID)
-                                    .unwrap_or_else(|| {
-                                        crate::recording::DeviceOrModelID::DeviceID(
-                                            camera.device_id().to_string(),
-                                        )
-                                    });
-                                (camera.display_name().to_string(), id)
+                        let listed = frameever_camera::list_cameras().collect::<Vec<_>>();
+                        let cameras = listed
+                            .iter()
+                            .map(|camera| crate::feeds::SelectedCamera {
+                                id: crate::recording::DeviceOrModelID::among(
+                                    camera.device_id(),
+                                    camera.model_id(),
+                                    listed.iter().map(|listed| listed.model_id()),
+                                ),
+                                label: camera.display_name().to_string(),
+                                device_id: camera.device_id().to_string(),
+                                model_id: camera.model_id().cloned(),
                             })
                             .collect::<Vec<_>>();
                         (microphones, cameras, header)
@@ -1001,11 +1001,13 @@ impl ControlsWindow {
         let camera = session.camera_id();
         let microphone_off = session.input_failures.is_off(InputKind::Microphone);
         let camera_off = session.input_failures.is_off(InputKind::Camera);
+        let recorded_camera = session.recorded_camera_device(cx);
         let camera_label = camera.as_ref().and_then(|id| {
             self.cameras
                 .iter()
-                .find(|(_, candidate)| candidate == id)
-                .map(|(label, _)| label.clone())
+                .find(|candidate| recorded_camera.as_deref() == Some(candidate.device_id.as_str()))
+                .or_else(|| self.cameras.iter().find(|candidate| candidate.id == *id))
+                .map(|candidate| candidate.label.clone())
         });
         let camera_window_open = cx
             .global::<crate::app_windows::AppWindows>()
@@ -1037,11 +1039,11 @@ impl ControlsWindow {
                 .iter()
                 .cloned()
                 .enumerate()
-                .map(|(index, (name, id))| {
-                    let checked = self.session.read(cx).records_camera(&id);
+                .map(|(index, camera)| {
+                    let checked = recorded_camera.as_deref() == Some(camera.device_id.as_str());
                     self.choice_row(
                         ("camera-choice", index),
-                        name,
+                        camera.label,
                         checked,
                         can_change_camera,
                         Control::CameraChoice(index),
@@ -1548,18 +1550,16 @@ impl ControlsWindow {
     }
 
     fn choose_camera(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some((name, id)) = self.cameras.get(index).cloned() else {
+        let Some(selection) = self.cameras.get(index).cloned() else {
             return;
         };
         let session = self.session.read(cx);
-        if !session.can_change_input(InputKind::Camera) || session.records_camera(&id) {
+        if !session.can_change_input(InputKind::Camera)
+            || session.recorded_camera_device(cx).as_deref() == Some(selection.device_id.as_str())
+        {
             return;
         }
         self.expanded = None;
-        let selection = crate::feeds::SelectedCamera {
-            label: name,
-            ..crate::deeplink::camera_selection(id)
-        };
         self.session.update(cx, |session, cx| {
             session.change_input(crate::session::InputChoice::Camera(selection), cx)
         });

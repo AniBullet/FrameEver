@@ -89,7 +89,7 @@ pub struct ActiveRecording {
     /// stream cadence is unaffected). `None` when the recording has no mic.
     pub mic_mute: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     owned_microphone: Arc<Mutex<Option<OwnedMicrophone>>>,
-    _camera_feed: Option<Arc<RecordingOwnedFeed<CameraFeed>>>,
+    owned_camera: Option<Arc<RecordingOwnedFeed<CameraFeed>>>,
 }
 
 struct OwnedMicrophone {
@@ -518,6 +518,14 @@ impl ActiveRecording {
             Handle::Studio(_) => None,
             Handle::Instant(handle) => handle.microphone_switch(),
         }
+    }
+
+    pub(crate) fn release_owned_microphone(&mut self) {
+        *self.owned_microphone.lock().unwrap() = None;
+    }
+
+    pub(crate) fn release_owned_camera(&mut self) {
+        self.owned_camera = None;
     }
 
     pub(crate) fn switch_instant_microphone(
@@ -1857,7 +1865,7 @@ async fn start_attempt(
                 _errors: errors,
             },
         ))),
-        _camera_feed: camera_feed,
+        owned_camera: camera_feed,
     })
 }
 

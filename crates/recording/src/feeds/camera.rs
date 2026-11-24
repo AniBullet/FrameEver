@@ -363,6 +363,25 @@ impl DeviceOrModelID {
             .map(|v| Self::ModelID(v.clone()))
             .unwrap_or_else(|| Self::DeviceID(info.device_id().to_string()))
     }
+
+    pub fn among<'a>(
+        device_id: &str,
+        model_id: Option<&frameever_camera::ModelID>,
+        listed_models: impl IntoIterator<Item = Option<&'a frameever_camera::ModelID>>,
+    ) -> Self {
+        match model_id {
+            Some(model)
+                if listed_models
+                    .into_iter()
+                    .filter(|listed| *listed == Some(model))
+                    .count()
+                    == 1 =>
+            {
+                Self::ModelID(model.clone())
+            }
+            _ => Self::DeviceID(device_id.to_string()),
+        }
+    }
 }
 
 #[derive(
@@ -2026,6 +2045,25 @@ pub mod synthetic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_camera_is_named_by_its_model_only_when_no_other_listed_camera_shares_it() {
+        let model = |value: &str| frameever_camera::ModelID::try_from(value.to_string()).unwrap();
+        let webcam = model("046d:082d");
+        let other = model("1bcf:2284");
+        assert_eq!(
+            DeviceOrModelID::among("a", Some(&webcam), [Some(&webcam), Some(&other), None]),
+            DeviceOrModelID::ModelID(webcam.clone())
+        );
+        assert_eq!(
+            DeviceOrModelID::among("b", Some(&webcam), [Some(&webcam), Some(&webcam)]),
+            DeviceOrModelID::DeviceID("b".into())
+        );
+        assert_eq!(
+            DeviceOrModelID::among("c", None, [None, None]),
+            DeviceOrModelID::DeviceID("c".into())
+        );
+    }
 
     fn test_camera_connection(generation: u64) -> (InputConnected, mpsc::Receiver<()>) {
         let (done_tx, done_rx) = mpsc::sync_channel(1);

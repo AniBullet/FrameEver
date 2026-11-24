@@ -19,6 +19,15 @@ pub(super) enum Switched<T> {
     Abandoned,
 }
 
+impl<T> Switched<T> {
+    pub(super) fn ended_with<'a, D>(&self, requested: &'a D, previous: &'a D) -> &'a D {
+        match self {
+            Self::Attached(_) => requested,
+            _ => previous,
+        }
+    }
+}
+
 pub(super) async fn switch_or_restore<S: SwitchSteps>(
     steps: &mut S,
     requested: &S::Device,
@@ -266,6 +275,26 @@ mod tests {
         let switched = switch_to_new(&mut bench).await;
         assert!(matches!(switched, Switched::Abandoned));
         assert!(bench.opened.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_switch_ended_by_stop_leaves_the_app_on_the_device_the_recording_ended_with() {
+        let mut bench = recording_old();
+        bench.stops_after_attach = true;
+        let switched = switch_to_new(&mut bench).await;
+        assert_eq!(bench.recorded, Some("new"));
+        assert_eq!(*switched.ended_with(&"new", &"old"), "new");
+
+        let mut bench = recording_old();
+        bench.unplugged = vec!["new"];
+        bench.stops_after_attach = true;
+        let switched = switch_to_new(&mut bench).await;
+        assert_eq!(*switched.ended_with(&"new", &"old"), "old");
+
+        let mut bench = recording_old();
+        bench.stops_after_detach = true;
+        let switched = switch_to_new(&mut bench).await;
+        assert_eq!(*switched.ended_with(&"new", &"old"), "old");
     }
 
     #[tokio::test]
