@@ -167,6 +167,10 @@ pub struct ExportPrefs {
 }
 
 pub fn app_data_dir() -> PathBuf {
+    #[cfg(test)]
+    if std::env::var_os(frameever_utils::storage::APP_DATA_DIR_ENV).is_none() {
+        return std::env::temp_dir().join(format!("frameever-gpui-tests-{}", std::process::id()));
+    }
     frameever_utils::storage::app_data_dir()
 }
 
@@ -273,6 +277,10 @@ pub fn tauri_store_path() -> PathBuf {
     #[cfg(test)]
     if let Some(path) = TEST_TAURI_STORE_PATH.with(|path| path.borrow().clone()) {
         return path;
+    }
+    #[cfg(test)]
+    if std::env::var_os(frameever_utils::storage::SETTINGS_FILE_ENV).is_none() {
+        return app_data_dir().join("store");
     }
 
     frameever_utils::storage::settings_file()
@@ -2325,6 +2333,17 @@ mod post_instant_tests {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn tests_never_reach_the_real_profile() {
+        if std::env::var_os(frameever_utils::storage::APP_DATA_DIR_ENV).is_some() {
+            return;
+        }
+        assert!(super::app_data_dir().starts_with(std::env::temp_dir()));
+        if std::env::var_os(frameever_utils::storage::SETTINGS_FILE_ENV).is_none() {
+            assert!(super::tauri_store_path().starts_with(std::env::temp_dir()));
+        }
+    }
+
     #[test]
     fn a_fresh_install_remembers_no_input_display_setup() {
         use serde_json::{Map, Value, json};

@@ -4017,7 +4017,8 @@ async fn check_export(rec: &Recorded, case: &mut Case) -> anyhow::Result<()> {
     let fps = rec.max_fps;
     let interval = 1.0 / f64::from(fps);
     let out = rec.project.join("verify-export.mp4");
-    let config = ProjectConfiguration::load(&rec.project).unwrap_or_default();
+    let mut config = ProjectConfiguration::load(&rec.project).unwrap_or_default();
+    config.cursor.hide = true;
     let base = frameever_export::ExporterBase::builder(rec.project.clone())
         .with_config(config)
         .with_output_path(out.clone())
