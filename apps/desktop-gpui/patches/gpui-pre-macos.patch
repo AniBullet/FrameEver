@@ -558,3 +558,52 @@ index 2b52bb9..dfa5a19 100644
  }
  
  float4 hsla_to_rgba(Hsla hsla) {
+diff --git a/crates/gpui_apple/src/metal_atlas.rs b/crates/gpui_apple/src/metal_atlas.rs
+index a635bc4..e565dfd 100644
+--- a/crates/gpui_apple/src/metal_atlas.rs
++++ b/crates/gpui_apple/src/metal_atlas.rs
+@@ -72,7 +72,7 @@ impl AtlasBackend for MetalAtlasTextures {
+         let textures = match id.kind {
+             AtlasTextureKind::Monochrome => &mut self.monochrome_textures,
+             AtlasTextureKind::Polychrome => &mut self.polychrome_textures,
+-            AtlasTextureKind::Subpixel => unreachable!(),
++            AtlasTextureKind::Subpixel | AtlasTextureKind::Stream => unreachable!(),
+         };
+ 
+         let Some(texture_slot) = textures
+@@ -105,7 +105,7 @@ impl MetalAtlasTextures {
+             let textures = match texture_kind {
+                 AtlasTextureKind::Monochrome => &mut self.monochrome_textures,
+                 AtlasTextureKind::Polychrome => &mut self.polychrome_textures,
+-                AtlasTextureKind::Subpixel => unreachable!(),
++                AtlasTextureKind::Subpixel | AtlasTextureKind::Stream => unreachable!(),
+             };
+ 
+             if let Some(tile) = textures
+@@ -150,7 +150,7 @@ impl MetalAtlasTextures {
+                 pixel_format = metal::MTLPixelFormat::BGRA8Unorm;
+                 usage = metal::MTLTextureUsage::ShaderRead;
+             }
+-            AtlasTextureKind::Subpixel => unreachable!(),
++            AtlasTextureKind::Subpixel | AtlasTextureKind::Stream => unreachable!(),
+         }
+         texture_descriptor.set_pixel_format(pixel_format);
+         texture_descriptor.set_usage(usage);
+@@ -166,7 +166,7 @@ impl MetalAtlasTextures {
+         let texture_list = match kind {
+             AtlasTextureKind::Monochrome => &mut self.monochrome_textures,
+             AtlasTextureKind::Polychrome => &mut self.polychrome_textures,
+-            AtlasTextureKind::Subpixel => unreachable!(),
++            AtlasTextureKind::Subpixel | AtlasTextureKind::Stream => unreachable!(),
+         };
+ 
+         let index = texture_list.free_list.pop();
+@@ -197,7 +197,7 @@ impl MetalAtlasTextures {
+         let textures = match id.kind {
+             AtlasTextureKind::Monochrome => &self.monochrome_textures,
+             AtlasTextureKind::Polychrome => &self.polychrome_textures,
+-            AtlasTextureKind::Subpixel => unreachable!(),
++            AtlasTextureKind::Subpixel | AtlasTextureKind::Stream => unreachable!(),
+         };
+         textures.textures.get(id.index as usize)?.as_ref()
+     }

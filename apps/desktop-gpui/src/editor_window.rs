@@ -703,8 +703,53 @@ pub fn frame_image(frame: &RenderedFrame) -> Option<Arc<RenderImage>> {
 #[derive(Clone)]
 pub(crate) enum EditorPreviewFrame {
     Image(Arc<RenderImage>),
+    #[cfg(not(target_os = "macos"))]
+    Stream(gpui::StreamingImage),
     #[cfg(target_os = "macos")]
     Surface(CVPixelBuffer),
+}
+
+pub(crate) enum ArrivingFrame {
+    Ready(EditorPreviewFrame),
+    #[cfg(not(target_os = "macos"))]
+    Rgba(RenderedFrame),
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn frame_can_stream(frame: &RenderedFrame) -> bool {
+    let stride = frame.padded_bytes_per_row as usize;
+    let Some(row_bytes) = (frame.width as usize).checked_mul(4) else {
+        return false;
+    };
+    frame.width > 0
+        && frame.height > 0
+        && i32::try_from(frame.width).is_ok()
+        && i32::try_from(frame.height).is_ok()
+        && stride >= row_bytes
+        && stride.is_multiple_of(4)
+        && stride
+            .checked_mul(frame.height as usize)
+            .is_some_and(|bytes| frame.data.len() >= bytes)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn stream_frame(stream: &gpui::StreamingImage, frame: RenderedFrame) -> bool {
+    if !frame_can_stream(&frame) {
+        return false;
+    }
+    let size = gpui::size(
+        gpui::DevicePixels(frame.width as i32),
+        gpui::DevicePixels(frame.height as i32),
+    );
+    let stride = frame.padded_bytes_per_row as usize;
+    let streamed = match Arc::try_unwrap(frame.data) {
+        Ok(rows) => stream.set_frame(size, stride, rows).map(drop),
+        Err(rows) => stream.copy_frame(size, stride, &rows),
+    };
+    if let Err(error) = &streamed {
+        tracing::warn!(%error, "a rendered frame could not be streamed to the preview");
+    }
+    streamed.is_ok()
 }
 
 impl EditorPreviewFrame {
@@ -713,6 +758,10 @@ impl EditorPreviewFrame {
         match self {
             Self::Image(image) => {
                 let _ = window.paint_image(bounds, bounds, corners, Arc::clone(image), 0, false);
+            }
+            #[cfg(not(target_os = "macos"))]
+            Self::Stream(stream) => {
+                let _ = window.paint_streaming_image(bounds, corners, stream, false);
             }
             #[cfg(target_os = "macos")]
             Self::Surface(surface) => window.paint_surface_fitted(
@@ -976,7 +1025,7 @@ impl Render for EditorSectionView {
 }
 
 pub struct EditorFrame {
-    pub(crate) frame: EditorPreviewFrame,
+    pub(crate) frame: ArrivingFrame,
     pub layout: FrameLayout,
     /// `RenderedFrame.frame_number` -- which frame this picture actually is.
     /// Logged at debug so a seek can be checked against what it asked for.
@@ -1570,6 +1619,8 @@ pub struct EditorWindow {
     preparing_frame_presented: bool,
     preparing_seed: Option<Arc<crate::editor_preparing::presentation::PreparingTimelineSeed>>,
     pub(crate) latest_frame: Option<EditorPreviewFrame>,
+    #[cfg(not(target_os = "macos"))]
+    preview_stream: gpui::StreamingImage,
     preview: Entity<PreviewFrameView>,
     preview_canvas_px: PreviewCanvasPx,
     sharp_preview: Option<gpui::Task<()>>,
@@ -2294,6 +2345,8 @@ impl EditorWindow {
             preparing_frame_presented: false,
             preparing_seed: None,
             latest_frame: None,
+            #[cfg(not(target_os = "macos"))]
+            preview_stream: gpui::StreamingImage::new(gpui::StreamingImageFormat::Rgba8),
             preview,
             preview_canvas_px,
             sharp_preview: None,
@@ -7663,6 +7716,24 @@ impl EditorWindow {
         self.display_frame(frame, true, window, cx);
     }
 
+    fn accepted_picture(&mut self, frame: ArrivingFrame) -> Option<EditorPreviewFrame> {
+        match frame {
+            ArrivingFrame::Ready(picture) => Some(picture),
+            #[cfg(not(target_os = "macos"))]
+            ArrivingFrame::Rgba(rgba) => {
+                let started = Instant::now();
+                let streamed = stream_frame(&self.preview_stream, rgba);
+                if let Some(stats) = &self.stats {
+                    stats
+                        .convert_nanos
+                        .fetch_add(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
+                    stats.convert_samples.fetch_add(1, Ordering::Relaxed);
+                }
+                streamed.then(|| EditorPreviewFrame::Stream(self.preview_stream.clone()))
+            }
+        }
+    }
+
     fn display_frame(
         &mut self,
         frame: EditorFrame,
@@ -7701,6 +7772,9 @@ impl EditorWindow {
         {
             return;
         }
+        let Some(picture) = self.accepted_picture(frame.frame) else {
+            return;
+        };
         let handoff_target = self.transport.as_ref().and(self.ordinary_handoff_frame);
         let first_frame = self.latest_frame.is_none();
         let overlay_live = self.player_panel_hovered || self.canvas_drag.is_some();
@@ -7729,15 +7803,9 @@ impl EditorWindow {
             frame.layout.output_size[0] as f32,
             frame.layout.output_size[1] as f32,
         );
-        self.latest_frame = Some(frame.frame.clone());
+        self.latest_frame = Some(picture.clone());
         let previous = self.preview.update(cx, |preview, cx| {
-            preview.set_frame(
-                frame.frame,
-                frame.number,
-                frame_size,
-                self.stats.clone(),
-                cx,
-            )
+            preview.set_frame(picture, frame.number, frame_size, self.stats.clone(), cx)
         });
         if let Some(EditorPreviewFrame::Image(previous)) = previous {
             let _ = window.drop_image(previous);
@@ -13962,6 +14030,7 @@ pub(crate) fn surface_preview_frame(
 
 /// [`frame_image`], timed. The pump calls this so the CPU conversion's cost is
 /// a number rather than a hunch.
+#[cfg(target_os = "macos")]
 pub fn frame_image_timed(frame: &RenderedFrame, stats: &PumpStats) -> Option<Arc<RenderImage>> {
     let started = Instant::now();
     let image = frame_image(frame);
@@ -15551,6 +15620,71 @@ mod tests {
         // BGRA out: the red and blue channels are swapped, no 99 anywhere.
         assert_eq!(&bytes[0..4], &[30, 20, 10, 255]);
         assert!(!bytes.contains(&99));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn padded_frame(width: u32, height: u32, padded: u32, rows: usize) -> RenderedFrame {
+        RenderedFrame {
+            data: Arc::new((0..padded as usize * rows).map(|i| i as u8).collect()),
+            width,
+            height,
+            padded_bytes_per_row: padded,
+            frame_number: 7,
+            target_time_ns: 0,
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_streamed_frame_keeps_its_padded_rows_and_moves_an_unshared_buffer() {
+        let stream = gpui::StreamingImage::new(gpui::StreamingImageFormat::Rgba8);
+        let frame = padded_frame(1080, 2, 4352, 2);
+        let expected = frame.data.as_ref().clone();
+        let buffer = frame.data.as_ptr();
+        assert!(frame_can_stream(&frame));
+        assert!(stream_frame(&stream, frame));
+
+        let current = stream.current().expect("the stream holds the frame");
+        assert_eq!(current.size().width.0, 1080);
+        assert_eq!(current.size().height.0, 2);
+        assert_eq!(current.stride(), 4352);
+        assert_eq!(current.bytes(), expected.as_slice());
+        assert_eq!(current.bytes().as_ptr(), buffer);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_streamed_frame_whose_buffer_is_shared_is_copied() {
+        let stream = gpui::StreamingImage::new(gpui::StreamingImageFormat::Rgba8);
+        let frame = padded_frame(64, 2, 256, 2);
+        let held = Arc::clone(&frame.data);
+        assert!(stream_frame(&stream, frame));
+
+        let current = stream.current().expect("the stream holds the frame");
+        assert_eq!(current.bytes(), held.as_slice());
+        assert_ne!(current.bytes().as_ptr(), held.as_ptr());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_frame_without_its_rows_leaves_the_stream_as_it_was() {
+        let stream = gpui::StreamingImage::new(gpui::StreamingImageFormat::Rgba8);
+        assert!(stream_frame(&stream, padded_frame(64, 2, 256, 2)));
+        let shown = stream.current().expect("the stream holds the frame");
+
+        for refused in [
+            padded_frame(64, 2, 256, 1),
+            padded_frame(64, 2, 252, 2),
+            padded_frame(64, 2, 258, 2),
+            padded_frame(0, 2, 256, 2),
+            padded_frame(64, 0, 256, 2),
+        ] {
+            assert!(!frame_can_stream(&refused));
+            assert!(!stream_frame(&stream, refused));
+            let current = stream.current().expect("the stream still holds a frame");
+            assert_eq!(current.generation(), shown.generation());
+            assert_eq!(current.bytes(), shown.bytes());
+        }
     }
 
     fn timeline_with_captions(captions: Vec<serde_json::Value>) -> TimelineConfiguration {

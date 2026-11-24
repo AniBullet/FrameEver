@@ -1,8 +1,473 @@
+diff --git a/crates/gpui/src/gpui.rs b/crates/gpui/src/gpui.rs
+index 2328e95..612b204 100644
+--- a/crates/gpui/src/gpui.rs
++++ b/crates/gpui/src/gpui.rs
+@@ -55,6 +55,7 @@ mod scene;
+ #[cfg(any(test, feature = "test-support", feature = "bench-support"))]
+ mod seeds;
+ mod shared_uri;
++mod streaming_image;
+ mod spring;
+ mod style;
+ mod styled;
+@@ -202,6 +203,7 @@ pub use refineable::*;
+ pub use scene::*;
+ pub use shared_uri::*;
+ use std::{any::Any, future::Future};
++pub use streaming_image::*;
+ pub use style::*;
+ pub use styled::*;
+ pub use subscription::*;
+diff --git a/crates/gpui/src/platform.rs b/crates/gpui/src/platform.rs
+index 90b3bc3..6f3ed83 100644
+--- a/crates/gpui/src/platform.rs
++++ b/crates/gpui/src/platform.rs
+@@ -1780,6 +1780,22 @@ pub trait PlatformAtlas {
+     ) -> Result<Option<AtlasTile>>;
+     fn remove(&self, key: &AtlasKey);
+ 
++    /// Returns the tile of the texture that holds `frame` for the streaming
++    /// image `id`, uploading the frame first when its generation differs from
++    /// the one the texture holds. Stream textures are never packed with, or
++    /// evicted alongside, atlas tiles. Atlases without stream textures paint
++    /// nothing.
++    fn get_or_update_stream(
++        &self,
++        _id: crate::StreamingImageId,
++        _frame: &crate::StreamFrame,
++    ) -> Result<Option<AtlasTile>> {
++        Ok(None)
++    }
++
++    /// Releases the texture of the streaming image `id`, if there is one.
++    fn remove_stream(&self, _id: crate::StreamingImageId) {}
++
+     #[cfg(any(test, feature = "test-support", feature = "bench-support"))]
+     fn contains(&self, _key: &AtlasKey) -> bool {
+         false
+@@ -1966,6 +1982,24 @@ pub struct AtlasTile {
+     pub bounds: Bounds<DevicePixels>,
+ }
+ 
++impl AtlasTile {
++    /// The tile covering the whole texture of a streaming image.
++    pub fn for_stream(index: u32, size: Size<DevicePixels>) -> Self {
++        Self {
++            texture_id: AtlasTextureId {
++                index,
++                kind: AtlasTextureKind::Stream,
++            },
++            tile_id: TileId(0),
++            padding: 0,
++            bounds: Bounds {
++                origin: Point::default(),
++                size,
++            },
++        }
++    }
++}
++
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+ #[repr(C)]
+ #[expect(missing_docs)]
+@@ -1991,6 +2025,7 @@ pub enum AtlasTextureKind {
+     Monochrome = 0,
+     Polychrome = 1,
+     Subpixel = 2,
++    Stream = 3,
+ }
+ 
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+diff --git a/crates/gpui/src/streaming_image.rs b/crates/gpui/src/streaming_image.rs
+new file mode 100644
+index 0000000..3cb3416
+--- /dev/null
++++ b/crates/gpui/src/streaming_image.rs
+@@ -0,0 +1,363 @@
++use crate::{DevicePixels, Size};
++use anyhow::{Context as _, Result};
++use parking_lot::Mutex;
++use std::{
++    fmt,
++    sync::{
++        Arc, Weak,
++        atomic::{AtomicU64, Ordering},
++    },
++};
++
++/// Identifies a [`StreamingImage`] for the lifetime of the process.
++#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
++pub struct StreamingImageId(pub u64);
++
++/// The byte order of a [`StreamingImage`]'s pixels.
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
++pub enum StreamingImageFormat {
++    /// Blue, green, red, alpha, the order [`RenderImage`](crate::RenderImage) uses.
++    Bgra8,
++    /// Red, green, blue, alpha.
++    Rgba8,
++}
++
++/// One frame of a [`StreamingImage`], as returned by [`StreamingImage::current`].
++#[derive(Clone)]
++pub struct StreamFrame {
++    generation: u64,
++    size: Size<DevicePixels>,
++    stride: usize,
++    format: StreamingImageFormat,
++    bytes: Arc<Vec<u8>>,
++}
++
++impl StreamFrame {
++    /// Increases every time the image receives a new frame.
++    pub fn generation(&self) -> u64 {
++        self.generation
++    }
++
++    /// The frame's size in pixels.
++    pub fn size(&self) -> Size<DevicePixels> {
++        self.size
++    }
++
++    /// The number of bytes from the start of one row to the start of the next.
++    pub fn stride(&self) -> usize {
++        self.stride
++    }
++
++    /// The byte order of the frame's pixels.
++    pub fn format(&self) -> StreamingImageFormat {
++        self.format
++    }
++
++    /// The frame's rows, [`Self::stride`] bytes apart. Holds at least
++    /// `stride * height` bytes.
++    pub fn bytes(&self) -> &[u8] {
++        &self.bytes
++    }
++}
++
++impl fmt::Debug for StreamFrame {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_struct("StreamFrame")
++            .field("generation", &self.generation)
++            .field("size", &self.size)
++            .field("stride", &self.stride)
++            .field("format", &self.format)
++            .field("len", &self.bytes.len())
++            .finish()
++    }
++}
++
++/// An image whose pixels are replaced frame after frame, such as a video or a
++/// camera preview.
++///
++/// Each window that paints the image keeps one texture for it and uploads into
++/// that texture only when the frame has changed, instead of packing every frame
++/// into the sprite atlas as a new image. The texture is released once every
++/// handle is dropped or the image is [cleared](Self::clear).
++///
++/// Handles are cheap to clone and frames can be set from any thread.
++#[derive(Clone)]
++pub struct StreamingImage(Arc<Shared>);
++
++struct Shared {
++    id: StreamingImageId,
++    format: StreamingImageFormat,
++    state: Mutex<State>,
++}
++
++#[derive(Default)]
++struct State {
++    generation: u64,
++    frame: Option<StreamFrame>,
++    spare: Option<Vec<u8>>,
++}
++
++impl StreamingImage {
++    /// Creates an image with no frame, whose frames are in the given byte order.
++    pub fn new(format: StreamingImageFormat) -> Self {
++        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
++        Self(Arc::new(Shared {
++            id: StreamingImageId(NEXT_ID.fetch_add(1, Ordering::Relaxed)),
++            format,
++            state: Mutex::default(),
++        }))
++    }
++
++    /// The image's process-wide identifier.
++    pub fn id(&self) -> StreamingImageId {
++        self.0.id
++    }
++
++    /// The byte order of the image's frames.
++    pub fn format(&self) -> StreamingImageFormat {
++        self.0.format
++    }
++
++    /// Replaces the current frame with `bytes`, whose rows are `stride` bytes
++    /// apart.
++    ///
++    /// Returns the previous frame's buffer when nothing else holds it any more,
++    /// so the producer can write the next frame into it instead of allocating.
++    pub fn set_frame(
++        &self,
++        size: Size<DevicePixels>,
++        stride: usize,
++        bytes: Vec<u8>,
++    ) -> Result<Option<Vec<u8>>> {
++        validate_frame(size, stride, bytes.len())?;
++        let previous = self.replace_frame(size, stride, bytes);
++        Ok(previous.and_then(|frame| Arc::try_unwrap(frame.bytes).ok()))
++    }
++
++    /// Copies `bytes`, whose rows are `stride` bytes apart, into a new current
++    /// frame. The copy reuses the buffer of an earlier frame once nothing else
++    /// holds it, so a steady stream of same-sized frames does not allocate.
++    pub fn copy_frame(&self, size: Size<DevicePixels>, stride: usize, bytes: &[u8]) -> Result<()> {
++        validate_frame(size, stride, bytes.len())?;
++        let len = stride * size.height.0 as usize;
++        let mut buffer = self.0.state.lock().spare.take().unwrap_or_default();
++        buffer.clear();
++        buffer.extend_from_slice(&bytes[..len]);
++        let previous = self.replace_frame(size, stride, buffer);
++        if let Some(previous) = previous.and_then(|frame| Arc::try_unwrap(frame.bytes).ok()) {
++            let mut state = self.0.state.lock();
++            if state.frame.is_some() {
++                state.spare = Some(previous);
++            }
++        }
++        Ok(())
++    }
++
++    /// The current frame, if any.
++    pub fn current(&self) -> Option<StreamFrame> {
++        self.0.state.lock().frame.clone()
++    }
++
++    /// Drops the current frame. Windows stop painting the image and release
++    /// its texture on their next draw.
++    pub fn clear(&self) {
++        let mut state = self.0.state.lock();
++        state.frame = None;
++        state.spare = None;
++    }
++
++    pub(crate) fn downgrade(&self) -> WeakStreamingImage {
++        WeakStreamingImage(Arc::downgrade(&self.0))
++    }
++
++    fn replace_frame(
++        &self,
++        size: Size<DevicePixels>,
++        stride: usize,
++        bytes: Vec<u8>,
++    ) -> Option<StreamFrame> {
++        let mut state = self.0.state.lock();
++        state.generation += 1;
++        let frame = StreamFrame {
++            generation: state.generation,
++            size,
++            stride,
++            format: self.0.format,
++            bytes: Arc::new(bytes),
++        };
++        state.frame.replace(frame)
++    }
++}
++
++impl fmt::Debug for StreamingImage {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_struct("StreamingImage")
++            .field("id", &self.0.id)
++            .field("format", &self.0.format)
++            .finish_non_exhaustive()
++    }
++}
++
++pub(crate) struct WeakStreamingImage(Weak<Shared>);
++
++impl WeakStreamingImage {
++    pub(crate) fn has_frame(&self) -> bool {
++        self.0
++            .upgrade()
++            .is_some_and(|shared| shared.state.lock().frame.is_some())
++    }
++}
++
++fn validate_frame(size: Size<DevicePixels>, stride: usize, len: usize) -> Result<()> {
++    anyhow::ensure!(
++        size.width.0 > 0 && size.height.0 > 0,
++        "streaming image frames must not be empty, got {}x{}",
++        size.width.0,
++        size.height.0
++    );
++    let row_bytes = size.width.0 as usize * 4;
++    anyhow::ensure!(
++        stride >= row_bytes && stride.is_multiple_of(4),
++        "stride {stride} must be a multiple of 4 and at least {row_bytes} for a frame {} pixels wide",
++        size.width.0
++    );
++    let required = stride
++        .checked_mul(size.height.0 as usize)
++        .context("streaming image frame is too large")?;
++    anyhow::ensure!(
++        len >= required,
++        "a {}x{} frame with stride {stride} needs {required} bytes, got {len}",
++        size.width.0,
++        size.height.0
++    );
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::size;
++
++    fn frame_size(width: i32, height: i32) -> Size<DevicePixels> {
++        size(DevicePixels(width), DevicePixels(height))
++    }
++
++    #[test]
++    fn handles_are_send_and_sync() {
++        fn assert_send_sync<T: Send + Sync>() {}
++        assert_send_sync::<StreamingImage>();
++        assert_send_sync::<StreamFrame>();
++    }
++
++    #[test]
++    fn ids_are_unique() {
++        let first = StreamingImage::new(StreamingImageFormat::Bgra8);
++        let second = StreamingImage::new(StreamingImageFormat::Bgra8);
++        assert_ne!(first.id(), second.id());
++        assert_eq!(first.clone().id(), first.id());
++    }
++
++    #[test]
++    fn each_frame_advances_the_generation() {
++        let image = StreamingImage::new(StreamingImageFormat::Rgba8);
++        assert!(image.current().is_none());
++
++        image.set_frame(frame_size(2, 1), 8, vec![1; 8]).unwrap();
++        let first = image.current().unwrap();
++        assert_eq!(first.generation(), 1);
++        assert_eq!(first.size(), frame_size(2, 1));
++        assert_eq!(first.stride(), 8);
++        assert_eq!(first.format(), StreamingImageFormat::Rgba8);
++        assert_eq!(first.bytes(), &[1; 8]);
++
++        image.copy_frame(frame_size(1, 2), 4, &[2; 8]).unwrap();
++        let second = image.current().unwrap();
++        assert_eq!(second.generation(), 2);
++        assert_eq!(second.size(), frame_size(1, 2));
++        assert_eq!(second.bytes(), &[2; 8]);
++        assert_eq!(first.bytes(), &[1; 8]);
++    }
++
++    #[test]
++    fn set_frame_returns_the_previous_buffer_once_nothing_holds_it() {
++        let image = StreamingImage::new(StreamingImageFormat::Bgra8);
++        assert_eq!(
++            image.set_frame(frame_size(1, 1), 4, vec![1; 4]).unwrap(),
++            None
++        );
++
++        let returned = image.set_frame(frame_size(1, 1), 4, vec![2; 4]).unwrap();
++        assert_eq!(returned, Some(vec![1; 4]));
++
++        let held = image.current().unwrap();
++        let returned = image.set_frame(frame_size(1, 1), 4, vec![3; 4]).unwrap();
++        assert_eq!(returned, None);
++        assert_eq!(held.bytes(), &[2; 4]);
++    }
++
++    #[test]
++    fn copy_frame_reuses_earlier_buffers() {
++        let image = StreamingImage::new(StreamingImageFormat::Bgra8);
++        let pixels = vec![7u8; 64 * 64 * 4];
++        image.copy_frame(frame_size(64, 64), 256, &pixels).unwrap();
++        let first = image.current().unwrap().bytes().as_ptr();
++        image.copy_frame(frame_size(64, 64), 256, &pixels).unwrap();
++        let second = image.current().unwrap().bytes().as_ptr();
++        image.copy_frame(frame_size(64, 64), 256, &pixels).unwrap();
++        let third = image.current().unwrap().bytes().as_ptr();
++
++        assert_ne!(first, second);
++        assert_eq!(first, third);
++    }
++
++    #[test]
++    fn copy_frame_copies_whole_padded_rows() {
++        let image = StreamingImage::new(StreamingImageFormat::Rgba8);
++        let bytes: Vec<u8> = (0..40).collect();
++        image.copy_frame(frame_size(1, 2), 16, &bytes).unwrap();
++        assert_eq!(image.current().unwrap().bytes(), &bytes[..32]);
++    }
++
++    #[test]
++    fn invalid_frames_are_rejected_without_changing_the_image() {
++        let image = StreamingImage::new(StreamingImageFormat::Bgra8);
++        image.set_frame(frame_size(2, 2), 8, vec![0; 16]).unwrap();
++
++        assert!(image.set_frame(frame_size(0, 2), 8, vec![0; 16]).is_err());
++        assert!(image.set_frame(frame_size(2, 0), 8, vec![0; 16]).is_err());
++        assert!(image.set_frame(frame_size(2, 2), 4, vec![0; 16]).is_err());
++        assert!(image.set_frame(frame_size(2, 2), 10, vec![0; 20]).is_err());
++        assert!(image.set_frame(frame_size(2, 2), 8, vec![0; 15]).is_err());
++        assert!(image.copy_frame(frame_size(2, 2), 12, &[0; 20]).is_err());
++        assert!(
++            image
++                .copy_frame(frame_size(i32::MAX, i32::MAX), usize::MAX - 3, &[])
++                .is_err()
++        );
++
++        let current = image.current().unwrap();
++        assert_eq!(current.generation(), 1);
++        assert_eq!(current.size(), frame_size(2, 2));
++    }
++
++    #[test]
++    fn clear_drops_the_frame_and_later_frames_keep_counting() {
++        let image = StreamingImage::new(StreamingImageFormat::Bgra8);
++        let weak = image.downgrade();
++        assert!(!weak.has_frame());
++
++        image.set_frame(frame_size(1, 1), 4, vec![0; 4]).unwrap();
++        assert!(weak.has_frame());
++
++        image.clear();
++        assert!(image.current().is_none());
++        assert!(!weak.has_frame());
++
++        image.copy_frame(frame_size(1, 1), 4, &[0; 4]).unwrap();
++        assert_eq!(image.current().unwrap().generation(), 2);
++        assert!(weak.has_frame());
++
++        drop(image);
++        assert!(!weak.has_frame());
++    }
++}
 diff --git a/crates/gpui/src/window.rs b/crates/gpui/src/window.rs
-index c559412..214a43f 100644
+index 5c2cec0..9945577 100644
 --- a/crates/gpui/src/window.rs
 +++ b/crates/gpui/src/window.rs
-@@ -1831,7 +1831,9 @@ impl Window {
+@@ -27,6 +27,7 @@ use crate::{
+ 
+ use crate::gestures::{GestureTuning, RecognizedTouchGesture, TouchGestureRecognizer};
+ use crate::interactive::TouchEvent;
++use crate::{StreamingImage, StreamingImageId, WeakStreamingImage};
+ use anyhow::{Context as _, Result, anyhow};
+ use collections::{FxHashMap, FxHashSet};
+ use derive_more::{Deref, DerefMut};
+@@ -1238,6 +1239,7 @@ pub struct Window {
+     is_resizable: bool,
+     is_minimizable: bool,
+     sprite_atlas: Arc<dyn PlatformAtlas>,
++    painted_streams: FxHashMap<StreamingImageId, WeakStreamingImage>,
+     text_system: Arc<WindowTextSystem>,
+     text_rendering_mode: Rc<Cell<TextRenderingMode>>,
+     rem_size: Pixels,
+@@ -1838,7 +1840,9 @@ impl Window {
                  {
                      None
                  } else if !active.get() && !input_rate_tracker.borrow_mut().is_high_rate() {
@@ -13,14 +478,200 @@ index c559412..214a43f 100644
                  } else if let Some(ThermalState::Critical | ThermalState::Serious) = thermal_state {
                      Some((Duration::from_micros(16667), FrameRateLimit::Thermal))
                  } else {
+@@ -2150,6 +2154,7 @@ impl Window {
+             is_resizable,
+             is_minimizable,
+             sprite_atlas,
++            painted_streams: FxHashMap::default(),
+             text_system,
+             text_rendering_mode: cx.text_rendering_mode.clone(),
+             rem_size: px(16.),
+@@ -3461,6 +3466,7 @@ impl Window {
+             self.refresh();
+         }
+         self.invalidate_entities();
++        self.release_unpainted_streams();
+         cx.entities.clear_accessed();
+         debug_assert!(self.rendered_entity_stack.is_empty());
+         self.invalidator.set_dirty(false);
+@@ -3617,6 +3623,17 @@ impl Window {
+         mem::swap(&mut entities, entities_ref.deref_mut());
+     }
+ 
++    fn release_unpainted_streams(&mut self) {
++        let sprite_atlas = &self.sprite_atlas;
++        self.painted_streams.retain(|id, image| {
++            let keep = image.has_frame();
++            if !keep {
++                sprite_atlas.remove_stream(*id);
++            }
++            keep
++        });
++    }
++
+     fn invalidate_entities(&mut self) {
+         let mut views = self.invalidator.take_views();
+         for entity in views.drain() {
+@@ -5147,6 +5164,52 @@ impl Window {
+             })?
+             .expect("Callback above only returns Some");
+ 
++        self.insert_polychrome_tile(visible_bounds, image_bounds, corner_radii, tile, grayscale);
++        Ok(())
++    }
++
++    /// Paint the current frame of a [`StreamingImage`] into the scene for the
++    /// next frame at the current z-index. Paints nothing while the image has
++    /// no frame.
++    ///
++    /// The window uploads a frame at most once, however many elements paint
++    /// it, and releases the image's texture once every handle to the image is
++    /// dropped or the image is cleared.
++    ///
++    /// This method should only be called as part of the paint phase of element drawing.
++    pub fn paint_streaming_image(
++        &mut self,
++        bounds: Bounds<Pixels>,
++        corner_radii: Corners<Pixels>,
++        image: &StreamingImage,
++        grayscale: bool,
++    ) -> Result<()> {
++        self.invalidator.debug_assert_paint();
++
++        if bounds.size.width <= Pixels::ZERO || bounds.size.height <= Pixels::ZERO {
++            return Ok(());
++        }
++        let Some(frame) = image.current() else {
++            return Ok(());
++        };
++        self.painted_streams
++            .entry(image.id())
++            .or_insert_with(|| image.downgrade());
++        let Some(tile) = self.sprite_atlas.get_or_update_stream(image.id(), &frame)? else {
++            return Ok(());
++        };
++        self.insert_polychrome_tile(bounds, bounds, corner_radii, tile, grayscale);
++        Ok(())
++    }
++
++    fn insert_polychrome_tile(
++        &mut self,
++        visible_bounds: Bounds<Pixels>,
++        image_bounds: Bounds<Pixels>,
++        corner_radii: Corners<Pixels>,
++        tile: AtlasTile,
++        grayscale: bool,
++    ) {
+         let visible_bounds_snapped = self.snap_bounds(visible_bounds);
+ 
+         let sub_tile = if visible_bounds == image_bounds {
+@@ -5205,7 +5268,6 @@ impl Window {
+             tile: sub_tile,
+             opacity,
+         });
+-        Ok(())
+     }
+ 
+     /// Paint a surface into the scene for the next frame at the current z-index.
 diff --git a/crates/gpui_windows/src/directx_atlas.rs b/crates/gpui_windows/src/directx_atlas.rs
-index 622c1cb..09eef65 100644
+index 622c1cb..eaa3149 100644
 --- a/crates/gpui_windows/src/directx_atlas.rs
 +++ b/crates/gpui_windows/src/directx_atlas.rs
-@@ -114,6 +114,16 @@ impl AtlasBackend for DirectXAtlasTextures {
-             AtlasTextureKind::Subpixel => &mut self.subpixel_textures,
-         };
+@@ -10,9 +10,12 @@ use windows::Win32::Graphics::{
  
+ use gpui::{
+     AtlasBackend, AtlasKey, AtlasState, AtlasTextureId, AtlasTextureKind, AtlasTextureList,
+-    AtlasTile, Bounds, DevicePixels, PlatformAtlas, Point, Size,
++    AtlasTile, Bounds, DevicePixels, PlatformAtlas, Point, Size, StreamFrame, StreamingImageFormat,
++    StreamingImageId,
+ };
+ 
++const MAX_STREAM_TEXTURE_SIZE: i32 = 16384;
++
+ pub(crate) struct DirectXAtlas(Mutex<AtlasState<DirectXAtlasTextures>>);
+ 
+ struct DirectXAtlasTextures {
+@@ -21,6 +24,18 @@ struct DirectXAtlasTextures {
+     monochrome_textures: AtlasTextureList<DirectXAtlasTexture>,
+     polychrome_textures: AtlasTextureList<DirectXAtlasTexture>,
+     subpixel_textures: AtlasTextureList<DirectXAtlasTexture>,
++    streams: Vec<DirectXAtlasStream>,
++    next_stream_index: u32,
++}
++
++struct DirectXAtlasStream {
++    id: StreamingImageId,
++    index: u32,
++    size: Size<DevicePixels>,
++    format: DXGI_FORMAT,
++    generation: u64,
++    texture: ID3D11Texture2D,
++    view: [Option<ID3D11ShaderResourceView>; 1],
+ }
+ 
+ struct DirectXAtlasTexture {
+@@ -40,6 +55,8 @@ impl DirectXAtlas {
+             monochrome_textures: Default::default(),
+             polychrome_textures: Default::default(),
+             subpixel_textures: Default::default(),
++            streams: Vec::new(),
++            next_stream_index: 0,
+         })))
+     }
+ 
+@@ -52,6 +69,14 @@ impl DirectXAtlas {
+         id: AtlasTextureId,
+     ) -> Option<[Option<ID3D11ShaderResourceView>; 1]> {
+         let lock = self.0.lock();
++        if id.kind == AtlasTextureKind::Stream {
++            let stream = lock
++                .backend
++                .streams
++                .iter()
++                .find(|stream| stream.index == id.index)?;
++            return Some(stream.view.clone());
++        }
+         let texture = lock.backend.texture(id)?;
+         Some(texture.view.clone())
+     }
+@@ -68,6 +93,7 @@ impl DirectXAtlas {
+             textures.monochrome_textures = AtlasTextureList::default();
+             textures.polychrome_textures = AtlasTextureList::default();
+             textures.subpixel_textures = AtlasTextureList::default();
++            textures.streams.clear();
+         });
+     }
+ }
+@@ -86,6 +112,22 @@ impl PlatformAtlas for DirectXAtlas {
+     fn remove(&self, key: &AtlasKey) {
+         self.0.lock().remove(key);
+     }
++
++    fn get_or_update_stream(
++        &self,
++        id: StreamingImageId,
++        frame: &StreamFrame,
++    ) -> anyhow::Result<Option<AtlasTile>> {
++        self.0.lock().backend.update_stream(id, frame)
++    }
++
++    fn remove_stream(&self, id: StreamingImageId) {
++        self.0
++            .lock()
++            .backend
++            .streams
++            .retain(|stream| stream.id != id);
++    }
+ }
+ 
+ impl AtlasBackend for DirectXAtlasTextures {
+@@ -112,6 +154,17 @@ impl AtlasBackend for DirectXAtlasTextures {
+             AtlasTextureKind::Monochrome => &mut self.monochrome_textures,
+             AtlasTextureKind::Polychrome => &mut self.polychrome_textures,
+             AtlasTextureKind::Subpixel => &mut self.subpixel_textures,
++            AtlasTextureKind::Stream => unreachable!(),
++        };
++
 +        let cached_texture_index = if id.kind == AtlasTextureKind::Polychrome {
 +            textures.textures.iter().position(|entry| {
 +                entry
@@ -29,12 +680,10 @@ index 622c1cb..09eef65 100644
 +            })
 +        } else {
 +            None
-+        };
-+
-         let Some(texture_slot) = textures.textures.get_mut(id.index as usize) else {
-             return;
          };
-@@ -121,7 +131,13 @@ impl AtlasBackend for DirectXAtlasTextures {
+ 
+         let Some(texture_slot) = textures.textures.get_mut(id.index as usize) else {
+@@ -121,7 +174,13 @@ impl AtlasBackend for DirectXAtlasTextures {
          if let Some(mut texture) = texture_slot.take() {
              texture.allocator.deallocate(tile.tile_id.into());
              texture.decrement_ref_count();
@@ -49,7 +698,456 @@ index 622c1cb..09eef65 100644
                  textures.free_list.push(texture.id.index as usize);
              } else {
                  *texture_slot = Some(texture);
-@@ -417,4 +433,36 @@ mod tests {
+@@ -131,6 +190,111 @@ impl AtlasBackend for DirectXAtlasTextures {
+ }
+ 
+ impl DirectXAtlasTextures {
++    fn update_stream(
++        &mut self,
++        id: StreamingImageId,
++        frame: &StreamFrame,
++    ) -> anyhow::Result<Option<AtlasTile>> {
++        let size = frame.size();
++        anyhow::ensure!(
++            size.width.0 <= MAX_STREAM_TEXTURE_SIZE && size.height.0 <= MAX_STREAM_TEXTURE_SIZE,
++            "streaming image frame {}x{} exceeds the {MAX_STREAM_TEXTURE_SIZE} pixel texture limit",
++            size.width.0,
++            size.height.0
++        );
++        let stride = u32::try_from(frame.stride())
++            .map_err(|_| anyhow::anyhow!("streaming image stride is too large"))?;
++        let format = match frame.format() {
++            StreamingImageFormat::Bgra8 => DXGI_FORMAT_B8G8R8A8_UNORM,
++            StreamingImageFormat::Rgba8 => DXGI_FORMAT_R8G8B8A8_UNORM,
++        };
++        let position = self.streams.iter().position(|stream| stream.id == id);
++        let position = match position {
++            Some(position)
++                if self.streams[position].size == size
++                    && self.streams[position].format == format =>
++            {
++                position
++            }
++            Some(position) => {
++                let index = self.streams[position].index;
++                let Some(stream) = self.new_stream(id, index, size, format) else {
++                    self.streams.remove(position);
++                    return Ok(None);
++                };
++                self.streams[position] = stream;
++                position
++            }
++            None => {
++                let index = self.next_stream_index;
++                let Some(stream) = self.new_stream(id, index, size, format) else {
++                    return Ok(None);
++                };
++                self.next_stream_index = self.next_stream_index.wrapping_add(1);
++                self.streams.push(stream);
++                self.streams.len() - 1
++            }
++        };
++        let stream = &mut self.streams[position];
++        if stream.generation != frame.generation() {
++            unsafe {
++                self.device_context.UpdateSubresource(
++                    &stream.texture,
++                    0,
++                    None,
++                    frame.bytes().as_ptr() as _,
++                    stride,
++                    0,
++                );
++            }
++            stream.generation = frame.generation();
++        }
++        Ok(Some(AtlasTile::for_stream(stream.index, size)))
++    }
++
++    fn new_stream(
++        &self,
++        id: StreamingImageId,
++        index: u32,
++        size: Size<DevicePixels>,
++        format: DXGI_FORMAT,
++    ) -> Option<DirectXAtlasStream> {
++        let texture_desc = D3D11_TEXTURE2D_DESC {
++            Width: size.width.0 as u32,
++            Height: size.height.0 as u32,
++            MipLevels: 1,
++            ArraySize: 1,
++            Format: format,
++            SampleDesc: DXGI_SAMPLE_DESC {
++                Count: 1,
++                Quality: 0,
++            },
++            Usage: D3D11_USAGE_DEFAULT,
++            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
++            CPUAccessFlags: 0,
++            MiscFlags: 0,
++        };
++        let mut texture: Option<ID3D11Texture2D> = None;
++        let mut view = None;
++        unsafe {
++            self.device
++                .CreateTexture2D(&texture_desc, None, Some(&mut texture))
++                .ok()?;
++            self.device
++                .CreateShaderResourceView(texture.as_ref()?, None, Some(&mut view))
++                .ok()?;
++        }
++        Some(DirectXAtlasStream {
++            id,
++            index,
++            size,
++            format,
++            generation: 0,
++            texture: texture?,
++            view: [view],
++        })
++    }
++
+     fn allocate(
+         &mut self,
+         size: Size<DevicePixels>,
+@@ -141,6 +305,7 @@ impl DirectXAtlasTextures {
+                 AtlasTextureKind::Monochrome => &mut self.monochrome_textures,
+                 AtlasTextureKind::Polychrome => &mut self.polychrome_textures,
+                 AtlasTextureKind::Subpixel => &mut self.subpixel_textures,
++                AtlasTextureKind::Stream => unreachable!(),
+             };
+ 
+             if let Some(tile) = textures
+@@ -191,6 +356,7 @@ impl DirectXAtlasTextures {
+                 bind_flag = D3D11_BIND_SHADER_RESOURCE;
+                 bytes_per_pixel = 4;
+             }
++            AtlasTextureKind::Stream => unreachable!(),
+         }
+         let texture_desc = D3D11_TEXTURE2D_DESC {
+             Width: size.width.0 as u32,
+@@ -221,6 +387,7 @@ impl DirectXAtlasTextures {
+             AtlasTextureKind::Monochrome => &mut self.monochrome_textures,
+             AtlasTextureKind::Polychrome => &mut self.polychrome_textures,
+             AtlasTextureKind::Subpixel => &mut self.subpixel_textures,
++            AtlasTextureKind::Stream => unreachable!(),
+         };
+         let index = texture_list.free_list.pop();
+         let view = unsafe {
+@@ -255,6 +422,7 @@ impl DirectXAtlasTextures {
+             AtlasTextureKind::Monochrome => &self.monochrome_textures,
+             AtlasTextureKind::Polychrome => &self.polychrome_textures,
+             AtlasTextureKind::Subpixel => &self.subpixel_textures,
++            AtlasTextureKind::Stream => unreachable!(),
+         };
+         textures.textures.get(id.index as usize)?.as_ref()
+     }
+@@ -342,17 +510,26 @@ fn etagere_point_to_device(value: etagere::Point) -> Point<DevicePixels> {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use gpui::{ImageId, RenderImageParams};
++    use gpui::{ImageId, RenderImageParams, StreamingImage};
+     use std::borrow::Cow;
+     use windows::Win32::{
+         Foundation::HMODULE,
+         Graphics::{
+             Direct3D::D3D_DRIVER_TYPE_WARP,
+-            Direct3D11::{D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice},
++            Direct3D11::{
++                D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_READ,
++                D3D11_MAPPED_SUBRESOURCE, D3D11_SDK_VERSION, D3D11_USAGE_STAGING,
++                D3D11CreateDevice,
++            },
+         },
+     };
+ 
+     fn create_atlas() -> Option<DirectXAtlas> {
++        let (device, device_context) = create_device()?;
++        Some(DirectXAtlas::new(&device, &device_context))
++    }
++
++    fn create_device() -> Option<(ID3D11Device, ID3D11DeviceContext)> {
+         let mut device: Option<ID3D11Device> = None;
+         let mut device_context: Option<ID3D11DeviceContext> = None;
+         unsafe {
+@@ -369,7 +546,7 @@ mod tests {
+             )
+         }
+         .ok()?;
+-        Some(DirectXAtlas::new(&device?, &device_context?))
++        Some((device?, device_context?))
+     }
+ 
+     fn make_image_key(image_id: usize) -> AtlasKey {
+@@ -389,6 +566,266 @@ mod tests {
+             .expect("callback returns Some")
+     }
+ 
++    fn stream_size(width: i32, height: i32) -> Size<DevicePixels> {
++        Size {
++            width: DevicePixels(width),
++            height: DevicePixels(height),
++        }
++    }
++
++    fn pixels(size: Size<DevicePixels>, seed: u8) -> Vec<u8> {
++        (0..size.width.0 * size.height.0 * 4)
++            .map(|index| (index as u8).wrapping_mul(31).wrapping_add(seed))
++            .collect()
++    }
++
++    fn set_frame(image: &StreamingImage, size: Size<DevicePixels>, bytes: Vec<u8>) -> StreamFrame {
++        image
++            .set_frame(size, size.width.0 as usize * 4, bytes)
++            .unwrap();
++        image.current().unwrap()
++    }
++
++    fn update(atlas: &DirectXAtlas, image: &StreamingImage, frame: &StreamFrame) -> AtlasTile {
++        atlas
++            .get_or_update_stream(image.id(), frame)
++            .expect("stream upload should succeed")
++            .expect("stream upload returns a tile")
++    }
++
++    fn stream_texture(atlas: &DirectXAtlas, image: &StreamingImage) -> ID3D11Texture2D {
++        atlas
++            .0
++            .lock()
++            .backend
++            .streams
++            .iter()
++            .find(|stream| stream.id == image.id())
++            .expect("stream should exist")
++            .texture
++            .clone()
++    }
++
++    fn copy_to_staging(atlas: &DirectXAtlas, texture: &ID3D11Texture2D) -> ID3D11Texture2D {
++        let lock = atlas.0.lock();
++        let mut desc = D3D11_TEXTURE2D_DESC::default();
++        unsafe { texture.GetDesc(&mut desc) };
++        desc.Usage = D3D11_USAGE_STAGING;
++        desc.BindFlags = 0;
++        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
++        let mut staging: Option<ID3D11Texture2D> = None;
++        unsafe {
++            lock.backend.device
++                .CreateTexture2D(&desc, None, Some(&mut staging))
++                .unwrap();
++            let staging = staging.unwrap();
++            lock.backend.device_context.CopyResource(&staging, texture);
++            staging
++        }
++    }
++
++    fn read_staging(atlas: &DirectXAtlas, staging: &ID3D11Texture2D) -> Vec<u8> {
++        let lock = atlas.0.lock();
++        let mut desc = D3D11_TEXTURE2D_DESC::default();
++        unsafe { staging.GetDesc(&mut desc) };
++        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
++        unsafe {
++            lock.backend.device_context
++                .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
++                .unwrap();
++        }
++        let row_bytes = desc.Width as usize * 4;
++        let mut bytes = Vec::with_capacity(row_bytes * desc.Height as usize);
++        for row in 0..desc.Height as usize {
++            let row = unsafe {
++                std::slice::from_raw_parts(
++                    (mapped.pData as *const u8).add(row * mapped.RowPitch as usize),
++                    row_bytes,
++                )
++            };
++            bytes.extend_from_slice(row);
++        }
++        unsafe { lock.backend.device_context.Unmap(staging, 0) };
++        bytes
++    }
++
++    fn read_stream(atlas: &DirectXAtlas, image: &StreamingImage) -> Vec<u8> {
++        let staging = copy_to_staging(atlas, &stream_texture(atlas, image));
++        read_staging(atlas, &staging)
++    }
++
++    fn swizzled(bytes: &[u8]) -> Vec<u8> {
++        bytes
++            .chunks_exact(4)
++            .flat_map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]])
++            .collect()
++    }
++
++    #[test]
++    fn stream_updates_of_the_same_size_reuse_one_texture() {
++        let Some(atlas) = create_atlas() else {
++            return;
++        };
++        let image = StreamingImage::new(StreamingImageFormat::Bgra8);
++        let size = stream_size(64, 36);
++        let first = update(&atlas, &image, &set_frame(&image, size, pixels(size, 1)));
++        let texture = stream_texture(&atlas, &image);
++        for seed in 2..10 {
++            let tile = update(&atlas, &image, &set_frame(&image, size, pixels(size, seed)));
++            assert_eq!(tile, first);
++        }
++
++        assert_eq!(first.texture_id.kind, AtlasTextureKind::Stream);
++        assert_eq!(first.bounds.size, size);
++        assert_eq!(stream_texture(&atlas, &image), texture);
++        assert_eq!(read_stream(&atlas, &image), pixels(size, 9));
++    }
++
++    #[test]
++    fn stream_size_change_reallocates_once() {
++        let Some(atlas) = create_atlas() else {
++            return;
++        };
++        let image = StreamingImage::new(StreamingImageFormat::Bgra8);
++        let small = stream_size(64, 36);
++        let large = stream_size(128, 72);
++        let small_tile = update(&atlas, &image, &set_frame(&image, small, pixels(small, 1)));
++        let small_texture = stream_texture(&atlas, &image);
++        let large_tile = update(&atlas, &image, &set_frame(&image, large, pixels(large, 2)));
++        let large_texture = stream_texture(&atlas, &image);
++        update(&atlas, &image, &set_frame(&image, large, pixels(large, 3)));
++
++        assert_eq!(large_tile.texture_id, small_tile.texture_id);
++        assert_eq!(large_tile.bounds.size, large);
++        assert_ne!(large_texture, small_texture);
++        assert_eq!(stream_texture(&atlas, &image), large_texture);
++        assert_eq!(read_stream(&atlas, &image), pixels(large, 3));
++    }
++
++    #[test]
++    fn removing_images_leaves_streams_alone() {
++        let Some(atlas) = create_atlas() else {
++            return;
++        };
++        let size = stream_size(64, 64);
++        let image = StreamingImage::new(StreamingImageFormat::Bgra8);
++        let stream_tile = update(&atlas, &image, &set_frame(&image, size, pixels(size, 5)));
++        let stream = stream_texture(&atlas, &image);
++
++        let first_key = make_image_key(20);
++        let second_key = make_image_key(21);
++        let first = insert_tile(&atlas, first_key.clone(), stream_size(1280, 720));
++        atlas.remove(&first_key);
++        let second = insert_tile(&atlas, second_key.clone(), stream_size(1280, 720));
++        atlas.remove(&second_key);
++
++        assert_eq!(first.texture_id.kind, AtlasTextureKind::Polychrome);
++        assert_eq!(first.texture_id, second.texture_id);
++        assert_eq!(
++            atlas
++                .0
++                .lock()
++                .backend
++                .polychrome_textures
++                .textures
++                .iter()
++                .flatten()
++                .count(),
++            1
++        );
++        assert!(
++            atlas
++                .get_texture_view(stream_tile.texture_id)
++                .is_some()
++        );
++        assert_eq!(stream_texture(&atlas, &image), stream);
++        assert_eq!(read_stream(&atlas, &image), pixels(size, 5));
++
++        atlas.remove_stream(image.id());
++        assert!(
++            atlas
++                .get_texture_view(stream_tile.texture_id)
++                .is_none()
++        );
++        atlas.remove_stream(image.id());
++    }
++
++    #[test]
++    fn device_loss_uploads_streams_again() {
++        let Some(atlas) = create_atlas() else {
++            return;
++        };
++        let image = StreamingImage::new(StreamingImageFormat::Bgra8);
++        let size = stream_size(64, 8);
++        let frame = set_frame(&image, size, pixels(size, 4));
++        let tile = update(&atlas, &image, &frame);
++
++        let (device, device_context) = create_device().unwrap();
++        atlas.handle_device_lost(&device, &device_context);
++        assert!(atlas.get_texture_view(tile.texture_id).is_none());
++        let tile = update(&atlas, &image, &frame);
++        assert!(atlas.get_texture_view(tile.texture_id).is_some());
++        assert_eq!(read_stream(&atlas, &image), pixels(size, 4));
++    }
++
++    #[test]
++    fn stream_writes_are_ordered_with_earlier_copies() {
++        let Some(atlas) = create_atlas() else {
++            return;
++        };
++        let image = StreamingImage::new(StreamingImageFormat::Bgra8);
++        let size = stream_size(64, 64);
++        update(&atlas, &image, &set_frame(&image, size, pixels(size, 1)));
++        let texture = stream_texture(&atlas, &image);
++        let first = copy_to_staging(&atlas, &texture);
++        update(&atlas, &image, &set_frame(&image, size, pixels(size, 2)));
++        let second = copy_to_staging(&atlas, &texture);
++
++        assert_eq!(read_staging(&atlas, &first), pixels(size, 1));
++        assert_eq!(read_staging(&atlas, &second), pixels(size, 2));
++    }
++
++    #[test]
++    fn stream_formats_and_strides_upload_the_same_pixels() {
++        let Some(atlas) = create_atlas() else {
++            return;
++        };
++        let size = stream_size(64, 16);
++        let bgra = pixels(size, 3);
++        let rgba = swizzled(&bgra);
++        let bgra_image = StreamingImage::new(StreamingImageFormat::Bgra8);
++        update(
++            &atlas,
++            &bgra_image,
++            &set_frame(&bgra_image, size, bgra.clone()),
++        );
++        let stride = 64 * 4 + 32;
++        let mut padded = vec![0xee; stride * 16];
++        for (row, source) in padded
++            .chunks_exact_mut(stride)
++            .zip(rgba.chunks_exact(64 * 4))
++        {
++            row[..64 * 4].copy_from_slice(source);
++        }
++        let rgba_image = StreamingImage::new(StreamingImageFormat::Rgba8);
++        rgba_image.set_frame(size, stride, padded).unwrap();
++        update(&atlas, &rgba_image, &rgba_image.current().unwrap());
++
++        assert_eq!(read_stream(&atlas, &bgra_image), bgra);
++        assert_eq!(read_stream(&atlas, &rgba_image), rgba);
++    }
++
++    #[test]
++    fn oversized_stream_frames_are_rejected() {
++        let Some(atlas) = create_atlas() else {
++            return;
++        };
++        let image = StreamingImage::new(StreamingImageFormat::Bgra8);
++        let size = stream_size(MAX_STREAM_TEXTURE_SIZE + 1, 1);
++        let frame = set_frame(&image, size, vec![0; size.width.0 as usize * 4]);
++        assert!(atlas.get_or_update_stream(image.id(), &frame).is_err());
++    }
++
+     #[test]
+     fn test_remove_deallocates_tile_space_for_reuse() {
+         let Some(atlas) = create_atlas() else {
+@@ -417,4 +854,36 @@ mod tests {
          let tile_b = insert_tile(&atlas, big_key_b, big);
          assert_eq!(tile_b.texture_id, keeper_tile.texture_id);
      }
