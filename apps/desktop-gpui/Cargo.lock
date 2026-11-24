@@ -1146,7 +1146,7 @@ dependencies = [
 [[package]]
 name = "cidre"
 version = "0.11.0"
-source = "git+https://github.com/CapSoftware/cidre?rev=bf84b67079a8#bf84b67079a89d6eaf01c1dab073baaba1ea8f77"
+source = "git+https://github.com/AniBullet/frameever-cidre?rev=bf84b67079a8#bf84b67079a89d6eaf01c1dab073baaba1ea8f77"
 dependencies = [
  "cidre-macros",
  "parking_lot 0.12.5",
@@ -1721,7 +1721,7 @@ dependencies = [
 [[package]]
 name = "cpal"
 version = "0.15.3"
-source = "git+https://github.com/CapSoftware/cpal?rev=6013cb5f8bd3#6013cb5f8bd34ddfbf7b215b9540fd211ce829fc"
+source = "git+https://github.com/AniBullet/frameever-cpal?rev=6013cb5f8bd3#6013cb5f8bd34ddfbf7b215b9540fd211ce829fc"
 dependencies = [
  "alsa 0.9.1",
  "core-foundation-sys",
@@ -2483,7 +2483,7 @@ dependencies = [
 [[package]]
 name = "ffmpeg-next"
 version = "7.1.0"
-source = "git+https://github.com/CapSoftware/rust-ffmpeg?rev=49db1fede112#49db1fede1123029670728bd6e3fcbb07b0f5716"
+source = "git+https://github.com/AniBullet/frameever-rust-ffmpeg?rev=49db1fede112#49db1fede1123029670728bd6e3fcbb07b0f5716"
 dependencies = [
  "bitflags 2.13.2",
  "ffmpeg-sys-next",
@@ -8200,7 +8200,7 @@ checksum = "51743d3e274e2b18df81c4dc6caf8a5b8e15dbe799e0dca05c7617380094e884"
 [[package]]
 name = "reqwest"
 version = "0.12.24"
-source = "git+https://github.com/CapSoftware/reqwest?rev=9b5ecbd5210a9510fde766015cabb724c1e70d2e#9b5ecbd5210a9510fde766015cabb724c1e70d2e"
+source = "git+https://github.com/AniBullet/frameever-reqwest?rev=9b5ecbd5210a9510fde766015cabb724c1e70d2e#9b5ecbd5210a9510fde766015cabb724c1e70d2e"
 dependencies = [
  "base64 0.22.1",
  "bytes",

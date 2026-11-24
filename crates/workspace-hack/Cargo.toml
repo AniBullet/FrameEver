@@ -50,7 +50,7 @@ rand = { version = "0.8", features = ["small_rng"] }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
-reqwest = { git = "https://github.com/CapSoftware/reqwest", rev = "9b5ecbd5210a9510fde766015cabb724c1e70d2e", features = ["blocking", "cookies", "json", "macos-system-configuration", "multipart", "rustls-tls", "stream"] }
+reqwest = { git = "https://github.com/AniBullet/frameever-reqwest", rev = "9b5ecbd5210a9510fde766015cabb724c1e70d2e", features = ["blocking", "cookies", "json", "macos-system-configuration", "multipart", "rustls-tls", "stream"] }
 rgb = { version = "0.8" }
 rustc-hash = { version = "1" }
 schemars = { version = "0.8", features = ["preserve_order", "url", "uuid1"] }

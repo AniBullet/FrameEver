@@ -12,8 +12,8 @@ anyhow = { version = "1.0.86" }
 # stopped and released on drop on macOS, plus zeroing of WASAPI capture
 # packets flagged AUDCLNT_BUFFERFLAGS_SILENT (loopback of an idle endpoint
 # otherwise surfaces unspecified buffer contents as audio).
-cpal = { git = "https://github.com/CapSoftware/cpal", rev = "6013cb5f8bd3" }
-ffmpeg = { package = "ffmpeg-next", git = "https://github.com/CapSoftware/rust-ffmpeg", rev = "49db1fede112" }
+cpal = { git = "https://github.com/AniBullet/frameever-cpal", rev = "6013cb5f8bd3" }
+ffmpeg = { package = "ffmpeg-next", git = "https://github.com/AniBullet/frameever-rust-ffmpeg", rev = "49db1fede112" }
 tokio = { version = "1.39.3", features = [
     "macros",
     "process",
@@ -41,7 +41,7 @@ tracing = "0.1.41"
 futures = "0.3.31"
 aho-corasick = "1.1.4"
 
-cidre = { git = "https://github.com/CapSoftware/cidre", rev = "bf84b67079a8", features = [
+cidre = { git = "https://github.com/AniBullet/frameever-cidre", rev = "bf84b67079a8", features = [
     "macos_12_7",
     "cv",
     "cf",
@@ -63,7 +63,6 @@ windows-core = "0.62"
 windows-sys = "0.61"
 sysinfo = "0.39"
 
-# TODO: Reenable these: https://github.com/CapSoftware/Cap/issues/859
 [workspace.lints.rust]
 deprecated = "allow"
 unexpected_cfgs = "allow"
@@ -140,8 +139,6 @@ opt-level = "s"   # Optimize for binary size
 debug = "line-tables-only"
 
 [patch.crates-io]
-# screencapturekit = { git = "https://github.com/CapSoftware/screencapturekit-rs", rev = "7ff1e103742e56c8f6c2e940b5e52684ed0bed69" } # branch = "cap-main"
-cidre = { git = "https://github.com/CapSoftware/cidre", rev = "bf84b67079a8" }
+cidre = { git = "https://github.com/AniBullet/frameever-cidre", rev = "bf84b67079a8" }
 
-# https://github.com/CapSoftware/reqwest/commit/9b5ecbd5210a9510fde766015cabb724c1e70d2e
-reqwest = { git = "https://github.com/CapSoftware/reqwest", rev = "9b5ecbd5210a9510fde766015cabb724c1e70d2e" }
+reqwest = { git = "https://github.com/AniBullet/frameever-reqwest", rev = "9b5ecbd5210a9510fde766015cabb724c1e70d2e" }

@@ -41,7 +41,7 @@ gpui-kit = "=0.8.1"
 frameever-camera = { path = "../../crates/camera" }
 scap-targets = { path = "../../crates/scap-targets" }
 # Same fork/rev as the root workspace: MicrophoneFeed enumerates through this.
-cpal = { git = "https://github.com/CapSoftware/cpal", rev = "6013cb5f8bd3" }
+cpal = { git = "https://github.com/AniBullet/frameever-cpal", rev = "6013cb5f8bd3" }
 
 # The actual recording engine -- the same studio/instant actors the Tauri app
 # drives. Drags in the ffmpeg encode stack; that is the point.
@@ -87,7 +87,7 @@ frameever-export = { path = "../../crates/export" }
 # (`create_screenshot` in the Tauri binary). Same package/git/rev the root
 # workspace pins, and frameever-recording already builds it, so this is an import,
 # not an extra dependency tree.
-ffmpeg = { package = "ffmpeg-next", git = "https://github.com/CapSoftware/rust-ffmpeg", rev = "49db1fede112" }
+ffmpeg = { package = "ffmpeg-next", git = "https://github.com/AniBullet/frameever-rust-ffmpeg", rev = "49db1fede112" }
 # Camera preview frames and Recents thumbnails both become gpui `RenderImage`s,
 # and the frame container type must match gpui's image crate version exactly
 # (`image = "0.25.1"` in the zed fork's workspace) or `Frame` would be two
@@ -232,7 +232,7 @@ objc2-core-foundation = { version = "0.3.2", default-features = false }
 objc2-core-video = { version = "0.3.2", default-features = false, features = ["CVBuffer", "CVImageBuffer", "CVPixelBuffer"] }
 # ScreenCaptureKit shareable content, acquired the same way recording.rs in
 # src-tauri does. Same fork/rev/features as the root workspace.
-cidre = { git = "https://github.com/CapSoftware/cidre", rev = "bf84b67079a8", features = [
+cidre = { git = "https://github.com/AniBullet/frameever-cidre", rev = "bf84b67079a8", features = [
     "macos_12_7",
     "cv",
     "cf",
