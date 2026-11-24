@@ -168,7 +168,7 @@ pub enum Action {
 }
 
 fn default_notify_title() -> String {
-    "Cap Automation".to_string()
+    "FrameEver Automation".to_string()
 }
 
 #[derive(Serialize, Deserialize, Type, Debug, Clone, Copy, PartialEq, Eq, Default)]

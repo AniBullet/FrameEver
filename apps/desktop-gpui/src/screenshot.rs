@@ -8,8 +8,7 @@
 //! {name}.cap/` holding `original.png`, a Studio `SingleSegment` meta whose
 //! display track is the PNG at `fps: 0`, and a project config whose
 //! background is transparent white with no shadow (`recording.rs:2963-2985`).
-//! Known deviations from that command: no native notification and no `ScreenshotTaken`
-//! automations (no automation runner here).
+//! Known deviation from that command: no native notification.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -46,6 +45,7 @@ fn take_screenshot_with_image(
     tracing::info!(kind = target.kind_str(), "taking a screenshot");
 
     let settle = app_windows::prepare_for_screenshot_capture(cx);
+    let automation_target = crate::automation::screenshot_target(&target);
 
     let task = gpui_tokio::Tokio::spawn_result(cx, async move {
         if let Some(image) = image {
@@ -71,7 +71,15 @@ fn take_screenshot_with_image(
                 None
             }
         };
-        cx.update(|cx| app_windows::screenshot_finished(captured, cx));
+        let rules = match (&captured, automation_target) {
+            (Some(png), Some(target)) => {
+                let rules = crate::automation::screenshot_rules(Some(&target), png);
+                crate::automation::screenshot_taken(png.clone(), target);
+                rules
+            }
+            _ => crate::automation::ScreenshotRules::default(),
+        };
+        cx.update(|cx| app_windows::screenshot_finished(captured, rules, cx));
     })
     .detach();
 }

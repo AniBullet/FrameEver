@@ -1,5 +1,7 @@
+mod support;
 mod types;
 
+pub use support::*;
 pub use types::*;
 
 use std::path::PathBuf;
@@ -243,6 +245,20 @@ pub trait AutomationHost: Send + Sync {
         &self,
         ctx: &TriggerContext,
     ) -> impl std::future::Future<Output = Result<(), String>> + Send;
+
+    fn verify_before_delete(
+        &self,
+        _ctx: &TriggerContext,
+        _preceding: Option<PrecedingAction<'_>>,
+    ) -> impl std::future::Future<Output = Result<(), String>> + Send {
+        std::future::ready(Ok(()))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PrecedingAction<'a> {
+    pub action: &'a Action,
+    pub succeeded: bool,
 }
 
 pub struct RunResult {
@@ -301,7 +317,21 @@ pub async fn run<H: AutomationHost>(
                 continue;
             }
 
-            let result = execute_action(host, action, ctx).await;
+            let result = if matches!(action, Action::DeleteLocalFiles) {
+                let preceding =
+                    action_results
+                        .last()
+                        .map(|previous: &ActionResult| PrecedingAction {
+                            action: &previous.action,
+                            succeeded: previous.success,
+                        });
+                match host.verify_before_delete(ctx, preceding).await {
+                    Ok(()) => execute_action(host, action, ctx).await,
+                    Err(error) => Err(error),
+                }
+            } else {
+                execute_action(host, action, ctx).await
+            };
             let (success, error) = match result {
                 Ok(()) => (true, None),
                 Err(e) => {

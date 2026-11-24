@@ -2718,6 +2718,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "frameever-automation"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "frameever-project",
+ "serde",
+ "serde_json",
+ "specta",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "frameever-camera"
 version = "0.1.0"
 dependencies = [
@@ -2903,6 +2919,7 @@ dependencies = [
  "ffmpeg-next",
  "flume",
  "frameever-audio",
+ "frameever-automation",
  "frameever-camera",
  "frameever-camera-effects",
  "frameever-cli-install",

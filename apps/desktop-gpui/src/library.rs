@@ -1161,7 +1161,14 @@ pub fn recycle_project_in(dirs: &[PathBuf], path: &Path) -> Result<Option<Delete
 pub fn recycle_project(path: &Path) -> Result<Option<Deleted>, String> {
     let mut dirs = known_recordings_dirs();
     dirs.extend(storage().known_dirs(ProjectKind::Screenshot));
-    recycle_project_in(&dirs, path)
+    let screenshot = is_screenshot_project(path);
+    let deleted = recycle_project_in(&dirs, path)?;
+    if let Some(Deleted::Project(project)) = &deleted
+        && !screenshot
+    {
+        crate::automation::recording_deleted(project.clone());
+    }
+    Ok(deleted)
 }
 
 const RECYCLE_RETRIES: u32 = 3;

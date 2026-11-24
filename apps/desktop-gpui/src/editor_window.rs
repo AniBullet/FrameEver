@@ -8646,6 +8646,24 @@ impl EditorWindow {
         self.remember_animated_gradient_selection(previous_animated_gradient, window, cx);
     }
 
+    pub(crate) fn apply_preset_config(
+        &mut self,
+        config: &serde_json::Value,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if !self.project_ready() {
+            return Err(crate::automation::EDITOR_LOADING.to_string());
+        }
+        let next = crate::presets::apply_preset(config, &self.project)
+            .ok_or_else(|| "The preset could not be read".to_string())?;
+        self.apply_project_preset(next, window, cx);
+        self.pending_save
+            .borrow_mut()
+            .try_flush()
+            .map_err(|error| format!("Failed to save {}: {error}", self.project_path.display()))
+    }
+
     /// The submenu's store mutations: everything but Apply and the two
     /// dialog-opening rows.
     fn mutate_presets(

@@ -45,7 +45,7 @@ Use `frameever recordings list --json` to find existing recordings and `frameeve
 ## Automations
 
 Rules configured in the desktop app's Settings > Automations run after `frameever screenshot` and `frameever record`
-finish. List them with `frameever automations list --json`.
+finish, and the desktop app runs them too after its own recordings, screenshots, imports and deletes. List them with `frameever automations list --json`.
 
 ## Local MCP
 

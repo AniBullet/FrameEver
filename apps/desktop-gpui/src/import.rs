@@ -704,6 +704,7 @@ fn run_video_import(source_path: &Path, tx: &flume::Sender<ImportProgress>) {
 
     sink.send(ImportStage::Complete, 1.0, t!("Import complete!"));
     tracing::info!(path = %project_path.display(), "video import complete");
+    crate::automation::video_imported(project_path.clone());
 }
 
 fn run_audio_import(source_path: &Path, recordings_dir: &Path, tx: &flume::Sender<ImportProgress>) {

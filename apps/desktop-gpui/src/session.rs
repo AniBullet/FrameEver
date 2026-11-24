@@ -293,6 +293,7 @@ pub struct RecordingSession {
     /// Taken by the phase observer to honour `postStudioRecordingBehaviour`
     /// (`openEditor` by default) the way the Tauri app does.
     pub finished_studio: Option<std::path::PathBuf>,
+    pub studio_behaviour: Option<crate::store::PostStudioBehaviour>,
     pub finished_instant: Option<std::path::PathBuf>,
     pub deleted_recording: bool,
     preparing_studio_editor: Option<PreparingStudioEditor>,
@@ -361,6 +362,7 @@ impl RecordingSession {
             input_change: 0,
             input_failures: InputFailures::default(),
             finished_studio: None,
+            studio_behaviour: None,
             finished_instant: None,
             deleted_recording: false,
             preparing_studio_editor: None,
@@ -1045,6 +1047,7 @@ impl RecordingSession {
         self.mic_muted = self.mute_for_push_to_talk(&active) && active.mic_mute.is_some();
         self.active = Some(active);
         self.phase = Phase::Recording { paused: false };
+        crate::automation::recording_started(&project_dir);
         self.countdown_overlay_unavailable = false;
         self.clock = Some(RecordedClock::start(Instant::now()));
         self.chapter_markers = Some(ChapterMarkerLog::new(project_dir.clone()));
@@ -1607,6 +1610,17 @@ impl RecordingSession {
         #[cfg(any(target_os = "macos", windows))]
         let original_failure = recording_failed.then(|| self.error.clone()).flatten();
         let studio_project_path = active.project_dir.clone();
+        let instant_rules_hold = (self.mode() == Some(recording::RecordingMode::Instant))
+            .then(|| crate::automation::hold_instant_rules(&active.project_dir))
+            .flatten();
+        let studio_behaviour = (self.mode() == Some(recording::RecordingMode::Studio)).then(|| {
+            crate::automation::studio_editor_behaviour(
+                &active.project_dir,
+                self.elapsed(),
+                crate::store::GeneralSettings::load().post_studio_recording_behaviour,
+            )
+        });
+        self.studio_behaviour = studio_behaviour;
         let camera_snapshot = self.last_config.as_ref().and_then(|config| {
             (config.mode == recording::RecordingMode::Studio && config.camera.is_some())
                 .then(|| crate::app_windows::studio_camera_snapshot(&config.target, cx))
@@ -1617,8 +1631,7 @@ impl RecordingSession {
             low_storage,
             recording_failed,
             self.editor_recording_target.is_some(),
-            crate::store::GeneralSettings::load().post_studio_recording_behaviour
-                == crate::store::PostStudioBehaviour::OpenEditor,
+            studio_behaviour == Some(crate::store::PostStudioBehaviour::OpenEditor),
         ) {
             let (publisher, finalization) = recording::StudioFinalization::channel(
                 studio_project_path.clone(),
@@ -1754,10 +1767,15 @@ impl RecordingSession {
                         if !low_storage {
                             match this.mode() {
                                 Some(crate::recording::RecordingMode::Studio) => {
-                                    this.finished_studio = Some(project_dir);
+                                    this.finished_studio = Some(project_dir.clone());
+                                    crate::automation::studio_recording_finished(project_dir);
                                 }
                                 Some(crate::recording::RecordingMode::Instant) => {
-                                    this.finished_instant = Some(project_dir);
+                                    this.finished_instant = Some(project_dir.clone());
+                                    crate::automation::instant_recording_finished(
+                                        project_dir,
+                                        instant_rules_hold,
+                                    );
                                 }
                                 _ => {}
                             }

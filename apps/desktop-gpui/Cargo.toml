@@ -52,6 +52,7 @@ frameever-enc-ffmpeg = { path = "../../crates/enc-ffmpeg" }
 frameever-timestamp = { path = "../../crates/timestamp" }
 frameever-utils = { path = "../../crates/utils" }
 frameever-project = { path = "../../crates/project" }
+frameever-automation = { path = "../../crates/automation" }
 # The cursor style picker draws the same SVG assets the renderer composites.
 # gpui's `svg()` keeps only a glyph's alpha, so the two-tone cursor art has to
 # be rasterised instead: `resvg` at the pin frameever-rendering already builds, into

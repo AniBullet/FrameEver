@@ -460,12 +460,32 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Add action", "添加操作"),
     ("Check compatibility", "检查兼容性"),
     (
-        "In the FrameEver CLI, this automation runs commands with your permissions. Only use values you trust.",
-        "在帧刻 CLI中，此自动化会以你的权限运行命令。请只使用你信任的值。",
+        "This automation runs commands with your permissions. Only use values you trust.",
+        "此自动化会以你的权限运行命令。请只使用你信任的值。",
     ),
     (
-        "Compatibility checked: this automation doesn't run in FrameEver yet. Saved rules remain available to the FrameEver CLI. No actions were run.",
-        "兼容性检查完成：此自动化暂时无法在帧刻中运行。已保存的规则仍可供帧刻 CLI使用。没有执行任何操作。",
+        "Compatibility checked: every action in this automation runs in FrameEver. No actions were run.",
+        "兼容性检查完成：此自动化的所有操作都能在帧刻中运行。没有执行任何操作。",
+    ),
+    (
+        "Compatibility checked: text recognition doesn't run in FrameEver yet and will be skipped. The other actions run. No actions were run.",
+        "兼容性检查完成：文字识别暂不支持，运行时会跳过，其他操作都能运行。没有执行任何操作。",
+    ),
+    (
+        "FrameEver doesn't run this action yet, so it is skipped.",
+        "帧刻暂不支持此操作，运行时会跳过。",
+    ),
+    (
+        "Shows only while Notifications is on in General settings.",
+        "仅在“通用”设置中开启系统通知时显示。",
+    ),
+    (
+        "Deletes the recording or screenshot for good, only once the step above succeeds and its file is checked. The editor stays closed so it can. Otherwise everything is kept.",
+        "仅在上一步成功并核对过文件后，才会永久删除录制或截图，编辑器会保持关闭以便删除。否则全部保留。",
+    ),
+    (
+        "Nothing will be deleted. Put an Export to a folder you choose, or a Save to location, right above this step.",
+        "不会删除任何内容。请在此步骤正上方放一个导出到你选的文件夹，或一个“保存到位置”。",
     ),
     (
         "This condition never matches for the selected trigger.",
@@ -762,8 +782,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Latest only", "只看最新"),
     ("All versions", "全部版本"),
     (
-        "Rules are shared with the FrameEver CLI. FrameEver saves them but doesn't run them yet.",
-        "规则与 FrameEver CLI 共用。帧刻会保存这些规则，但暂不运行。",
+        "Rules are shared with the FrameEver CLI. FrameEver runs enabled rules automatically.",
+        "规则与 FrameEver CLI 共用。帧刻会自动运行已启用的规则。",
     ),
     ("Rules you add appear here.", "你添加的规则会显示在这里。"),
     ("Add rule", "添加规则"),

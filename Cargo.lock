@@ -2044,6 +2044,7 @@ dependencies = [
 name = "frameever-automation"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "frameever-project",
  "serde",
  "serde_json",

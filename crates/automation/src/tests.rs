@@ -5,6 +5,9 @@ use std::sync::Mutex;
 struct MockHost {
     caps: Vec<Capability>,
     actions_run: Mutex<Vec<String>>,
+    export_result: Result<(), String>,
+    delete_guard: Option<fn(Option<PrecedingAction<'_>>) -> Result<(), String>>,
+    preceding_seen: Mutex<Vec<Option<(String, bool)>>>,
 }
 
 impl MockHost {
@@ -12,6 +15,9 @@ impl MockHost {
         Self {
             caps,
             actions_run: Mutex::new(Vec::new()),
+            export_result: Ok(()),
+            delete_guard: None,
+            preceding_seen: Mutex::new(Vec::new()),
         }
     }
 
@@ -55,7 +61,7 @@ impl AutomationHost for MockHost {
         _dest: &ExportDestination,
     ) -> Result<(), String> {
         self.record("export");
-        Ok(())
+        self.export_result.clone()
     }
 
     async fn reveal_in_file_manager(&self, _ctx: &TriggerContext) -> Result<(), String> {
@@ -104,6 +110,20 @@ impl AutomationHost for MockHost {
     async fn delete_local_files(&self, _ctx: &TriggerContext) -> Result<(), String> {
         self.record("delete_local_files");
         Ok(())
+    }
+
+    async fn verify_before_delete(
+        &self,
+        _ctx: &TriggerContext,
+        preceding: Option<PrecedingAction<'_>>,
+    ) -> Result<(), String> {
+        self.preceding_seen.lock().unwrap().push(
+            preceding.map(|preceding| (format!("{:?}", preceding.action), preceding.succeeded)),
+        );
+        match self.delete_guard {
+            Some(guard) => guard(preceding),
+            None => Ok(()),
+        }
     }
 }
 
@@ -824,13 +844,154 @@ fn multiple_rules_same_trigger() {
 
 #[test]
 fn a_rule_holding_screenshot_mode_loads_as_studio() {
-    let condition: Condition =
-        serde_json::from_value(serde_json::json!({"type": "recordingModeIs", "mode": "screenshot"}))
-            .unwrap();
+    let condition: Condition = serde_json::from_value(
+        serde_json::json!({"type": "recordingModeIs", "mode": "screenshot"}),
+    )
+    .unwrap();
     assert_eq!(
         condition,
         Condition::RecordingModeIs {
             mode: AutomationRecordingMode::Studio
         }
     );
+}
+
+fn export_then_delete_store() -> AutomationsStore {
+    let mut store = AutomationsStore {
+        version: 1,
+        rules: vec![studio_export_rule()],
+    };
+    store.rules[0].conditions.clear();
+    store.rules[0].actions.push(Action::DeleteLocalFiles);
+    store
+}
+
+fn require_successful_export(preceding: Option<PrecedingAction<'_>>) -> Result<(), String> {
+    match preceding {
+        Some(PrecedingAction {
+            action: Action::Export { .. },
+            succeeded: true,
+        }) => Ok(()),
+        _ => Err("refused".to_string()),
+    }
+}
+
+#[tokio::test]
+async fn delete_guard_sees_the_action_right_before_it_and_its_outcome() {
+    for export_succeeds in [true, false] {
+        let mut host = MockHost::new(desktop_capabilities());
+        if !export_succeeds {
+            host.export_result = Err("encoder failed".to_string());
+        }
+        let result = run(
+            &host,
+            &export_then_delete_store(),
+            &Trigger::StudioRecordingFinished,
+            &TriggerContext::new(),
+        )
+        .await;
+        let seen = host.preceding_seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1);
+        let (action, succeeded) = seen[0].clone().unwrap();
+        assert!(action.starts_with("Export"), "{action}");
+        assert_eq!(succeeded, export_succeeds);
+        assert_eq!(result[0].action_results[0].success, export_succeeds);
+    }
+}
+
+#[tokio::test]
+async fn delete_guard_refusal_keeps_files_and_reports_the_reason() {
+    let mut host = MockHost::new(desktop_capabilities());
+    host.export_result = Err("encoder failed".to_string());
+    host.delete_guard = Some(require_successful_export);
+    let result = run(
+        &host,
+        &export_then_delete_store(),
+        &Trigger::StudioRecordingFinished,
+        &TriggerContext::new(),
+    )
+    .await;
+    assert_eq!(host.actions_run(), vec!["export"]);
+    let delete = &result[0].action_results[1];
+    assert!(!delete.success);
+    assert_eq!(delete.error.as_deref(), Some("refused"));
+
+    let mut host = MockHost::new(desktop_capabilities());
+    host.delete_guard = Some(require_successful_export);
+    let mut store = export_then_delete_store();
+    store.rules[0].actions.remove(0);
+    let result = run(
+        &host,
+        &store,
+        &Trigger::StudioRecordingFinished,
+        &TriggerContext::new(),
+    )
+    .await;
+    assert!(host.actions_run().is_empty());
+    assert_eq!(*host.preceding_seen.lock().unwrap(), vec![None]);
+    assert!(!result[0].action_results[0].success);
+
+    let mut host = MockHost::new(desktop_capabilities());
+    host.delete_guard = Some(require_successful_export);
+    run(
+        &host,
+        &export_then_delete_store(),
+        &Trigger::StudioRecordingFinished,
+        &TriggerContext::new(),
+    )
+    .await;
+    assert_eq!(host.actions_run(), vec!["export", "delete_local_files"]);
+}
+
+#[test]
+fn a_notify_action_without_a_title_is_named_after_frameever() {
+    let action: Action = serde_json::from_value(serde_json::json!({"type": "notify"})).unwrap();
+    match action {
+        Action::Notify { title_template, .. } => assert_eq!(title_template, "FrameEver Automation"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn run_command_env_has_only_frameever_names() {
+    let ctx = TriggerContext::new()
+        .with_project_path(PathBuf::from("p.ever"))
+        .with_image_path(PathBuf::from("i.png"))
+        .with_output_path(PathBuf::from("o.mp4"))
+        .with_share_link("https://example.test/s/1".to_string());
+    let names: Vec<&str> = context_env(&ctx).iter().map(|(name, _)| *name).collect();
+    assert_eq!(
+        names,
+        [
+            "FRAMEEVER_PROJECT_PATH",
+            "FRAMEEVER_IMAGE_PATH",
+            "FRAMEEVER_OUTPUT_PATH",
+            "FRAMEEVER_SHARE_LINK"
+        ]
+    );
+}
+
+#[test]
+fn notifications_fill_the_event_into_both_templates() {
+    let ctx = TriggerContext::new()
+        .with_project_path(PathBuf::from("/r/a.ever"))
+        .with_window_title("Notes/Plan".to_string());
+    let (title, body) = notification_text(&ctx, "Saved {window}", "At {project_path} {image_path}");
+    assert_eq!(title, "Saved Notes_Plan");
+    assert_eq!(body, "At /r/a.ever {image_path}");
+    assert_eq!(apply_filename_template("{date}", &ctx).len(), 10);
+}
+
+#[tokio::test]
+async fn run_command_reports_a_failing_command() {
+    let ctx = TriggerContext::new();
+    let (program, args): (&str, Vec<String>) = if cfg!(windows) {
+        ("cmd", vec!["/C".into(), "exit 3".into()])
+    } else {
+        ("sh", vec!["-c".into(), "exit 3".into()])
+    };
+    let error = run_command(&ctx, program, &args, None, &HashMap::new(), false)
+        .await
+        .unwrap_err();
+    assert!(error.starts_with("Command exited"), "{error}");
 }

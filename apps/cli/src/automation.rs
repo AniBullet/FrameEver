@@ -9,14 +9,12 @@ use std::path::{Path, PathBuf};
 use frameever_automation::{
     AutomationExportCompression, AutomationHost, AutomationRecordingMode, AutomationsStore,
     Capability, ClipboardSource, ExportDestination, ExportFormat, ExportProfile, Trigger,
-    TriggerContext, sanitize_filename_component,
+    TriggerContext,
 };
 use frameever_recording::screen_capture::ScreenCaptureTarget;
 use serde_json::Value;
 
 const DESKTOP_BUNDLE_IDS: [&str; 1] = [frameever_utils::brand::APP_ID];
-
-const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
 fn load_desktop_store_value() -> Option<Value> {
     let data_dir = dirs::data_dir()?;
@@ -86,7 +84,7 @@ impl AutomationHost for CliAutomationHost {
             .ok_or("No file path available for save")?;
 
         let filename = match filename_template {
-            Some(tmpl) => apply_filename_template(tmpl, ctx),
+            Some(tmpl) => frameever_automation::apply_filename_template(tmpl, ctx),
             None => src
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
@@ -210,47 +208,7 @@ impl AutomationHost for CliAutomationHost {
         env: &HashMap<String, String>,
         use_shell: bool,
     ) -> Result<(), String> {
-        let mut cmd = if use_shell {
-            let shell_line = frameever_automation::shell_command_line(program, args);
-            #[cfg(target_os = "windows")]
-            let mut c = tokio::process::Command::new("cmd");
-            #[cfg(target_os = "windows")]
-            c.args(["/C", &shell_line]);
-            #[cfg(not(target_os = "windows"))]
-            let mut c = tokio::process::Command::new("sh");
-            #[cfg(not(target_os = "windows"))]
-            c.args(["-c", &shell_line]);
-            c
-        } else {
-            let mut c = tokio::process::Command::new(program);
-            c.args(args);
-            c
-        };
-
-        if let Some(dir) = cwd {
-            cmd.current_dir(dir);
-        }
-        for (k, v) in env {
-            cmd.env(k, v);
-        }
-        for (key, value) in context_env(ctx) {
-            cmd.env(key, value);
-        }
-
-        // Kill the child if the timeout drops the future, so a hung command can't outlive the run.
-        cmd.kill_on_drop(true);
-        let output = tokio::time::timeout(COMMAND_TIMEOUT, cmd.output())
-            .await
-            .map_err(|_| format!("Command timed out after {}s", COMMAND_TIMEOUT.as_secs()))?
-            .map_err(|e| format!("Failed to run command: {e}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "Command exited with {}: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-        Ok(())
+        frameever_automation::run_command(ctx, program, args, cwd, env, use_shell).await
     }
 
     async fn recognize_text_to_clipboard(&self, _ctx: &TriggerContext) -> Result<(), String> {
@@ -322,35 +280,6 @@ fn map_compression(
             frameever_export::mp4::ExportCompression::Potato
         }
     }
-}
-
-fn context_env(ctx: &TriggerContext) -> Vec<(&'static str, String)> {
-    let mut env = Vec::new();
-    if let Some(p) = &ctx.project_path {
-        env.push(("FRAMEEVER_PROJECT_PATH", p.to_string_lossy().to_string()));
-    }
-    if let Some(p) = &ctx.image_path {
-        env.push(("FRAMEEVER_IMAGE_PATH", p.to_string_lossy().to_string()));
-    }
-    if let Some(p) = &ctx.output_path {
-        env.push(("FRAMEEVER_OUTPUT_PATH", p.to_string_lossy().to_string()));
-    }
-    if let Some(l) = &ctx.share_link {
-        env.push(("FRAMEEVER_SHARE_LINK", l.clone()));
-    }
-    env
-}
-
-fn apply_filename_template(template: &str, ctx: &TriggerContext) -> String {
-    let now = chrono::Local::now();
-    let mut result = template.to_string();
-    result = result.replace("{date}", &now.format("%Y-%m-%d").to_string());
-    result = result.replace("{time}", &now.format("%H-%M-%S").to_string());
-    result = result.replace("{datetime}", &now.format("%Y-%m-%d_%H-%M-%S").to_string());
-    if let Some(title) = &ctx.window_title {
-        result = result.replace("{window}", &sanitize_filename_component(title));
-    }
-    result
 }
 
 pub(crate) fn open_path_or_url(target: &str) -> Result<(), String> {
@@ -575,25 +504,6 @@ mod tests {
         let captions = saved.captions.unwrap();
         assert_eq!(captions.segments[0].text, "Current recording");
         assert_eq!(captions.settings.size, 40);
-    }
-
-    #[test]
-    fn run_command_env_has_only_frameever_names() {
-        let ctx = TriggerContext::new()
-            .with_project_path(PathBuf::from("p.ever"))
-            .with_image_path(PathBuf::from("i.png"))
-            .with_output_path(PathBuf::from("o.mp4"))
-            .with_share_link("https://example.test/s/1".to_string());
-        let names: Vec<&str> = context_env(&ctx).iter().map(|(name, _)| *name).collect();
-        assert_eq!(
-            names,
-            [
-                "FRAMEEVER_PROJECT_PATH",
-                "FRAMEEVER_IMAGE_PATH",
-                "FRAMEEVER_OUTPUT_PATH",
-                "FRAMEEVER_SHARE_LINK"
-            ]
-        );
     }
 
     #[tokio::test]

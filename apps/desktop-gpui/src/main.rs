@@ -9,6 +9,7 @@ mod app_sounds;
 mod app_windows;
 mod assets;
 mod auto_compress;
+mod automation;
 mod blur_recovery;
 mod brand;
 #[cfg(target_os = "macos")]
@@ -79,6 +80,7 @@ mod media_access;
 mod media_foundation_tests;
 mod menus;
 mod mode_select_window;
+mod notifications;
 mod onboarding_audio;
 mod onboarding_doodles;
 mod onboarding_window;
@@ -431,6 +433,7 @@ fn main() {
         .detach();
 
         app_windows::init(window_handle, session, cx);
+        automation::init(cx);
         power::install(cx);
         #[cfg(target_os = "macos")]
         match platform::install_native_quit_handler() {

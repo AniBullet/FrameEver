@@ -490,10 +490,11 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
         if phase == Phase::Idle && last_phase != Phase::Idle {
             close_controls(&session, cx);
             close_target_overlays(cx);
-            let (finished_studio, finished_instant, preparing_editor, deleted) =
+            let (finished_studio, studio_behaviour, finished_instant, preparing_editor, deleted) =
                 session.update(cx, |session, _| {
                     (
                         session.finished_studio.take(),
+                        session.studio_behaviour.take(),
                         session.finished_instant.take(),
                         session.take_preparing_studio_editor(),
                         std::mem::take(&mut session.deleted_recording),
@@ -532,9 +533,9 @@ pub fn init(main: WindowHandle<MainWindow>, session: Entity<RecordingSession>, c
             } else {
                 let settings = crate::store::GeneralSettings::load();
                 let finish = recording_finish(
-                    finished_studio
-                        .as_ref()
-                        .map(|_| settings.post_studio_recording_behaviour),
+                    finished_studio.as_ref().map(|_| {
+                        studio_behaviour.unwrap_or(settings.post_studio_recording_behaviour)
+                    }),
                     finished_instant
                         .as_ref()
                         .map(|_| settings.post_instant_recording_behaviour),
@@ -605,8 +606,7 @@ fn open_preparing_studio_editor(session: &Entity<RecordingSession>, cx: &mut App
     if !pending.capture_stopped
         || pending.presentation != StudioEditorPresentation::Pending
         || !pending.finalization.is_finalizing()
-        || crate::store::GeneralSettings::load().post_studio_recording_behaviour
-            != crate::store::PostStudioBehaviour::OpenEditor
+        || session.read(cx).studio_behaviour != Some(crate::store::PostStudioBehaviour::OpenEditor)
     {
         return;
     }
@@ -5867,6 +5867,9 @@ pub(crate) fn request_editor_deletion(
             cx.global_mut::<AppWindows>().deleting_editors.finish(&key, result.clone());
             refresh_library_everywhere(cx);
         });
+        if result.is_ok() {
+            crate::automation::recording_deleted(key.clone());
+        }
         if let Err(error) = result {
             tracing::error!(path = %key.display(), %error, "recording deletion failed");
             platform::alert_dialog(t!("Could not delete recording"), &error);
@@ -6685,7 +6688,11 @@ pub fn screenshot_saved(cx: &mut App) {
 /// the Tauri app -- and open the screenshot editor on the new bundle, the
 /// `automationShouldOpenScreenshotEditor` default. A failure reveals the main
 /// window if the picker had hidden it, since nothing else will.
-pub fn screenshot_finished(captured: Option<PathBuf>, cx: &mut App) {
+pub fn screenshot_finished(
+    captured: Option<PathBuf>,
+    rules: crate::automation::ScreenshotRules,
+    cx: &mut App,
+) {
     let Some(png) = captured else {
         let hidden = std::mem::take(&mut cx.global_mut::<AppWindows>().main_hidden_for_picker);
         if hidden && RecordingSession::global(cx).read(cx).phase == Phase::Idle {
@@ -6698,6 +6705,7 @@ pub fn screenshot_finished(captured: Option<PathBuf>, cx: &mut App) {
 
     let behaviour = crate::store::GeneralSettings::load().post_screenshot_behaviour;
     if behaviour == crate::store::PostScreenshotBehaviour::ShowCard
+        && !rules.deletes
         && let Some(bundle) = screenshot_editor::resolve_bundle(&png)
     {
         crate::result_card::show(bundle, None, cx);
@@ -6706,7 +6714,10 @@ pub fn screenshot_finished(captured: Option<PathBuf>, cx: &mut App) {
         platform::copy_image_to_clipboard(png.clone(), None, cx);
     }
 
-    if behaviour.opens_editor() {
+    if rules
+        .editor_choice
+        .unwrap_or_else(|| behaviour.opens_editor())
+    {
         // The editor owns the foreground now, the way a stopped studio
         // recording hands off to the video editor; `screenshot_editor_closed`
         // brings the main window back.
@@ -6724,6 +6735,97 @@ pub fn screenshot_finished(captured: Option<PathBuf>, cx: &mut App) {
     if hidden && was_visible && RecordingSession::global(cx).read(cx).phase == Phase::Idle {
         show_main_window(cx);
     }
+}
+
+pub fn delete_screenshot_for_automation(bundle: &Path, cx: &mut App) -> Result<(), String> {
+    let key = editor_key(bundle);
+    if cx
+        .global::<AppWindows>()
+        .screenshot_editors
+        .iter()
+        .any(|(path, _)| editor_key(path) == key)
+    {
+        return Err("The screenshot is open in an editor".to_string());
+    }
+    crate::library::delete_screenshot(bundle)?;
+    refresh_library_everywhere(cx);
+    Ok(())
+}
+
+fn automation_delete_refusal(
+    key: &Path,
+    recording: &[PathBuf],
+    editor_open: bool,
+    deleting: &DeletingProjects,
+) -> Option<&'static str> {
+    if recording.iter().any(|path| editor_key(path) == key) {
+        Some("The recording is still being recorded")
+    } else if editor_open {
+        Some("The recording is open in an editor")
+    } else if deleting.contains(key) {
+        Some("The recording is already being deleted")
+    } else {
+        None
+    }
+}
+
+pub fn delete_recording_for_automation(
+    project: &Path,
+    cx: &mut App,
+) -> gpui::Task<Result<(), String>> {
+    let key = editor_key(project);
+    let session = RecordingSession::global(cx).read(cx);
+    let recording: Vec<PathBuf> = [
+        session.active_project_dir().map(Path::to_path_buf),
+        session
+            .preparing_studio_editor()
+            .map(|pending| pending.project_path.clone()),
+        session.editor_recording_target(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let windows = cx.global::<AppWindows>();
+    let editor_open = windows.editors.iter().any(|(path, _)| *path == key);
+    if let Some(reason) =
+        automation_delete_refusal(&key, &recording, editor_open, &windows.deleting_editors)
+    {
+        return gpui::Task::ready(Err(reason.to_string()));
+    }
+    cx.global_mut::<AppWindows>()
+        .deleting_editors
+        .begin(key.clone());
+    let doomed = key.clone();
+    let deletion = gpui_tokio::Tokio::spawn(
+        cx,
+        delete_with_retries(move || crate::library::delete_recording(doomed.clone())),
+    );
+    cx.spawn(async move |cx| {
+        let outcome = deletion
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+        cx.update(|cx| {
+            finish_library_delete(&key, outcome.clone(), cx);
+            refresh_library_everywhere(cx);
+        });
+        outcome
+    })
+}
+
+pub fn apply_preset_for_automation(
+    project: &Path,
+    config: &serde_json::Value,
+    cx: &mut App,
+) -> Result<(), String> {
+    let Some(handle) = editor_window_handle(project, cx) else {
+        return crate::automation::write_preset(project, config);
+    };
+    handle
+        .update(cx, |editor, window, cx| {
+            editor.apply_preset_config(config, window, cx)
+        })
+        .map_err(|_| "The editor window closed before the preset was applied".to_string())?
 }
 
 /// Open (or focus) the screenshot editor for a bundle -- the
@@ -7514,6 +7616,38 @@ mod tests {
         assert!(!reveal_main_after_editor_close(
             0, false, false, false, false
         ));
+    }
+
+    #[test]
+    fn an_automation_delete_leaves_a_recording_that_is_live_open_or_already_going() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("Live.ever");
+        std::fs::create_dir_all(project.join("content")).unwrap();
+        let other = root.path().join("Other.ever");
+        std::fs::create_dir_all(&other).unwrap();
+        let key = editor_key(&project);
+        let spelled = project.join("content").join("..");
+        let idle = DeletingProjects::default();
+
+        assert_eq!(automation_delete_refusal(&key, &[], false, &idle), None);
+        assert_eq!(
+            automation_delete_refusal(&key, &[other.clone()], false, &idle),
+            None
+        );
+        assert_eq!(
+            automation_delete_refusal(&key, &[spelled], false, &idle),
+            Some("The recording is still being recorded")
+        );
+        assert_eq!(
+            automation_delete_refusal(&key, &[], true, &idle),
+            Some("The recording is open in an editor")
+        );
+        let mut deleting = DeletingProjects::default();
+        deleting.begin(key.clone());
+        assert_eq!(
+            automation_delete_refusal(&key, &[], false, &deleting),
+            Some("The recording is already being deleted")
+        );
     }
 
     #[test]

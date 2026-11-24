@@ -66,7 +66,8 @@ frameever export <path.ever> --output out.mp4 --json   # H.264 by default; --cod
 
 ## Automations
 
-Rules made in Settings → Automations are shared with the CLI, which runs them after `screenshot` and
+Rules made in Settings → Automations are shared with the desktop app, which runs them after the recordings,
+screenshots, imports and deletes it makes, and with the CLI, which runs them after `screenshot` and
 when a recording finishes. Save, export, reveal, open, run command, apply preset and delete run here (save never copies a file onto itself or a hard link to it, reveal selects the file in its folder, and duration conditions work for Studio recordings);
 clipboard, OCR, notification and open-editor actions need the desktop app and are skipped. Uploads and
 webhooks were removed in FrameEver. See the active rules with `frameever automations list --json`.

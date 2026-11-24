@@ -3092,6 +3092,38 @@ fn action_applies_to_trigger(kind: ActionType, trigger: Trigger) -> bool {
     required.iter().any(|field| provided.contains(field))
 }
 
+fn action_note(kind: ActionType, previous: Option<&Action>) -> Option<(&'static str, bool)> {
+    match kind {
+        ActionType::RecognizeTextToClipboard => Some((
+            t!("FrameEver doesn't run this action yet, so it is skipped."),
+            true,
+        )),
+        ActionType::Notify => Some((
+            t!("Shows only while Notifications is on in General settings."),
+            false,
+        )),
+        ActionType::DeleteLocalFiles => Some(match previous {
+            Some(Action::Export {
+                destination: ExportDestination::CustomPath { .. },
+                ..
+            })
+            | Some(Action::SaveToLocation { .. }) => (
+                t!(
+                    "Deletes the recording or screenshot for good, only once the step above succeeds and its file is checked. The editor stays closed so it can. Otherwise everything is kept."
+                ),
+                false,
+            ),
+            _ => (
+                t!(
+                    "Nothing will be deleted. Put an Export to a folder you choose, or a Save to location, right above this step."
+                ),
+                true,
+            ),
+        }),
+        _ => None,
+    }
+}
+
 /// `DANGEROUS_ACTIONS`.
 fn action_is_dangerous(kind: ActionType) -> bool {
     kind == ActionType::RunCommand
@@ -3684,7 +3716,7 @@ impl SettingsWindow {
                 self.section(
                     t!("Rules"),
                     Some(t!(
-                        "Rules are shared with the FrameEver CLI. FrameEver saves them but doesn't run them yet."
+                        "Rules are shared with the FrameEver CLI. FrameEver runs enabled rules automatically."
                     )),
                     None,
                     rule_content,
@@ -4039,6 +4071,19 @@ impl SettingsWindow {
             .iter()
             .any(|action| action_is_dangerous(action_type_of(action)));
         let compatibility_checked = self.pages.compatibility_checks.contains(&rule.id);
+        let compatibility_message = if rule
+            .actions
+            .iter()
+            .any(|action| matches!(action, Action::RecognizeTextToClipboard))
+        {
+            t!(
+                "Compatibility checked: text recognition doesn't run in FrameEver yet and will be skipped. The other actions run. No actions were run."
+            )
+        } else {
+            t!(
+                "Compatibility checked: every action in this automation runs in FrameEver. No actions were run."
+            )
+        };
 
         let name_field = self.editor_field(t!("Name"), self.render_editor_input(AutoField::Name));
 
@@ -4248,10 +4293,10 @@ impl SettingsWindow {
                         .text_size(px(12.))
                         .line_height(px(18.))
                         .text_color(Hsla::from(theme.warning_text))
-                        .child(
-                            t!("In the FrameEver CLI, this automation runs commands with your \
-                             permissions. Only use values you trust."),
-                        ),
+                        .child(t!(
+                            "This automation runs commands with your permissions. Only use \
+                             values you trust."
+                        )),
                 )
             })
             .when(compatibility_checked, |this| {
@@ -4261,10 +4306,7 @@ impl SettingsWindow {
                         .text_size(px(12.))
                         .line_height(px(18.))
                         .text_color(Hsla::from(theme.warning_text))
-                        .child(
-                            t!("Compatibility checked: this automation doesn't run in FrameEver yet. \
-                             Saved rules remain available to the FrameEver CLI. No actions were run."),
-                        ),
+                        .child(compatibility_message),
                 )
             })
             .child(footer)
@@ -4494,6 +4536,17 @@ impl SettingsWindow {
             ));
 
         let params = self.render_action_params(rule, index, action, cx);
+        let previous = index
+            .checked_sub(1)
+            .and_then(|previous| self.rule_at(rule)?.actions.get(previous));
+        let note = if !applies {
+            Some((
+                t!("This action has no effect for the selected trigger."),
+                true,
+            ))
+        } else {
+            action_note(kind, previous)
+        };
 
         div()
             .flex()
@@ -4506,19 +4559,17 @@ impl SettingsWindow {
             .bg(theme.settings_card_bg())
             .child(header)
             .children(params)
-            .map(|this| {
-                let notice = if !applies {
-                    Some(t!("This action has no effect for the selected trigger."))
-                } else {
-                    None
-                };
-                this.children(notice.map(|notice| {
-                    div()
-                        .text_size(px(11.))
-                        .text_color(Hsla::from(theme.warning_text))
-                        .child(notice)
-                }))
-            })
+            .children(note.map(|(note, warning)| {
+                div()
+                    .text_size(px(11.))
+                    .line_height(px(16.))
+                    .text_color(if warning {
+                        Hsla::from(theme.warning_text)
+                    } else {
+                        theme.settings_muted()
+                    })
+                    .child(note)
+            }))
             .into_any_element()
     }
 
