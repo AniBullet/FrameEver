@@ -2735,9 +2735,6 @@ pub async fn create_shared_device() -> Result<SharedWgpuDevice, RenderingError> 
     });
 
     let mut required_features = wgpu::Features::empty();
-    if adapter.features().contains(wgpu::Features::PIPELINE_CACHE) {
-        required_features |= wgpu::Features::PIPELINE_CACHE;
-    }
     if adapter
         .features()
         .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)

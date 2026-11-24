@@ -9,62 +9,6 @@ pub struct CompositeVideoFramePipeline {
     no_enhancement: wgpu::TextureView,
 }
 
-static PIPELINE_CACHE_DATA: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
-
-fn get_cache_path() -> Option<std::path::PathBuf> {
-    dirs::data_local_dir().map(|p| p.join("Cap").join("shader_cache.bin"))
-}
-
-fn load_pipeline_cache(device: &wgpu::Device) -> Option<wgpu::PipelineCache> {
-    if !device.features().contains(wgpu::Features::PIPELINE_CACHE) {
-        return None;
-    }
-
-    if let Some(cached_data) = PIPELINE_CACHE_DATA.get() {
-        return Some(unsafe {
-            device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
-                label: Some("Cap Pipeline Cache"),
-                data: Some(cached_data),
-                fallback: true,
-            })
-        });
-    }
-
-    let cache_path = get_cache_path()?;
-    if cache_path.exists()
-        && let Ok(data) = std::fs::read(&cache_path)
-    {
-        let _ = PIPELINE_CACHE_DATA.set(data.clone());
-        return Some(unsafe {
-            device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
-                label: Some("Cap Pipeline Cache"),
-                data: Some(&data),
-                fallback: true,
-            })
-        });
-    }
-
-    Some(unsafe {
-        device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
-            label: Some("Cap Pipeline Cache"),
-            data: None,
-            fallback: true,
-        })
-    })
-}
-
-fn save_pipeline_cache(cache: &wgpu::PipelineCache) {
-    if let Some(data) = cache.get_data() {
-        let _ = PIPELINE_CACHE_DATA.set(data.clone());
-        if let Some(cache_path) = get_cache_path() {
-            if let Some(parent) = cache_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let _ = std::fs::write(cache_path, &data);
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 pub struct CompositeVideoFrameUniforms {
@@ -290,7 +234,6 @@ impl CompositeVideoFrameUniforms {
 
 impl CompositeVideoFramePipeline {
     pub fn new(device: &wgpu::Device) -> Self {
-        let pipeline_cache = load_pipeline_cache(device);
         let bind_group_layout = Self::bind_group_layout(device);
         let shader_desc = include_wgsl!("shaders/composite-video-frame.wgsl");
         let shader = device.create_shader_module(shader_desc);
@@ -342,12 +285,8 @@ impl CompositeVideoFramePipeline {
                 alpha_to_coverage_enabled: false,
             },
             multiview_mask: None,
-            cache: pipeline_cache.as_ref(),
+            cache: None,
         });
-
-        if let Some(cache) = &pipeline_cache {
-            save_pipeline_cache(cache);
-        }
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,

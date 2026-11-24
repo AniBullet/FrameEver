@@ -2598,7 +2598,6 @@ dependencies = [
  "bytemuck",
  "cidre",
  "clap",
- "dirs",
  "ffmpeg-hw-device",
  "ffmpeg-next",
  "frameever-camera-effects",
