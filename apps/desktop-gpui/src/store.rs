@@ -1929,9 +1929,40 @@ pub fn hotkey_from_value(value: &Value) -> Option<Hotkey> {
 
 // -- Transcription hints --------------------------------------------------------
 
-/// `DEFAULT_TRANSCRIPTION_HINTS` (Tauri `src/utils/general-settings.ts`).
-pub const DEFAULT_TRANSCRIPTION_HINTS: &[&str] =
-    &["FrameEver", "TypeScript", "My Brand Name", "mywebsite.com"];
+pub const DEFAULT_TRANSCRIPTION_HINTS: &[&str] = &["FrameEver", "帧刻"];
+
+const SAMPLE_TRANSCRIPTION_HINTS: [[&str; 4]; 2] = [
+    ["Cap", "TypeScript", "My Brand Name", "mywebsite.com"],
+    ["FrameEver", "TypeScript", "My Brand Name", "mywebsite.com"],
+];
+
+fn hints_from(stored: Option<&Value>) -> Vec<String> {
+    let defaults = || {
+        DEFAULT_TRANSCRIPTION_HINTS
+            .iter()
+            .map(|hint| (*hint).to_string())
+            .collect()
+    };
+    match stored {
+        Some(Value::Array(entries)) => {
+            let hints: Vec<String> = entries
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect();
+            if SAMPLE_TRANSCRIPTION_HINTS
+                .iter()
+                .any(|samples| hints.iter().map(String::as_str).eq(samples.iter().copied()))
+            {
+                defaults()
+            } else {
+                hints
+            }
+        }
+        Some(_) => Vec::new(),
+        None => defaults(),
+    }
+}
 
 /// `normalizeTranscriptionHints`: strip NULs, trim, drop empties and
 /// duplicates, first occurrence wins.
@@ -1956,18 +1987,7 @@ where
 /// as-is when the key exists (normalisation happens on write, not read), the
 /// four defaults when it does not.
 pub fn transcription_hints() -> Vec<String> {
-    match store_section(GENERAL_SETTINGS).get("transcriptionHints") {
-        Some(Value::Array(entries)) => entries
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect(),
-        Some(_) => Vec::new(),
-        None => DEFAULT_TRANSCRIPTION_HINTS
-            .iter()
-            .map(|hint| (*hint).to_string())
-            .collect(),
-    }
+    hints_from(store_section(GENERAL_SETTINGS).get("transcriptionHints"))
 }
 
 /// A v4 UUID from std's own entropy (`RandomState` is randomly seeded per
@@ -3731,8 +3751,27 @@ mod tests {
         assert_eq!(transcription_hints(), ["FrameEver", "Acme"]);
     }
 
-    /// An absent `transcriptionHints` key shows the four defaults
-    /// (`createDefaultGeneralSettings`), an empty array shows none.
+    #[test]
+    fn the_sample_terms_of_older_versions_read_as_our_own_defaults() {
+        assert_eq!(DEFAULT_TRANSCRIPTION_HINTS, ["FrameEver", "帧刻"]);
+        for samples in [
+            r#"["Cap", "TypeScript", "My Brand Name", "mywebsite.com"]"#,
+            r#"["FrameEver", "TypeScript", "My Brand Name", "mywebsite.com"]"#,
+        ] {
+            let stored: Value = serde_json::from_str(samples).unwrap();
+            assert_eq!(hints_from(Some(&stored)), DEFAULT_TRANSCRIPTION_HINTS);
+        }
+        let edited: Value =
+            serde_json::from_str(r#"["Cap", "TypeScript", "My Brand Name"]"#).unwrap();
+        assert_eq!(
+            hints_from(Some(&edited)),
+            ["Cap", "TypeScript", "My Brand Name"]
+        );
+        let emptied: Value = serde_json::from_str("[]").unwrap();
+        assert!(hints_from(Some(&emptied)).is_empty());
+        assert_eq!(hints_from(None), DEFAULT_TRANSCRIPTION_HINTS);
+    }
+
     #[test]
     fn transcription_hints_default_only_when_absent() {
         {

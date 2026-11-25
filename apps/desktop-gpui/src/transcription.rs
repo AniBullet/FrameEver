@@ -1658,25 +1658,6 @@ fn build_initial_prompt(language: &str, transcription_hints: &[String]) -> Optio
     }
 }
 
-/// `general_settings.transcriptionHints`, with the Rust store's own default
-/// list when the key is absent (`general_settings.rs:286-293`).
-fn transcription_hints() -> Vec<String> {
-    let section = store::store_section(store::GENERAL_SETTINGS);
-    match section.get("transcriptionHints").and_then(|v| v.as_array()) {
-        Some(values) => values
-            .iter()
-            .filter_map(|value| value.as_str())
-            .map(str::to_string)
-            .collect(),
-        None => vec![
-            "FrameEver".to_string(),
-            "TypeScript".to_string(),
-            "My Brand Name".to_string(),
-            "mywebsite.com".to_string(),
-        ],
-    }
-}
-
 /// `is_special_token` (`captions.rs:718-735`).
 fn whisper_threads(available: Option<usize>) -> i32 {
     available.unwrap_or(4).clamp(1, 4) as i32
@@ -2153,7 +2134,7 @@ pub fn transcribe_blocking(
             result
         } else {
             tracing::info!("Using Whisper engine");
-            let hints = transcription_hints();
+            let hints = store::transcription_hints();
             let context = get_whisper_context(model_file.to_string_lossy().as_ref())?;
             let result = process_with_whisper(audio_path, context, language, &hints);
             release_whisper_context_after_transcription();

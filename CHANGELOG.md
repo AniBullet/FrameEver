@@ -13,6 +13,7 @@ FrameEver · 帧刻（2.x 及以前名为 Cap - aniBullet Edition）各版本的
 
 ### 修复
 - 资源库：选中和取消选中时网格不再跳动。右侧详情栏的位置现在一直保留，没有选中时显示提示
+- 设置里“记住的词条”的默认内容改为 FrameEver 和帧刻；从旧版本带来、没有改过的示例词条（Cap、TypeScript、My Brand Name、mywebsite.com）会换成新的默认
 
 ---
 
