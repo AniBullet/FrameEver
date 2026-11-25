@@ -472,6 +472,36 @@ fn stepping_visits_every_frame_of_a_variable_rate_recording_once_each_way() {
 }
 
 #[test]
+fn a_step_that_cannot_move_still_says_it_finished() {
+    let fixture = Fixture::new(vec![silent_segment(1.)]);
+    let (player, events) = open(segments_of(&fixture.entry()).unwrap(), 0.);
+    first_frame(&player, &events);
+    let shown = player.stats().shown;
+    player.step(Direction::Back);
+    wait_for_event(&events, |event| *event == Event::Stepped);
+    assert_eq!(player.stats().shown, shown);
+
+    seek_to(&player, 5.);
+    let shown = player.stats().shown;
+    player.step(Direction::Forward);
+    wait_for_event(&events, |event| *event == Event::Stepped);
+    assert_eq!(player.stats().shown, shown);
+}
+
+#[test]
+fn every_step_says_it_finished() {
+    let fixture = Fixture::new(vec![silent_segment(1.)]);
+    let (player, events) = open(segments_of(&fixture.entry()).unwrap(), 0.);
+    first_frame(&player, &events);
+    for _ in 0..3 {
+        player.step(Direction::Forward);
+    }
+    for _ in 0..3 {
+        wait_for_event(&events, |event| *event == Event::Stepped);
+    }
+}
+
+#[test]
 fn queued_steps_each_take_effect() {
     let fixture = Fixture::new(vec![silent_segment(1.)]);
     let (player, events) = open(segments_of(&fixture.entry()).unwrap(), 0.);

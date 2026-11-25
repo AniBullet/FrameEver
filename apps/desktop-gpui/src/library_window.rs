@@ -183,7 +183,9 @@ impl LibraryWindow {
             false
         });
         cx.observe_window_activation(window, |this, window, cx| {
-            if window.is_window_active() && this.shown {
+            if !window.is_window_active() {
+                this.let_go_of_library_overlay();
+            } else if this.shown {
                 this.refresh_library(window, cx);
             }
             cx.notify();
@@ -672,6 +674,7 @@ impl gpui::Render for LibraryWindow {
             .child(self.render_header(window, cx))
             .child(body)
             .children(self.render_library_overlay(window, cx))
+            .children(self.render_library_overlay_drag_layer(cx))
             .when(self.library.slider_dragging, |this| {
                 this.child(self.render_library_slider_layer(cx))
             })

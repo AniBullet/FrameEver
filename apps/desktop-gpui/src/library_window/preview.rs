@@ -60,6 +60,46 @@ enum Grab {
     Volume,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct StepGate {
+    in_flight: bool,
+}
+
+impl StepGate {
+    fn admit(&mut self, held: bool) -> bool {
+        if held && self.in_flight {
+            return false;
+        }
+        self.in_flight = true;
+        true
+    }
+
+    fn settle(&mut self) {
+        self.in_flight = false;
+    }
+}
+
+fn settles_step(event: &Event) -> bool {
+    matches!(event, Event::Frame | Event::Stepped | Event::Failed(_))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SeekKey {
+    PlayPause,
+    Step(Direction),
+    Swallow,
+}
+
+fn overlay_seek_key(key: &str, held: bool) -> Option<SeekKey> {
+    match key {
+        "space" if held => Some(SeekKey::Swallow),
+        "space" => Some(SeekKey::PlayPause),
+        "left" => Some(SeekKey::Step(Direction::Back)),
+        "right" => Some(SeekKey::Step(Direction::Forward)),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 struct Drawn {
     seen: u64,
@@ -86,6 +126,7 @@ pub(super) struct PreviewState {
     track: ui::SliderTrack,
     volume_track: ui::SliderTrack,
     grab: Option<Grab>,
+    steps: StepGate,
     bounds: (u32, u32),
     presented: u64,
     drawn: Cell<Drawn>,
@@ -197,6 +238,7 @@ impl PreviewState {
         self.duration = None;
         self.failed = None;
         self.grab = None;
+        self.steps.settle();
         self.retired.extend(self.frame.take());
         self.frame_source = None;
         self.frame_interval = None;
@@ -284,6 +326,9 @@ impl LibraryWindow {
         cx: &mut Context<Self>,
     ) {
         let preview = &mut self.library.detail.preview;
+        if settles_step(&event) {
+            preview.steps.settle();
+        }
         match event {
             Event::Opened { duration } => preview.duration = Some(duration),
             Event::Frame => {
@@ -308,6 +353,7 @@ impl LibraryWindow {
                     preview.position = position;
                 }
             }
+            Event::Stepped => return,
             Event::Ended => {
                 preview.playing = false;
                 if let Some(duration) = preview.duration {
@@ -373,6 +419,7 @@ impl LibraryWindow {
     pub(super) fn step_library_preview(
         &mut self,
         direction: Direction,
+        held: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -380,10 +427,14 @@ impl LibraryWindow {
             return;
         };
         let preview = &mut self.library.detail.preview;
+        if !preview.steps.admit(held) {
+            return;
+        }
         preview.pause();
         if preview.player.is_none() {
             let position = preview.position;
             if !self.open_library_preview(&entry, position, window, cx) {
+                self.library.detail.preview.steps.settle();
                 return;
             }
         }
@@ -502,11 +553,13 @@ impl LibraryWindow {
         cx: &mut Context<Self>,
     ) {
         if self.library_overlay_open() {
-            match event.keystroke.key.as_str() {
-                "space" => self.toggle_library_preview(window, cx),
-                "left" => self.step_library_preview(Direction::Back, window, cx),
-                "right" => self.step_library_preview(Direction::Forward, window, cx),
-                _ => return self.seek_library_by_key(event, window, cx),
+            match overlay_seek_key(&event.keystroke.key, event.is_held) {
+                Some(SeekKey::PlayPause) => self.toggle_library_preview(window, cx),
+                Some(SeekKey::Step(direction)) => {
+                    self.step_library_preview(direction, event.is_held, window, cx)
+                }
+                Some(SeekKey::Swallow) => {}
+                None => return self.seek_library_by_key(event, window, cx),
             }
             cx.stop_propagation();
             return;
@@ -1091,6 +1144,74 @@ mod tests {
         preview.looping = Looping(false);
         preview.stop();
         assert!(!preview.looping.0);
+    }
+
+    #[test]
+    fn a_held_key_steps_again_only_once_the_last_step_finished() {
+        let mut gate = StepGate::default();
+        assert!(gate.admit(false));
+        assert!(!gate.admit(true));
+        assert!(!gate.admit(true));
+        gate.settle();
+        assert!(gate.admit(true));
+        assert!(!gate.admit(true));
+    }
+
+    #[test]
+    fn every_separate_press_steps_even_while_a_step_is_in_flight() {
+        let mut gate = StepGate::default();
+        assert!(gate.admit(false));
+        assert!(gate.admit(false));
+        assert!(!gate.admit(true));
+    }
+
+    #[test]
+    fn turning_back_after_holding_forward_steps_at_once() {
+        let mut gate = StepGate::default();
+        assert!(gate.admit(false));
+        assert!(!gate.admit(true));
+        assert!(gate.admit(false));
+    }
+
+    #[test]
+    fn a_step_at_the_end_of_the_clip_lets_the_held_key_go_on() {
+        let mut gate = StepGate::default();
+        assert!(gate.admit(false));
+        assert!(settles_step(&Event::Stepped));
+        gate.settle();
+        assert!(gate.admit(true));
+    }
+
+    #[test]
+    fn a_shown_frame_or_a_stopped_player_ends_the_wait_and_a_tick_does_not() {
+        assert!(settles_step(&Event::Frame));
+        assert!(settles_step(&Event::Stepped));
+        assert!(settles_step(&Event::Failed(PlayError::Unreadable)));
+        assert!(!settles_step(&Event::Tick { position: 1. }));
+        assert!(!settles_step(&Event::Opened { duration: 1. }));
+    }
+
+    #[test]
+    fn a_stopped_preview_waits_for_no_step() {
+        let mut preview = PreviewState::default();
+        assert!(preview.steps.admit(false));
+        preview.stop();
+        assert!(preview.steps.admit(true));
+    }
+
+    #[test]
+    fn a_held_space_on_the_seek_bar_plays_or_pauses_once() {
+        assert_eq!(overlay_seek_key("space", false), Some(SeekKey::PlayPause));
+        assert_eq!(overlay_seek_key("space", true), Some(SeekKey::Swallow));
+        assert_eq!(
+            overlay_seek_key("left", true),
+            Some(SeekKey::Step(Direction::Back))
+        );
+        assert_eq!(
+            overlay_seek_key("right", false),
+            Some(SeekKey::Step(Direction::Forward))
+        );
+        assert_eq!(overlay_seek_key("home", false), None);
     }
 
     #[test]

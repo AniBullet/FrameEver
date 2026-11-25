@@ -131,6 +131,7 @@ pub enum Event {
     Opened { duration: f64 },
     Frame,
     Tick { position: f64 },
+    Stepped,
     Ended,
     Failed(PlayError),
 }
@@ -784,6 +785,7 @@ impl Worker {
     }
 
     fn finish_step(&mut self) {
+        self.events.send(Event::Stepped).ok();
         let Some(shown) = &mut self.shown else {
             return;
         };

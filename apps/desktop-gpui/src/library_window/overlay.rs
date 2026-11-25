@@ -11,7 +11,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Task, Window, div, point, prelude::FluentBuilder, px, size,
 };
 
-use super::{HEADER_HEIGHT, LibraryWindow, kind_label, t, view};
+use super::{HEADER_HEIGHT, LibraryWindow, kind_label, t, ui, view};
 use crate::{
     library::{self, MediaKind, player::Direction, view::Entry},
     theme::motion,
@@ -492,6 +492,15 @@ impl Overlay {
         }
     }
 
+    fn pointer_capture(&self) -> Option<MouseButton> {
+        self.gesture.filter(|_| self.is_open()).map(Gesture::button)
+    }
+
+    fn let_go(&mut self) {
+        self.space = Space::Up;
+        self.gesture = None;
+    }
+
     fn shows_controls(&self, playing: bool, now: Instant) -> bool {
         !playing || now < self.controls_until
     }
@@ -529,6 +538,12 @@ impl LibraryWindow {
             .overlay
             .as_ref()
             .is_some_and(Overlay::is_full_screen)
+    }
+
+    pub(super) fn let_go_of_library_overlay(&mut self) {
+        if let Some(overlay) = &mut self.library.overlay {
+            overlay.let_go();
+        }
     }
 
     pub(super) fn preview_library_lead(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -595,7 +610,7 @@ impl LibraryWindow {
         self.library.detail.preview.sync_bounds(bounds);
         if let Some(overlay) = &mut self.library.overlay {
             overlay.still_asked = None;
-            overlay.gesture = None;
+            overlay.let_go();
             overlay.zoom = opening_zoom(Shown::of(entry.kind));
         }
         if entry.screenshot.is_none() && !self.library.detail.preview.playing {
@@ -657,6 +672,7 @@ impl LibraryWindow {
             return false;
         };
         overlay.closed_at = Some(Instant::now());
+        overlay.let_go();
         overlay.controls_task = None;
         overlay.still_task = None;
         let was_full_screen = std::mem::take(&mut overlay.full_screen);
@@ -770,13 +786,17 @@ impl LibraryWindow {
         let at = window_point(event.position);
         match press_action(shown, event.button, event.click_count, overlay.space.held()) {
             None => {}
-            Some(PressAction::Pend) => overlay.gesture = Some(Gesture::Pending { from: at }),
+            Some(PressAction::Pend) => {
+                overlay.gesture = Some(Gesture::Pending { from: at });
+                cx.notify();
+            }
             Some(PressAction::Pan) => {
                 overlay.space = overlay.space.panned();
                 overlay.gesture = Some(Gesture::Panning {
                     button: event.button,
                     last: at,
                 });
+                cx.notify();
             }
             Some(PressAction::SwitchSize) => {
                 overlay.zoom = match picture {
@@ -816,6 +836,7 @@ impl LibraryWindow {
         };
         if event.pressed_button != Some(gesture.button()) {
             overlay.gesture = None;
+            cx.notify();
             return;
         }
         let at = window_point(event.position);
@@ -879,8 +900,11 @@ impl LibraryWindow {
         let Some(overlay) = &mut self.library.overlay else {
             return;
         };
-        let gesture = overlay.gesture.take();
-        if release_plays(shown, gesture) {
+        let Some(gesture) = overlay.gesture.take() else {
+            return;
+        };
+        cx.notify();
+        if release_plays(shown, Some(gesture)) {
             overlay.click_played = true;
             self.toggle_library_preview(window, cx);
         }
@@ -1032,7 +1056,9 @@ impl LibraryWindow {
             }
             PreviewKey::Previous => self.step_library_overlay(false, window, cx),
             PreviewKey::Next => self.step_library_overlay(true, window, cx),
-            PreviewKey::StepFrame(direction) => self.step_library_preview(direction, window, cx),
+            PreviewKey::StepFrame(direction) => {
+                self.step_library_preview(direction, event.is_held, window, cx)
+            }
             PreviewKey::PlayPause => self.toggle_library_preview(window, cx),
             PreviewKey::Back => self.skip_library_preview(false, window, cx),
             PreviewKey::Forward => self.skip_library_preview(true, window, cx),
@@ -1364,9 +1390,8 @@ impl LibraryWindow {
             .text_color(theme.foreground)
             .on_key_down(cx.listener(Self::on_library_overlay_key))
             .on_key_up(cx.listener(Self::on_library_overlay_key_up))
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+            .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, _, cx| {
                 this.wake_overlay_controls(cx);
-                this.drag_library_overlay_stage(event, window, cx);
             }))
             .on_mouse_up(
                 MouseButton::Left,
@@ -1405,6 +1430,26 @@ impl LibraryWindow {
                     )
                 })
                 .into_any_element(),
+        )
+    }
+
+    pub(super) fn render_library_overlay_drag_layer(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let button = self.library.overlay.as_ref()?.pointer_capture()?;
+        Some(
+            ui::Slider::drag_layer_for(
+                "library-overlay-drag",
+                button,
+                cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                    this.wake_overlay_controls(cx);
+                    this.drag_library_overlay_stage(event, window, cx);
+                }),
+                cx.listener(Self::release_library_overlay_stage),
+            )
+            .occlude()
+            .into_any_element(),
         )
     }
 }
@@ -1944,6 +1989,59 @@ mod tests {
         assert!(!overlay.covers_page(start + motion::MOVE));
         assert!(!overlay.finished(start + motion::MOVE));
         assert!(overlay.finished(start + motion::MOVE + motion::EXIT));
+    }
+
+    #[test]
+    fn a_press_on_the_picture_captures_the_pointer_until_it_ends() {
+        let start = Instant::now();
+        let mut overlay = Overlay::new(None, start);
+        assert_eq!(overlay.pointer_capture(), None);
+        for (gesture, button) in [
+            (Gesture::Pending { from: (1., 1.) }, MouseButton::Left),
+            (
+                Gesture::Scrubbing {
+                    from_x: 1.,
+                    from_position: 0.,
+                    target: 0.,
+                },
+                MouseButton::Left,
+            ),
+            (
+                Gesture::Panning {
+                    button: MouseButton::Middle,
+                    last: (1., 1.),
+                },
+                MouseButton::Middle,
+            ),
+        ] {
+            overlay.gesture = Some(gesture);
+            assert_eq!(overlay.pointer_capture(), Some(button));
+        }
+        overlay.closed_at = Some(start);
+        assert_eq!(overlay.pointer_capture(), None);
+    }
+
+    #[test]
+    fn letting_go_forgets_a_held_space_and_the_gesture_in_progress() {
+        let mut overlay = Overlay::new(None, Instant::now());
+        overlay.space = Space::Held { panned: false };
+        overlay.gesture = Some(Gesture::Pending { from: (1., 1.) });
+        overlay.let_go();
+        assert_eq!(overlay.gesture, None);
+        assert_eq!(overlay.pointer_capture(), None);
+        assert!(!overlay.space.plays_on_release());
+        assert_eq!(
+            press_action(Shown::Video, MouseButton::Left, 1, overlay.space.held()),
+            Some(PressAction::Pend)
+        );
+        assert_eq!(
+            drag_action(
+                Shown::Video,
+                overlay.space.held(),
+                (DRAG_THRESHOLD + 1., 0.)
+            ),
+            Some(DragAction::Scrub)
+        );
     }
 
     #[test]

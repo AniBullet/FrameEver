@@ -1288,7 +1288,11 @@ mod tests {
             gamepad: Some(GamepadParts::default()),
             ..Default::default()
         };
-        assert!(!serde_json::to_string(&follows).unwrap().contains("controller"));
+        assert!(
+            !serde_json::to_string(&follows)
+                .unwrap()
+                .contains("controller")
+        );
         assert_ne!(
             follows.art_for(style, GamepadKind::Switch),
             follows.art_for(style, GamepadKind::PlayStation)
@@ -1298,7 +1302,10 @@ mod tests {
             controller: Some(GamepadKind::Switch),
             ..follows.clone()
         };
-        assert_eq!(named.art(style), follows.art_for(style, GamepadKind::Switch));
+        assert_eq!(
+            named.art(style),
+            follows.art_for(style, GamepadKind::Switch)
+        );
         assert_eq!(
             named.art_for(style, GamepadKind::PlayStation),
             follows.art_for(style, GamepadKind::Switch)
@@ -1331,8 +1338,7 @@ mod tests {
             made.art(InputDisplayStyle::Keycaps),
             plain.art(InputDisplayStyle::Keycaps)
         );
-        let read: KeyLayout =
-            serde_json::from_str(&serde_json::to_string(&made).unwrap()).unwrap();
+        let read: KeyLayout = serde_json::from_str(&serde_json::to_string(&made).unwrap()).unwrap();
         assert_eq!(read, made);
 
         let pad = KeyLayout {

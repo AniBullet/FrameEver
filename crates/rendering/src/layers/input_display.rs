@@ -4,8 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use frameever_project::{
     InputDisplayStyle,
     input_display::{
-        DisplayRect, InputRecord, Sprite, display_rect, input_record_generation,
-        take_at,
+        DisplayRect, InputRecord, Sprite, display_rect, input_record_generation, take_at,
     },
 };
 use wgpu::util::DeviceExt;
