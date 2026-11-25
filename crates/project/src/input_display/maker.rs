@@ -1,7 +1,7 @@
 use super::{
     builtin::{
         BuiltinPresetId, GamepadPart, GamepadParts, KeyLayout, LayoutKey, LayoutMouse, MOUSE_BLOCK,
-        MousePart, MouseParts,
+        MousePart, MouseParts, PRESET_FULL, PRESET_OPACITY_RANGE, PRESET_SIZE_RANGE,
     },
     keys::key_label,
 };
@@ -88,7 +88,25 @@ pub struct PresetMaker {
     pub selected: Option<MakerSelection>,
     pub capture: bool,
     pub start: Option<MakerStart>,
+    pub size: f64,
+    pub opacity: f64,
     held: Vec<u16>,
+}
+
+fn stored_percent(value: f64) -> Option<f64> {
+    (value != PRESET_FULL).then_some(value)
+}
+
+fn set_percent(field: &mut f64, value: f64, (low, high): (f64, f64)) -> bool {
+    if !value.is_finite() {
+        return false;
+    }
+    let value = value.round().clamp(low, high);
+    if *field == value {
+        return false;
+    }
+    *field = value;
+    true
 }
 
 impl PresetMaker {
@@ -112,6 +130,8 @@ impl PresetMaker {
                     parts: mouse.parts,
                 }
             }),
+            size: layout.size_percent(),
+            opacity: layout.opacity_percent(),
             keys: layout.keys,
             gamepad: layout.gamepad,
             selected: None,
@@ -125,6 +145,8 @@ impl PresetMaker {
         if self.gamepad.is_some() {
             return KeyLayout {
                 gamepad: self.gamepad,
+                size: stored_percent(self.size),
+                opacity: stored_percent(self.opacity),
                 ..Default::default()
             };
         }
@@ -152,7 +174,17 @@ impl PresetMaker {
                 parts: mouse.parts,
             }),
             gamepad: None,
+            size: stored_percent(self.size),
+            opacity: stored_percent(self.opacity),
         }
+    }
+
+    pub fn set_size(&mut self, percent: f64) -> bool {
+        set_percent(&mut self.size, percent, PRESET_SIZE_RANGE)
+    }
+
+    pub fn set_opacity(&mut self, percent: f64) -> bool {
+        set_percent(&mut self.opacity, percent, PRESET_OPACITY_RANGE)
     }
 
     pub fn can_save(&self) -> bool {
@@ -602,6 +634,35 @@ mod tests {
     }
 
     #[test]
+    fn the_maker_sets_the_size_and_opacity_a_preset_is_drawn_at() {
+        let mut maker = PresetMaker::starting(MakerStart::WasdMouse, "Mine");
+        assert_eq!((maker.size, maker.opacity), (100.0, 100.0));
+        assert_eq!(maker.layout().size, None);
+        assert_eq!(maker.layout().opacity, None);
+
+        assert!(maker.set_size(142.4));
+        assert!(maker.set_opacity(64.6));
+        assert_eq!((maker.size, maker.opacity), (142.0, 65.0));
+        assert!(!maker.set_size(142.0));
+        assert!(maker.set_size(5.0));
+        assert!(maker.set_opacity(500.0));
+        assert_eq!((maker.size, maker.opacity), (PRESET_SIZE_RANGE.0, 100.0));
+        assert!(!maker.set_size(f64::NAN));
+
+        maker.set_size(150.0);
+        maker.set_opacity(40.0);
+        let layout = maker.layout();
+        assert_eq!((layout.size, layout.opacity), (Some(150.0), Some(40.0)));
+        let again = PresetMaker::editing("Mine", &layout);
+        assert_eq!((again.size, again.opacity), (150.0, 40.0));
+
+        let mut pad = PresetMaker::starting(MakerStart::Gamepad, "Pad");
+        pad.set_size(80.0);
+        assert_eq!(pad.layout().size, Some(80.0));
+        assert!(pad.layout().gamepad.is_some());
+    }
+
+    #[test]
     fn a_layout_read_from_disk_is_fitted_to_the_board() {
         let layout = KeyLayout {
             keys: vec![
@@ -624,7 +685,7 @@ mod tests {
                 at: Some((400.0, f64::NAN)),
                 parts: MouseParts::default(),
             }),
-            gamepad: None,
+            ..Default::default()
         }
         .fitted();
 

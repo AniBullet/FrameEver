@@ -701,6 +701,36 @@ mod tests {
     }
 
     #[test]
+    fn a_made_preset_is_drawn_at_its_own_size_and_opacity() {
+        let folders = folders(&[]);
+        let plain = BuiltinPresetId::WasdMouse.layout();
+        let made = KeyLayout {
+            size: Some(150.0),
+            opacity: Some(40.0),
+            ..plain.clone()
+        };
+        let plain_id = save_layout(&folders.presets, None, "Plain", &plain).unwrap();
+        let made_id = save_layout(&folders.presets, None, "Made", &made).unwrap();
+        let style = InputDisplayStyle::Keycaps;
+        let plain_loaded = load(&folders.presets, &plain_id, style, 1).unwrap();
+        let made_loaded = load(&folders.presets, &made_id, style, 1).unwrap();
+
+        assert_eq!(plain_loaded.opacity, 1.0);
+        assert_eq!(plain_loaded.opacity_under(0.5), 0.5);
+        assert_eq!(made_loaded.opacity, 0.4);
+        assert!((made_loaded.opacity_under(0.5) - 0.2).abs() < 1e-9);
+        assert!((made_loaded.frame_share - plain_loaded.frame_share * 1.5).abs() < 1e-9);
+        assert_eq!(
+            compose(&made_loaded, &holding_w()),
+            compose(&plain_loaded, &holding_w())
+        );
+        assert_eq!(
+            shape(&folders.presets, &made_id).map(|shape| shape.frame_share),
+            Some(made.frame_share())
+        );
+    }
+
+    #[test]
     fn a_made_preset_is_saved_edited_in_place_and_removed() {
         let folders = folders(&[]);
         let mut layout = BuiltinPresetId::WasdMouse.layout();

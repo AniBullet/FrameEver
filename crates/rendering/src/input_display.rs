@@ -18,6 +18,13 @@ pub struct LoadedPreset {
     pub atlas_scale: u32,
     pub scalable: bool,
     pub atlas: RgbaImage,
+    pub opacity: f64,
+}
+
+impl LoadedPreset {
+    pub fn opacity_under(&self, chosen: f64) -> f64 {
+        (self.opacity * chosen).clamp(0.0, 1.0)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,7 +66,10 @@ pub fn layout_preset(
     frame_share: f64,
     scale: u32,
 ) -> Result<LoadedPreset, PresetRefusal> {
-    drawn_preset(&layout.art(style), frame_share, scale)
+    Ok(LoadedPreset {
+        opacity: layout.opacity_fraction(),
+        ..drawn_preset(&layout.art(style), frame_share, scale)?
+    })
 }
 
 pub fn layout_preset_for(
@@ -68,11 +78,14 @@ pub fn layout_preset_for(
     controller: GamepadKind,
     scale: u32,
 ) -> Result<LoadedPreset, PresetRefusal> {
-    drawn_preset(
-        &layout.art_for(style, controller),
-        layout.frame_share(),
-        scale,
-    )
+    Ok(LoadedPreset {
+        opacity: layout.opacity_fraction(),
+        ..drawn_preset(
+            &layout.art_for(style, controller),
+            layout.frame_share(),
+            scale,
+        )?
+    })
 }
 
 pub fn preset_for_controller(
@@ -124,6 +137,7 @@ fn drawn_preset(
         atlas_scale: scale,
         scalable: true,
         atlas,
+        opacity: 1.0,
     })
 }
 
@@ -158,6 +172,7 @@ pub fn read_preset(json: &[u8], atlas_png: Option<&[u8]>) -> Result<LoadedPreset
         atlas_scale: 1,
         scalable: false,
         atlas,
+        opacity: 1.0,
     })
 }
 

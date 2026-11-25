@@ -445,6 +445,8 @@ impl Prepared {
         loaded.preset.elements = still;
         let released = fitted(&loaded, &DisplayState::default(), rect);
         let pressed = fitted(&loaded, &everything, rect);
+        let opacity =
+            (loaded.opacity_under(settings.block().opacity_fraction()) * 255.0).round() as u32;
         let mut prepared = Self {
             frame,
             rect,
@@ -454,7 +456,7 @@ impl Prepared {
             pressed,
             knobs,
             preset: loaded.preset,
-            opacity: (settings.block().opacity_fraction() * 255.0).round() as u32,
+            opacity,
             shown: DisplayState::default(),
         };
         prepared.draw(&DisplayState::default());

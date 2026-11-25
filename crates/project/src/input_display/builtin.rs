@@ -202,6 +202,22 @@ pub struct KeyLayout {
     pub mouse: Option<LayoutMouse>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gamepad: Option<GamepadParts>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<f64>,
+}
+
+pub const PRESET_SIZE_RANGE: (f64, f64) = (50.0, 200.0);
+pub const PRESET_OPACITY_RANGE: (f64, f64) = (20.0, 100.0);
+pub(super) const PRESET_FULL: f64 = 100.0;
+const UNSCALED_FRAME_SHARE: (f64, f64) = (0.06, 0.6);
+const WHOLE_FRAME: f64 = 1.0;
+
+fn preset_percent(value: Option<f64>, (low, high): (f64, f64)) -> f64 {
+    value
+        .filter(|value| value.is_finite())
+        .map_or(PRESET_FULL, |value| value.clamp(low, high))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -370,7 +386,7 @@ impl BuiltinPresetId {
         KeyLayout {
             keys,
             mouse: Some(LayoutMouse::default()),
-            gamepad: None,
+            ..Default::default()
         }
     }
 
@@ -1038,14 +1054,30 @@ impl KeyLayout {
         }
     }
 
-    pub fn frame_share(&self) -> f64 {
+    pub fn size_percent(&self) -> f64 {
+        preset_percent(self.size, PRESET_SIZE_RANGE)
+    }
+
+    pub fn opacity_percent(&self) -> f64 {
+        preset_percent(self.opacity, PRESET_OPACITY_RANGE)
+    }
+
+    pub fn opacity_fraction(&self) -> f64 {
+        self.opacity_percent() / PRESET_FULL
+    }
+
+    fn unscaled_frame_share(&self) -> f64 {
         if self.gamepad.is_some() {
             return BuiltinPresetId::Gamepad.frame_share();
         }
         let reference = BuiltinPresetId::WasdMouse;
         let share = reference.frame_share() * f64::from(self.size().0)
             / f64::from(reference.layout().size().0.max(1));
-        share.clamp(0.06, 0.6)
+        share.clamp(UNSCALED_FRAME_SHARE.0, UNSCALED_FRAME_SHARE.1)
+    }
+
+    pub fn frame_share(&self) -> f64 {
+        (self.unscaled_frame_share() * self.size_percent() / PRESET_FULL).min(WHOLE_FRAME)
     }
 
     pub fn size(&self) -> (u32, u32) {
@@ -1245,6 +1277,62 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_made_layout_carries_its_own_size_and_opacity() {
+        let plain = BuiltinPresetId::WasdMouse.layout();
+        let plain_share = plain.frame_share();
+        assert_eq!(
+            (plain.size_percent(), plain.opacity_percent()),
+            (100.0, 100.0)
+        );
+        assert!(!serde_json::to_string(&plain).unwrap().contains("opacity"));
+        assert_eq!(plain.opacity_fraction(), 1.0);
+
+        let made = KeyLayout {
+            size: Some(150.0),
+            opacity: Some(50.0),
+            ..plain.clone()
+        };
+        assert!((made.frame_share() - plain.frame_share() * 1.5).abs() < 1e-9);
+        assert_eq!(made.size(), plain.size());
+        assert_eq!(made.opacity_fraction(), 0.5);
+        assert_eq!(
+            made.art(InputDisplayStyle::Keycaps),
+            plain.art(InputDisplayStyle::Keycaps)
+        );
+        let read: KeyLayout =
+            serde_json::from_str(&serde_json::to_string(&made).unwrap()).unwrap();
+        assert_eq!(read, made);
+
+        let pad = KeyLayout {
+            gamepad: Some(GamepadParts::default()),
+            size: Some(50.0),
+            ..Default::default()
+        };
+        assert!((pad.frame_share() - BuiltinPresetId::Gamepad.frame_share() * 0.5).abs() < 1e-9);
+
+        let wild = KeyLayout {
+            size: Some(9000.0),
+            opacity: Some(f64::NAN),
+            ..plain
+        };
+        assert_eq!(wild.size_percent(), PRESET_SIZE_RANGE.1);
+        assert_eq!(wild.opacity_percent(), 100.0);
+        assert!((wild.frame_share() - plain_share * 2.0).abs() < 1e-9);
+
+        let full = BuiltinPresetId::FullKeyboard.layout();
+        let doubled = KeyLayout {
+            size: Some(200.0),
+            ..full.clone()
+        };
+        let halved = KeyLayout {
+            size: Some(50.0),
+            ..full.clone()
+        };
+        assert_eq!(doubled.frame_share(), 1.0);
+        assert!((halved.frame_share() - full.frame_share() * 0.5).abs() < 1e-9);
     }
 
     #[test]

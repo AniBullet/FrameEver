@@ -273,6 +273,8 @@ const startFrom = (from) => {
 	return {
 		from,
 		kind: from === "pad" ? "pad" : "keys",
+		size: 100,
+		opacity: 100,
 		keys,
 		sel: -1,
 		capture: from === "empty",
@@ -596,6 +598,9 @@ const renderBoard = () => {
 		: "";
 	board.innerHTML = `<svg class="io ${s.variant}" viewBox="0 0 ${COLS * U} ${ROWS * U}"><defs><pattern id="dots" width="${U / 2}" height="${U / 2}" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="rgba(255,255,255,0.16)"/></pattern></defs><rect width="${COLS * U}" height="${ROWS * U}" fill="url(#dots)"/>${keys}${block}</svg>`;
 };
+const MAKER_SHARE = { wasd: 30, full: 52, pad: 36, empty: 30 };
+const makerLook = () =>
+	`opacity:${m.opacity / 100};width:${Math.min(100, ((MAKER_SHARE[m.from] ?? 30) * m.size) / 100)}%`;
 const renderMaker = () => {
 	const flag = (key, on, en, zh) =>
 		`<label class="flag">${L(en, zh)}<button class="switch ${on ? "on" : ""}" data-mt="${key}" aria-label="${pick(en, zh)}"></button></label>`;
@@ -609,17 +614,21 @@ const renderMaker = () => {
 		}`;
 	renderBoard();
 	const picked = m.keys[m.sel];
-	document.getElementById("maker-key").innerHTML =
+	const slide = (key, low, en, zh) =>
+		`<label class="maker-slide"><span class="caption">${L(en, zh)}</span><input type="range" data-ms="${key}" min="${low}" max="${key === "size" ? 200 : 100}" value="${m[key]}" aria-label="${pick(en, zh)}"><span class="tnum" data-mv="${key}">${m[key]}%</span></label>`;
+	const chosen =
 		m.kind === "pad"
 			? `<span class="caption">${L("Shown", "显示")}</span>${chips("data-pp", PAD_PARTS, m.pad)}`
 			: m.sel === "mouse"
 				? `<span class="caption">${L("Mouse", "鼠标")}</span>${chips("data-mp", MOUSE_PARTS, m.mouse.parts)}<span class="grow"></span><button class="btn" data-md="mouse">${L("Remove", "移除")}</button>`
 				: picked
 					? `<input class="input" data-ml value="${picked.label}" aria-label="label"><div class="seg">${WIDTHS.map((w) => `<button data-mw="${w}" class="${picked.w === w ? "on" : ""}">${w}×</button>`).join("")}</div><button class="btn" data-md="one">${L("Delete", "删除")}</button>`
-					: "";
+					: `<span class="caption">${L("Select a key or the mouse to edit it", "选中按键或鼠标来编辑")}</span>`;
+	document.getElementById("maker-key").innerHTML =
+		`<div class="maker-sliders">${slide("size", 50, "Size", "大小")}${slide("opacity", 20, "Opacity", "不透明度")}</div><div class="maker-chosen">${chosen}</div>`;
 	const { view, body } = mine();
 	document.getElementById("maker-preview").innerHTML =
-		`<div class="stage ${s.scene} mini"><div class="ground"></div><svg class="io ${s.variant}" style="opacity:${s.opacity / 100}" viewBox="-6 -2 ${view[0] + 12} ${view[1] + 4}" aria-hidden="true">${body}</svg></div>${seg("variant", VARIANTS).replace('class="seg"', 'class="seg block"')}${seg(
+		`<div class="stage ${s.scene} mini"><div class="ground"></div><svg class="io ${s.variant}" style="${makerLook()}" viewBox="-6 -2 ${view[0] + 12} ${view[1] + 4}" aria-hidden="true">${body}</svg></div>${seg("variant", VARIANTS).replace('class="seg"', 'class="seg block"')}${seg(
 			"scene",
 			[
 				["dark", "Dark footage", "暗画面"],
@@ -654,8 +663,8 @@ const renderAll = () => {
 	renderRows();
 	document.getElementById("t-maker").innerHTML = L("Make a preset", "制作预设");
 	document.getElementById("l-maker").innerHTML = L(
-		"Proposal for #186, not built yet. A preset starts from any built-in one. A keyboard preset holds keys and one mouse block that is dragged like a key and shows only the buttons chosen for it. A gamepad preset is the built-in pad with parts switched off; its parts are not moved one by one. The right side draws the result the way the video will, in the chosen style, and lights up as you press. Today's maker has only the key grid, a mouse switch and WASD as the start.",
-		"#186 的方案，还没实现。预设可以从任何内置预设开始。键盘预设里有按键和一个鼠标块，鼠标块像按键一样拖动，只画选中的那些按钮。手柄预设是内置手柄去掉不要的部分，不逐个移动零件。右边按视频里的样子画出结果，用选中的样式，按下时会亮。现在的制作窗口只有按键网格、一个鼠标开关，并且只能从 WASD 开始。",
+		"A preset starts from any built-in one. A keyboard preset holds keys and one mouse block that is dragged like a key and shows only the buttons chosen for it. A gamepad preset is the built-in pad with parts switched off; its parts are not moved one by one, and its picture always stays inside the board. Under the board, one panel holds the preset's own size and opacity on the left and what is selected on the right; the window is exactly as tall as these rows. Size and opacity are saved in the preset and multiply the project's or the setting's own size and opacity. The right side draws the result the way the video will: bottom left, at the share of the frame it takes, at its opacity, in the chosen style, and it lights up as you press.",
+		"预设可以从任何内置预设开始。键盘预设里有按键和一个鼠标块，鼠标块像按键一样拖动，只画选中的那些按钮。手柄预设是内置手柄去掉不要的部分，不逐个移动零件，手柄的图始终画在面板里面。面板下方是一个属性栏：左边是预设自己的大小和不透明度，右边是选中的那一项；窗口正好和这几行一样高。大小和不透明度保存在预设里，和项目或设置里的大小、不透明度相乘。右边按视频里的样子画出结果：在左下角，按它占画面的比例和它的不透明度，用选中的样式，按下时会亮。",
 	);
 	renderMaker();
 };
@@ -797,6 +806,14 @@ window.addEventListener("keydown", (event) => {
 	live.add(event.code);
 });
 document.addEventListener("input", (event) => {
+	const slid = event.target.dataset?.ms;
+	if (slid) {
+		m[slid] = Number(event.target.value);
+		document.querySelector(`[data-mv="${slid}"]`).textContent = `${m[slid]}%`;
+		const picture = document.querySelector("#maker-preview .io");
+		if (picture) picture.setAttribute("style", makerLook());
+		return;
+	}
 	if (!event.target.matches("[data-ml]") || !m.keys[m.sel]) return;
 	m.keys[m.sel].label = event.target.value;
 	renderBoard();

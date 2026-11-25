@@ -258,7 +258,12 @@ impl InputDisplayLayer {
         constants.queue.write_buffer(
             &self.opacity,
             0,
-            bytemuck::cast_slice(&[block.opacity_fraction() as f32, 0.0, 0.0, 0.0]),
+            bytemuck::cast_slice(&[
+                loaded.opacity_under(block.opacity_fraction()) as f32,
+                0.0,
+                0.0,
+                0.0,
+            ]),
         );
 
         let drawn = Drawn {

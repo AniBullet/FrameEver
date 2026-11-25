@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use frameever_project::input_display::{
     DisplayState, GamepadPart, Input, InputDisplayStyle, KeyLayout, MAKER_COLUMNS, MAKER_ROWS,
-    MAKER_WIDTHS, MOUSE_BLOCK, MakerSelection, MakerStart, MousePart, PresetMaker,
+    MAKER_WIDTHS, MOUSE_BLOCK, MakerSelection, MakerStart, MousePart, PRESET_OPACITY_RANGE,
+    PRESET_SIZE_RANGE, PresetMaker,
     key_codes::{ALT_LEFT, CONTROL_LEFT, META_LEFT, SHIFT_LEFT},
     keystroke_code,
 };
@@ -24,11 +25,33 @@ use frameever_rendering::input_display::{LoadedPreset, compose, layout_preset, s
 const PREVIEW_WIDTH: f32 = 224.;
 const PREVIEW_HEIGHT: f32 = 126.;
 const PREVIEW_GAP: f32 = 16.;
+const PREVIEW_MARGIN: f32 = 8.;
+const BOARD_PADDING: f32 = 12.;
+const TOP_PADDING: f32 = 44.;
+const BOTTOM_PADDING: f32 = 20.;
+const SECTION_GAP: f32 = 8.;
+const ROW_HEIGHT: f32 = 34.;
+const PANEL_PADDING: f32 = 12.;
+const PANEL_BORDER: f32 = 1.;
+const PANEL_ROW_HEIGHT: f32 = 30.;
+const PANEL_HEIGHT: f32 =
+    2. * PANEL_ROW_HEIGHT + SECTION_GAP + 2. * PANEL_PADDING + 2. * PANEL_BORDER;
+const PREVIEW_STACK_GAP: f32 = 5.;
+const SLIDER_LABEL_WIDTH: f32 = 88.;
+const SLIDER_VALUE_WIDTH: f32 = 44.;
+const SLIDERS_WIDTH: f32 = 320.;
+const FOOTER_HEIGHT: f32 = 32.;
 const DARK_FOOTAGE: (u32, u32) = (0x1c2026, 0x272d35);
 const BRIGHT_FOOTAGE: (u32, u32) = (0xd5dbe1, 0xb9c2cb);
 
 pub const MAKER_WINDOW_WIDTH: f32 = 784. + PREVIEW_GAP + PREVIEW_WIDTH;
-pub const MAKER_WINDOW_HEIGHT: f32 = 460.;
+pub const MAKER_WINDOW_HEIGHT: f32 = TOP_PADDING
+    + ROW_HEIGHT
+    + UNIT * MAKER_ROWS as f32
+    + PANEL_HEIGHT
+    + FOOTER_HEIGHT
+    + BOTTOM_PADDING
+    + 3. * SECTION_GAP;
 pub const MAKER_WINDOW_TITLE: &str = concat!(crate::brand::app_name!(), " Preset Maker");
 
 const UNIT: f32 = 40.;
@@ -106,6 +129,96 @@ fn preview_pixels(loaded: &LoadedPreset, input: &DisplayState) -> image::RgbaIma
     picture
 }
 
+fn fitted_size(picture: (f32, f32), frame: (f32, f32)) -> (f32, f32) {
+    if picture.0 <= 0. || picture.1 <= 0. {
+        return (0., 0.);
+    }
+    let scale = (frame.0 / picture.0).min(frame.1 / picture.1);
+    (picture.0 * scale, picture.1 * scale)
+}
+
+fn preview_size(picture: (f32, f32), frame_share: f32, frame: (f32, f32)) -> (f32, f32) {
+    if picture.0 <= 0. || picture.1 <= 0. {
+        return (0., 0.);
+    }
+    let width = frame.0 * frame_share;
+    let wanted = (width, width * picture.1 / picture.0);
+    let room = (frame.0 - 2. * PREVIEW_MARGIN, frame.1 - 2. * PREVIEW_MARGIN);
+    if wanted.0 <= room.0 && wanted.1 <= room.1 {
+        wanted
+    } else {
+        fitted_size(picture, room)
+    }
+}
+
+fn unscaled_layout(model: &PresetMaker) -> KeyLayout {
+    KeyLayout {
+        size: None,
+        opacity: None,
+        ..model.layout()
+    }
+}
+
+fn picture_size(picture: &RenderImage) -> (f32, f32) {
+    let size = picture.size(0);
+    (u32::from(size.width) as f32, u32::from(size.height) as f32)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MakerSlider {
+    Size,
+    Opacity,
+}
+
+impl MakerSlider {
+    const ALL: [Self; 2] = [Self::Size, Self::Opacity];
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Size => "preset-maker-size",
+            Self::Opacity => "preset-maker-opacity",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Size => t!("Size"),
+            Self::Opacity => t!("Opacity"),
+        }
+    }
+
+    fn range(self) -> (f32, f32) {
+        let (low, high) = match self {
+            Self::Size => PRESET_SIZE_RANGE,
+            Self::Opacity => PRESET_OPACITY_RANGE,
+        };
+        (low as f32, high as f32)
+    }
+
+    fn read(self, model: &PresetMaker) -> f32 {
+        (match self {
+            Self::Size => model.size,
+            Self::Opacity => model.opacity,
+        }) as f32
+    }
+
+    fn set(self, model: &mut PresetMaker, value: f32) -> bool {
+        match self {
+            Self::Size => model.set_size(f64::from(value)),
+            Self::Opacity => model.set_opacity(f64::from(value)),
+        }
+    }
+
+    fn fraction(self, model: &PresetMaker) -> f32 {
+        let (low, high) = self.range();
+        ((self.read(model) - low) / (high - low)).clamp(0., 1.)
+    }
+
+    fn value_label(self, model: &PresetMaker) -> String {
+        format!("{}%", self.read(model).round() as i32)
+    }
+}
+
 #[derive(Default)]
 struct MakerPreview {
     drawn: Option<(KeyLayout, InputDisplayStyle, Option<LoadedPreset>)>,
@@ -168,6 +281,8 @@ pub struct InputPresetMaker {
     bright_footage: bool,
     modifiers: gpui::Modifiers,
     save_failed: bool,
+    slider_tracks: [ui::SliderTrack; 2],
+    slider_drag: Option<MakerSlider>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -210,6 +325,7 @@ impl InputPresetMaker {
                     this.model.release_all();
                     this.modifiers = gpui::Modifiers::default();
                     this.drag = None;
+                    this.slider_drag = None;
                     cx.notify();
                 }
             }),
@@ -228,6 +344,8 @@ impl InputPresetMaker {
             bright_footage: false,
             modifiers: gpui::Modifiers::default(),
             save_failed: false,
+            slider_tracks: Default::default(),
+            slider_drag: None,
             _subscriptions: subscriptions,
         }
     }
@@ -353,6 +471,120 @@ impl InputPresetMaker {
         }
     }
 
+    fn slider_track(&self, slider: MakerSlider) -> &ui::SliderTrack {
+        match slider {
+            MakerSlider::Size => &self.slider_tracks[0],
+            MakerSlider::Opacity => &self.slider_tracks[1],
+        }
+    }
+
+    fn slide_to(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(slider) = self.slider_drag else {
+            return;
+        };
+        let (low, high) = slider.range();
+        if let Some(value) = ui::slider_value_at(self.slider_track(slider), position, low, high, 1.)
+            && slider.set(&mut self.model, value)
+        {
+            cx.notify();
+        }
+    }
+
+    fn render_slider_row(&self, slider: MakerSlider, cx: &mut Context<Self>) -> gpui::Div {
+        let theme = self.theme;
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(12.))
+            .h(px(PANEL_ROW_HEIGHT))
+            .child(
+                div()
+                    .w(px(SLIDER_LABEL_WIDTH))
+                    .flex_none()
+                    .text_color(Hsla::from(theme.muted_foreground))
+                    .child(slider.label()),
+            )
+            .child(
+                ui::Slider::new(
+                    slider.id(),
+                    slider.fraction(&self.model),
+                    self.slider_track(slider).clone(),
+                )
+                .flex()
+                .track(px(5.), theme.settings_fill())
+                .fill(Hsla::from(theme.primary))
+                .thumb(
+                    px(16.),
+                    if theme.is_dark() {
+                        Hsla::from(theme.foreground)
+                    } else {
+                        Hsla::from(theme.background)
+                    },
+                    Some(theme.settings_border()),
+                )
+                .thumb_top(px(-6.))
+                .on_drag_start(cx.listener(
+                    move |this, event: &MouseDownEvent, window, cx| {
+                        this.focus_root(window, cx);
+                        this.slider_drag = Some(slider);
+                        this.slide_to(event.position, cx);
+                    },
+                )),
+            )
+            .child(
+                div()
+                    .w(px(SLIDER_VALUE_WIDTH))
+                    .flex_none()
+                    .flex()
+                    .justify_end()
+                    .child(slider.value_label(&self.model)),
+            )
+    }
+
+    fn render_panel(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let theme = self.theme;
+        div()
+            .flex()
+            .flex_row()
+            .flex_none()
+            .h(px(PANEL_HEIGHT))
+            .p(px(PANEL_PADDING))
+            .gap(px(24.))
+            .rounded(px(8.))
+            .border(px(PANEL_BORDER))
+            .border_color(Hsla::from(theme.border))
+            .bg(Hsla::from(theme.card))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .w(px(SLIDERS_WIDTH))
+                    .gap(px(SECTION_GAP))
+                    .children(
+                        MakerSlider::ALL
+                            .into_iter()
+                            .map(|slider| self.render_slider_row(slider, cx)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(1.))
+                    .h_full()
+                    .bg(Hsla::from(theme.border)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_w_0()
+                    .items_center()
+                    .child(self.render_selected_key(cx)),
+            )
+    }
+
     fn start_from(&mut self, start: MakerStart, cx: &mut Context<Self>) {
         self.model = PresetMaker::starting(start, self.model.name.clone());
         self.drag = None;
@@ -421,13 +653,26 @@ impl InputPresetMaker {
             .rounded(px(8.))
             .bg(rgb(PICTURE_BACKDROP));
         if self.model.gamepad.is_some() {
-            return board.child(div().absolute().inset_0().p(px(12.)).children(
-                self.preview.image.clone().map(|picture| {
-                    img(picture)
-                        .size_full()
-                        .object_fit(gpui::ObjectFit::Contain)
-                }),
-            ));
+            let room = (
+                UNIT * MAKER_COLUMNS as f32 - 2. * BOARD_PADDING,
+                UNIT * MAKER_ROWS as f32 - 2. * BOARD_PADDING,
+            );
+            return board.overflow_hidden().child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .children(self.preview.image.clone().map(|picture| {
+                        let (width, height) = fitted_size(picture_size(&picture), room);
+                        img(picture)
+                            .flex_none()
+                            .w(px(width))
+                            .h(px(height))
+                            .object_fit(gpui::ObjectFit::Fill)
+                    })),
+            );
         }
         let mut board = board.on_mouse_down(
             MouseButton::Left,
@@ -542,7 +787,7 @@ impl InputPresetMaker {
             .w(px(PREVIEW_WIDTH))
             .flex()
             .flex_col()
-            .gap(px(8.))
+            .gap(px(PREVIEW_STACK_GAP))
             .child(
                 div()
                     .id("preset-maker-preview")
@@ -561,13 +806,26 @@ impl InputPresetMaker {
                             .h(relative(0.38))
                             .bg(rgb(ground)),
                     )
-                    .child(div().absolute().inset_0().p(px(12.)).children(
-                        self.preview.image.clone().map(|picture| {
-                            img(picture)
-                                .size_full()
-                                .object_fit(gpui::ObjectFit::Contain)
-                        }),
-                    )),
+                    .children(self.preview.image.clone().map(|picture| {
+                        let (width, height) = preview_size(
+                            picture_size(&picture),
+                            self.model.layout().frame_share() as f32,
+                            (PREVIEW_WIDTH, PREVIEW_HEIGHT),
+                        );
+                        div()
+                            .absolute()
+                            .left(px(PREVIEW_MARGIN))
+                            .bottom(px(PREVIEW_MARGIN))
+                            .w(px(width))
+                            .h(px(height))
+                            .opacity(self.model.opacity as f32 / 100.)
+                            .child(
+                                img(picture)
+                                    .w(px(width))
+                                    .h(px(height))
+                                    .object_fit(gpui::ObjectFit::Fill),
+                            )
+                    })),
             )
             .child(
                 ui::SegmentedControl::editor(
@@ -664,9 +922,12 @@ impl InputPresetMaker {
         let row = div()
             .flex()
             .flex_row()
+            .flex_wrap()
+            .flex_1()
+            .min_w_0()
             .items_center()
-            .gap(px(16.))
-            .min_h(px(34.));
+            .gap_x(px(16.))
+            .gap_y(px(SECTION_GAP));
         if self.model.gamepad.is_some() {
             return self.render_gamepad_parts(row, cx);
         }
@@ -674,7 +935,9 @@ impl InputPresetMaker {
             return self.render_selected_mouse(row, cx);
         }
         let Some(key) = self.model.selected_key() else {
-            return row;
+            return row
+                .text_color(Hsla::from(theme.muted_foreground))
+                .child(t!("Select a key or the mouse to edit it"));
         };
         row.child(
             ui::TextInput::plain(&theme, "preset-maker-label", &self.label)
@@ -725,7 +988,7 @@ impl Render for InputPresetMaker {
         let theme = self.theme;
         let can_save = self.model.can_save();
         self.preview.refresh(
-            self.model.layout(),
+            unscaled_layout(&self.model),
             self.preview_style,
             preview_input(self.model.held()),
         );
@@ -740,7 +1003,8 @@ impl Render for InputPresetMaker {
             .flex_row()
             .items_center()
             .gap(px(16.))
-            .min_h(px(34.))
+            .flex_none()
+            .h(px(ROW_HEIGHT))
             .when_some(self.model.start, |bar, chosen| {
                 bar.child(
                     div()
@@ -805,6 +1069,8 @@ impl Render for InputPresetMaker {
         let footer = div()
             .flex()
             .flex_row()
+            .flex_none()
+            .h(px(FOOTER_HEIGHT))
             .items_center()
             .gap(px(8.))
             .child(
@@ -874,10 +1140,10 @@ impl Render for InputPresetMaker {
             .relative()
             .flex()
             .flex_col()
-            .gap(px(8.))
+            .gap(px(SECTION_GAP))
             .px(px(32.))
-            .pt(px(44.))
-            .pb(px(20.))
+            .pt(px(TOP_PADDING))
+            .pb(px(BOTTOM_PADDING))
             .bg(Hsla::from(theme.background))
             .font_family(crate::theme::ui_font())
             .font_weight(FontWeight::MEDIUM)
@@ -888,14 +1154,27 @@ impl Render for InputPresetMaker {
                 div()
                     .flex()
                     .flex_row()
+                    .flex_none()
+                    .h(px(UNIT * MAKER_ROWS as f32))
                     .items_start()
                     .gap(px(PREVIEW_GAP))
                     .child(self.render_board(cx))
                     .child(self.render_preview(cx)),
             )
-            .child(self.render_selected_key(cx))
-            .child(div().flex_1())
-            .child(footer);
+            .child(self.render_panel(cx))
+            .child(footer)
+            .when(self.slider_drag.is_some(), |shell| {
+                shell.child(ui::Slider::drag_layer(
+                    "preset-maker-slider-drag",
+                    cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                        this.slide_to(event.position, cx);
+                    }),
+                    cx.listener(|this, _, _, cx| {
+                        this.slider_drag = None;
+                        cx.notify();
+                    }),
+                ))
+            });
 
         #[cfg(target_os = "windows")]
         let shell = shell.child(
@@ -1071,5 +1350,65 @@ mod tests {
             UNIT * MAKER_COLUMNS as f32 + PREVIEW_GAP + PREVIEW_WIDTH + 64. <= MAKER_WINDOW_WIDTH
         );
         assert!(UNIT * MAKER_ROWS as f32 + 240. <= MAKER_WINDOW_HEIGHT);
+    }
+
+    #[test]
+    fn everything_beside_and_under_the_board_fits_its_row() {
+        let board = UNIT * MAKER_ROWS as f32;
+        let preview_column =
+            PREVIEW_HEIGHT + 2. * (PREVIEW_STACK_GAP + crate::theme::CONTROL_HEIGHT);
+        assert!(preview_column <= board);
+        let panel_room = PANEL_HEIGHT - 2. * PANEL_PADDING - 2. * PANEL_BORDER;
+        assert!(2. * PANEL_ROW_HEIGHT + SECTION_GAP <= panel_room);
+        assert!(2. * crate::theme::CONTROL_HEIGHT + SECTION_GAP <= panel_room + 4.);
+    }
+
+    fn near(got: (f32, f32), wanted: (f32, f32)) -> bool {
+        (got.0 - wanted.0).abs() < 1e-3 && (got.1 - wanted.1).abs() < 1e-3
+    }
+
+    #[test]
+    fn a_picture_is_drawn_whole_inside_its_frame() {
+        assert!(near(fitted_size((1000., 500.), (696., 176.)), (352., 176.)));
+        assert!(near(fitted_size((300., 600.), (696., 176.)), (88., 176.)));
+        assert!(near(fitted_size((2000., 100.), (696., 176.)), (696., 34.8)));
+        assert_eq!(fitted_size((0., 0.), (696., 176.)), (0., 0.));
+    }
+
+    #[test]
+    fn the_preview_draws_the_preset_at_the_share_of_the_frame_it_will_take() {
+        let frame = (PREVIEW_WIDTH, PREVIEW_HEIGHT);
+        assert!(near(preview_size((600., 300.), 0.3, frame), (67.2, 33.6)));
+        assert!(near(preview_size((600., 300.), 0.6, frame), (134.4, 67.2)));
+        let tall = preview_size((100., 400.), 0.6, frame);
+        assert!(tall.1 <= PREVIEW_HEIGHT - 2. * PREVIEW_MARGIN);
+        assert!((tall.0 / tall.1 - 0.25).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_sliders_read_and_set_the_preset_size_and_opacity() {
+        let mut model = PresetMaker::starting(MakerStart::WasdMouse, "Mine");
+        assert_eq!(MakerSlider::Size.fraction(&model), 1. / 3.);
+        assert_eq!(MakerSlider::Opacity.fraction(&model), 1.);
+        assert!(MakerSlider::Size.set(&mut model, 200.));
+        assert!(MakerSlider::Opacity.set(&mut model, 20.));
+        assert_eq!(MakerSlider::Size.fraction(&model), 1.);
+        assert_eq!(MakerSlider::Opacity.fraction(&model), 0.);
+        assert_eq!(MakerSlider::Size.value_label(&model), "200%");
+        assert_eq!(MakerSlider::Opacity.value_label(&model), "20%");
+        assert!(!MakerSlider::Size.label().is_empty());
+        assert!(!MakerSlider::Opacity.label().is_empty());
+    }
+
+    #[test]
+    fn the_preview_picture_is_drawn_once_whatever_the_size_and_opacity() {
+        let mut model = PresetMaker::starting(MakerStart::WasdMouse, "Mine");
+        let mut preview = MakerPreview::default();
+        let style = InputDisplayStyle::Keycaps;
+        assert!(preview.refresh(unscaled_layout(&model), style, DisplayState::default()));
+        model.set_size(180.);
+        model.set_opacity(30.);
+        assert!(!preview.refresh(unscaled_layout(&model), style, DisplayState::default()));
+        assert!(unscaled_layout(&model).frame_share() < model.layout().frame_share());
     }
 }
