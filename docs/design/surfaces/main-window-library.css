@@ -1058,31 +1058,13 @@ main > section .seg {
 }
 
 .preview-top {
-	position: absolute;
-	top: 0;
-	left: 0;
-	right: 0;
+	flex: none;
 	display: flex;
 	align-items: center;
 	gap: 8px;
 	height: 48px;
 	padding: 0 12px;
 	background: var(--popover);
-}
-
-.preview-side {
-	position: absolute;
-	top: 50%;
-	transform: translateY(-50%);
-	background: var(--popover);
-}
-
-.preview-side.left {
-	left: 12px;
-}
-
-.preview-side.right {
-	right: 12px;
 }
 
 .preview-top .grow {
@@ -1101,8 +1083,9 @@ main > section .seg {
 }
 
 .preview-media {
-	position: absolute;
-	inset: 0;
+	position: relative;
+	flex: 1;
+	min-height: 0;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -1120,10 +1103,7 @@ main > section .seg {
 }
 
 .preview-foot {
-	position: absolute;
-	left: 0;
-	right: 0;
-	bottom: 0;
+	flex: none;
 	display: flex;
 	align-items: center;
 	gap: 10px;

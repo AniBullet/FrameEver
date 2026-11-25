@@ -865,20 +865,19 @@ class MainWindow {
 		const k = KIND[item.kind];
 		const video = item.kind !== "screenshot";
 		const whole = this.s.whole;
-		const top = `<div class="preview-top"><span class="grow"><b>${item.name}</b><span class="dim tnum">${L(...k.name)}${item.dur ? ` · ${item.dur}` : ""} · ${item.size}</span></span><button class="btn">${L("Open in editor", "在编辑器中打开")}</button><button class="btn ghost icon" title="${pick("Export", "导出")}">${icon("download")}</button><button class="btn ghost icon" title="${pick("Open in default app", "用默认应用打开")}">${icon("external-link")}</button><button class="btn ghost icon" title="${pick("Show in folder", "在文件夹中显示")}">${icon("folder-open")}</button><button class="btn ghost icon" data-a="close-preview" title="Esc">${icon("x")}</button></div>`;
+		const top = `<div class="preview-top"><button class="btn ghost icon" data-a="step" data-v="-1" title="${pick("Previous item  PgUp", "上一个  PgUp")}">${icon("chevron-left")}</button><button class="btn ghost icon" data-a="step" data-v="1" title="${pick("Next item  PgDn", "下一个  PgDn")}">${icon("chevron-right")}</button><span class="grow"><b>${item.name}</b><span class="dim tnum">${L(...k.name)}${item.dur ? ` · ${item.dur}` : ""} · ${item.size}</span></span><button class="btn">${L("Open in editor", "在编辑器中打开")}</button><button class="btn ghost icon" title="${pick("Export", "导出")}">${icon("download")}</button><button class="btn ghost icon" title="${pick("Open in default app", "用默认应用打开")}">${icon("external-link")}</button><button class="btn ghost icon" title="${pick("Show in folder", "在文件夹中显示")}">${icon("folder-open")}</button><button class="btn ghost icon" data-a="close-preview" title="Esc">${icon("x")}</button></div>`;
 		const frames = item.dur
 			? item.dur
 					.split(":")
 					.map(Number)
 					.reduce((total, part) => total * 60 + part, 0) * 30
 			: 0;
-		const sides = `<button class="btn ghost icon preview-side left" data-a="step" data-v="-1" title="${pick("Previous item  PgUp", "上一个  PgUp")}">${icon("chevron-left")}</button><button class="btn ghost icon preview-side right" data-a="step" data-v="1" title="${pick("Next item  PgDn", "下一个  PgDn")}">${icon("chevron-right")}</button>`;
 		const size = video
 			? pick("Actual size  Z", "原始大小  Z")
 			: pick("Fit to window  Z", "适应窗口  Z");
 		return `<div class="preview${whole ? " whole" : ""}">
+			${whole ? "" : top}
 			<div class="preview-media"><span class="thumb${video ? " filled" : ""}">${art(item.art)}</span></div>
-			${whole ? "" : top}${sides}
 			<div class="preview-foot tnum">${video ? `<button class="play-btn" data-a="play" title="${pick("Play, pause  Space", "播放、暂停  空格")}">${icon(this.s.playing ? "pause" : "play")}</button><span>0:53 · 1591 / ${frames}</span><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><button class="play-btn" title="${pick("Mute  M", "静音  M")}">${icon("volume-2")}</button><div class="slider volume"><i></i><b style="width:70%"></b><u style="left:70%"></u></div><button class="play-btn${this.s.looping ? " on" : ""}" data-a="loop" title="${pick("Loop  R", "循环  R")}">${icon("repeat")}</button>` : `<span style="flex:1"></span>`}<button class="play-btn" title="${size}">${icon("scan")}</button><button class="play-btn" data-a="whole" title="F">${icon(whole ? "minimize" : "maximize")}</button></div></div>`;
 	}
 
@@ -1854,8 +1853,8 @@ const titles = {
 	keys: [
 		"Keyboard",
 		"键盘",
-		"Every action has a keyboard path. Esc unwinds one level at a time inside the window and never closes it. Ctrl+L in the recording window opens the library or brings it forward; in the library it brings the recording window forward. Closing the library closes only the library; closing the recording window hides it to the tray. The large preview works like a review player: a video opens filling the stage without cropping, the arrows step exact frames, a drag on the picture scrubs and stays paused, and the label shows the frame as 0:03 · 87 / 240. Its controls sit over the picture and hide after a pause in pointer movement while it plays; the volume is kept until the app closes.",
-		"每个操作都能用键盘完成。Esc 在窗口内逐层退，从不关闭窗口。在录制窗口按 Ctrl+L 打开资源库或把它带到前面，在资源库里按则把录制窗口带到前面。关资源库只关资源库；关录制窗口是藏进托盘。大预览按审片播放器的方式工作：视频打开时铺满画面区域而不裁切，方向键精确逐帧，在画面上拖动是逐帧拖动、松手后保持暂停，标签显示帧号，如 0:03 · 87 / 240。控制条盖在画面上，播放时指针停一会儿就隐藏；音量在应用关闭前一直保留。",
+		"Every action has a keyboard path. Esc unwinds one level at a time inside the window and never closes it. Ctrl+L in the recording window opens the library or brings it forward; in the library it brings the recording window forward. Closing the library closes only the library; closing the recording window hides it to the tray. The large preview works like a review player: a video opens filling the stage without cropping, the arrows step exact frames, a drag on the picture scrubs and stays paused, and the label shows the frame as 0:03 · 87 / 240. In a window the picture sits between the top bar and the controls and nothing is ever drawn over it; on the whole screen the picture takes everything, and the controls and the side arrows appear over it on pointer movement and leave once the pointer rests, playing or paused. The volume is kept until the app closes.",
+		"每个操作都能用键盘完成。Esc 在窗口内逐层退，从不关闭窗口。在录制窗口按 Ctrl+L 打开资源库或把它带到前面，在资源库里按则把录制窗口带到前面。关资源库只关资源库；关录制窗口是藏进托盘。大预览按审片播放器的方式工作：视频打开时铺满画面区域而不裁切，方向键精确逐帧，在画面上拖动是逐帧拖动、松手后保持暂停，标签显示帧号，如 0:03 · 87 / 240。在窗口里，画面放在顶栏和控制条之间，任何东西都不会画在它上面；整屏时画面占满屏幕，指针一动控制条和两侧箭头才浮出来，指针停下后离开，播放和暂停时都一样。音量在应用关闭前一直保留。",
 	],
 };
 for (const [key, [en, zh, leadEn, leadZh]] of Object.entries(titles)) {

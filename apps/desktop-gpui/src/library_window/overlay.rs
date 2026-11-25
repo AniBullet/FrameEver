@@ -331,7 +331,10 @@ fn stage_box(full_screen: bool, viewport: (f32, f32), header: f32) -> ((f32, f32
     if full_screen {
         ((0., 0.), viewport)
     } else {
-        ((0., header), (viewport.0, viewport.1 - header))
+        (
+            (0., header + TOP_BAR),
+            (viewport.0, (viewport.1 - header - TOP_BAR - FOOT).max(0.)),
+        )
     }
 }
 
@@ -501,8 +504,8 @@ impl Overlay {
         self.gesture = None;
     }
 
-    fn shows_controls(&self, playing: bool, now: Instant) -> bool {
-        !playing || now < self.controls_until
+    fn shows_controls(&self, now: Instant) -> bool {
+        !self.full_screen || now < self.controls_until
     }
 
     fn held_still(&self, path: &Path) -> Option<&Still> {
@@ -1135,6 +1138,8 @@ impl LibraryWindow {
             .gap(px(8.))
             .h(px(TOP_BAR))
             .px(px(12.))
+            .child(self.overlay_step_button(false, entry, cx))
+            .child(self.overlay_step_button(true, entry, cx))
             .child(
                 div()
                     .flex()
@@ -1229,7 +1234,7 @@ impl LibraryWindow {
         forward: bool,
         entry: &Entry,
         cx: &mut Context<Self>,
-    ) -> gpui::Div {
+    ) -> gpui::Stateful<gpui::Div> {
         let (id, icon, label, key): (_, _, _, &'static [&'static str]) = if forward {
             (
                 "library-overlay-next",
@@ -1246,16 +1251,21 @@ impl LibraryWindow {
             )
         };
         let reachable = view::neighbour(&self.library.order, &entry.path, forward).is_some();
-        let button = self
-            .preview_button(id, icon, STEP_ICON, label, key)
-            .occlude()
-            .bg(self.theme.popover)
+        self.preview_button(id, icon, STEP_ICON, label, key)
             .when(!reachable, |this| this.opacity(0.5))
             .when(reachable, |this| {
                 this.on_click(cx.listener(move |this, _, window, cx| {
                     this.step_library_overlay(forward, window, cx);
                 }))
-            });
+            })
+    }
+
+    fn overlay_edge_step_button(
+        &self,
+        forward: bool,
+        entry: &Entry,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         div()
             .absolute()
             .top_0()
@@ -1264,7 +1274,11 @@ impl LibraryWindow {
             .when(!forward, |this| this.left(px(EDGE_INSET)))
             .flex()
             .items_center()
-            .child(button)
+            .child(
+                self.overlay_step_button(forward, entry, cx)
+                    .occlude()
+                    .bg(self.theme.popover),
+            )
     }
 
     fn overlay_size_action(&self, window: &Window) -> SizeAction {
@@ -1367,7 +1381,7 @@ impl LibraryWindow {
         let placed = self.overlay_placed(window);
         let picture = self.preview_picture(entry, overlay.still_of(&entry.path), placed, cx);
         let picture = self.overlay_stage(picture, cx);
-        let controls = overlay.shows_controls(preview.playing, now);
+        let controls = overlay.shows_controls(now);
         let full_screen = overlay.full_screen;
         let root = div()
             .id("library-overlay")
@@ -1402,34 +1416,34 @@ impl LibraryWindow {
                 cx.listener(Self::release_library_overlay_stage),
             );
         Some(
-            root.child(picture)
-                .when(controls, |this| {
-                    this.when(!full_screen, |this| {
-                        this.child(
+            if full_screen {
+                root.child(picture).when(controls, |this| {
+                    this.child(self.overlay_edge_step_button(false, entry, cx))
+                        .child(self.overlay_edge_step_button(true, entry, cx))
+                        .child(
                             div()
                                 .absolute()
                                 .left_0()
                                 .right_0()
-                                .top_0()
+                                .bottom_0()
                                 .occlude()
                                 .bg(theme.popover)
-                                .child(self.render_overlay_top(entry, cx)),
+                                .child(self.render_overlay_foot(entry, window, cx)),
                         )
-                    })
-                    .child(self.overlay_step_button(false, entry, cx))
-                    .child(self.overlay_step_button(true, entry, cx))
+                })
+            } else {
+                root.child(self.render_overlay_top(entry, cx))
                     .child(
                         div()
-                            .absolute()
-                            .left_0()
-                            .right_0()
-                            .bottom_0()
-                            .occlude()
-                            .bg(theme.popover)
-                            .child(self.render_overlay_foot(entry, window, cx)),
+                            .flex_1()
+                            .min_h_0()
+                            .relative()
+                            .overflow_hidden()
+                            .child(picture),
                     )
-                })
-                .into_any_element(),
+                    .child(self.render_overlay_foot(entry, window, cx))
+            }
+            .into_any_element(),
         )
     }
 
@@ -1705,7 +1719,10 @@ mod tests {
         assert_eq!(stage_pixels(true, false, (1920., 1080.), 1.5), (2880, 1620));
         assert_eq!(
             stage_pixels(false, false, (1000., 700.), 2.),
-            (2000, ((700. - HEADER_HEIGHT) * 2.).round() as u32)
+            (
+                2000,
+                ((700. - HEADER_HEIGHT - TOP_BAR - FOOT) * 2.).round() as u32
+            )
         );
     }
 
@@ -1727,11 +1744,12 @@ mod tests {
     }
 
     #[test]
-    fn the_picture_uses_the_whole_area_under_the_window_header() {
+    fn in_a_window_the_picture_sits_between_the_bars_and_is_never_under_them() {
         assert_eq!(
             stage_box(false, (1000., 700.), 40.),
-            ((0., 40.), (1000., 660.))
+            ((0., 40. + TOP_BAR), (1000., 660. - TOP_BAR - FOOT))
         );
+        assert_eq!(stage_box(false, (300., 60.), 40.).1, (300., 0.));
         assert_eq!(
             stage_box(true, (1920., 1080.), 40.),
             ((0., 0.), (1920., 1080.))
@@ -2045,15 +2063,14 @@ mod tests {
     }
 
     #[test]
-    fn controls_hide_only_while_playing_and_idle_in_a_window_and_on_the_whole_screen() {
+    fn the_bars_stay_in_a_window_and_leave_the_whole_screen_once_the_pointer_rests() {
         let start = Instant::now();
-        for full_screen in [false, true] {
-            let mut overlay = Overlay::new(None, start);
-            overlay.full_screen = full_screen;
-            overlay.controls_until = start + CONTROLS_HOLD;
-            assert!(overlay.shows_controls(true, start));
-            assert!(!overlay.shows_controls(true, start + CONTROLS_HOLD));
-            assert!(overlay.shows_controls(false, start + CONTROLS_HOLD));
-        }
+        let mut overlay = Overlay::new(None, start);
+        overlay.controls_until = start + CONTROLS_HOLD;
+        assert!(overlay.shows_controls(start));
+        assert!(overlay.shows_controls(start + CONTROLS_HOLD));
+        overlay.full_screen = true;
+        assert!(overlay.shows_controls(start));
+        assert!(!overlay.shows_controls(start + CONTROLS_HOLD));
     }
 }
