@@ -27,6 +27,15 @@ const VOLUME_WIDTH: f32 = 72.;
 const VOLUME_KEY_STEP: f32 = 0.05;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+struct Looping(bool);
+
+impl Default for Looping {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Volume(f32);
 
 impl Default for Volume {
@@ -65,6 +74,7 @@ pub(super) struct PreviewState {
     pump: Option<Task<()>>,
     pub(super) playing: bool,
     muted: bool,
+    looping: Looping,
     volume: Volume,
     position: f64,
     duration: Option<f64>,
@@ -237,6 +247,7 @@ impl LibraryWindow {
             position,
             muted: preview.muted,
             volume: preview.volume.level(),
+            looping: preview.looping.0,
             bounds: preview.bounds,
         };
         let Some((player, events)) = Player::open(&entry.path, load, start, None) else {
@@ -435,6 +446,15 @@ impl LibraryWindow {
         preview.muted = !preview.muted;
         if let Some(player) = &preview.player {
             player.set_muted(preview.muted);
+        }
+        cx.notify();
+    }
+
+    pub(super) fn toggle_library_loop(&mut self, cx: &mut Context<Self>) {
+        let preview = &mut self.library.detail.preview;
+        preview.looping = Looping(!preview.looping.0);
+        if let Some(player) = &preview.player {
+            player.set_looping(preview.looping.0);
         }
         cx.notify();
     }
@@ -823,6 +843,22 @@ impl LibraryWindow {
             }))
     }
 
+    pub(super) fn preview_loop_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let on = self.library.detail.preview.looping.0;
+        self.preview_button(
+            "library-preview-loop",
+            "icons/repeat.svg",
+            ICON_SIZE,
+            t!("Loop"),
+            &["R"],
+        )
+        .when(on, |this| this.bg(theme.accent))
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.toggle_library_loop(cx);
+        }))
+    }
+
     pub(super) fn preview_time(&self, duration: f64) -> impl IntoElement {
         let position = self.library.detail.preview.position;
         div()
@@ -1046,6 +1082,15 @@ mod tests {
         assert_eq!(Volume::new(0.4).level(), 0.4);
         assert_eq!(Volume::new(1.5).level(), 1.);
         assert_eq!(Volume::new(-0.2).level(), 0.);
+    }
+
+    #[test]
+    fn the_preview_starts_looping_and_keeps_the_choice_across_stop() {
+        let mut preview = PreviewState::default();
+        assert!(preview.looping.0);
+        preview.looping = Looping(false);
+        preview.stop();
+        assert!(!preview.looping.0);
     }
 
     #[test]

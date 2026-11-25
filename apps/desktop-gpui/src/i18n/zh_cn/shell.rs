@@ -241,6 +241,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Exit whole screen", "退出整屏"),
     ("Actual size", "原始大小"),
     ("Fit to window", "适应窗口"),
+    ("Loop", "循环"),
     ("Previous item", "上一个"),
     ("Next item", "下一个"),
     ("Cancel", "取消"),

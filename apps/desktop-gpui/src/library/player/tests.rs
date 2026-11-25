@@ -91,6 +91,7 @@ fn start_at(position: f64) -> Start {
         position,
         muted: true,
         volume: 1.,
+        looping: false,
         bounds: BOUNDS,
     }
 }
@@ -98,6 +99,45 @@ fn start_at(position: f64) -> Start {
 fn open(segments: Vec<Segment>, position: f64) -> (Player, flume::Receiver<Event>) {
     let project = segments[0].video.clone();
     Player::open(&project, move || Ok(segments), start_at(position), None).unwrap()
+}
+
+fn open_looping(segments: Vec<Segment>, looping: bool) -> (Player, flume::Receiver<Event>) {
+    let project = segments[0].video.clone();
+    let start = Start {
+        looping,
+        ..start_at(0.)
+    };
+    Player::open(&project, move || Ok(segments), start, None).unwrap()
+}
+
+fn assert_plays_on_from_the_start(segments: Vec<Segment>, late: f64) {
+    let (player, events) = open_looping(segments, true);
+    player.play();
+    let deadline = Instant::now() + LONG_WAIT;
+    let mut reached_late = false;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match events.recv_timeout(left).expect("it never started over") {
+            Event::Ended => panic!("a looping preview ended"),
+            Event::Frame => {
+                let position = player.take_frame().unwrap().position;
+                reached_late |= position > late;
+                if reached_late && position < 0.1 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let shown = player.stats().shown;
+    let settle = Instant::now() + Duration::from_millis(300);
+    while let Ok(event) = events.recv_deadline(settle) {
+        assert_ne!(event, Event::Ended);
+        if event == Event::Frame {
+            player.take_frame();
+        }
+    }
+    assert!(player.stats().shown > shown + 3, "{:?}", player.stats());
 }
 
 fn wait_for_event(
@@ -165,6 +205,83 @@ fn a_seek_past_the_end_shows_the_last_frame() {
     wait_for_event(&events, |event| matches!(event, Event::Frame));
     let shown = player.take_frame().unwrap().position;
     assert!(shown > 0.9, "showed {shown}");
+}
+
+#[test]
+fn a_looping_preview_plays_on_from_the_start_without_ending() {
+    let fixture = Fixture::new(vec![silent_segment(0.5)]);
+    assert_plays_on_from_the_start(segments_of(&fixture.entry()).unwrap(), 0.3);
+}
+
+#[test]
+fn a_looping_preview_wraps_from_the_last_segment_to_the_first() {
+    let fixture = Fixture::new(vec![silent_segment(0.3), silent_segment(0.3)]);
+    let segments = segments_of(&fixture.entry()).unwrap();
+    assert_eq!(segments.len(), 2);
+    assert_plays_on_from_the_start(segments, 0.4);
+}
+
+#[test]
+fn a_preview_with_looping_off_ends_and_stays_at_the_end() {
+    let fixture = Fixture::new(vec![silent_segment(0.4)]);
+    let (player, events) = open_looping(segments_of(&fixture.entry()).unwrap(), false);
+    player.play();
+    let mut positions = Vec::new();
+    let settle = Instant::now() + LONG_WAIT;
+    let mut ended = false;
+    while let Ok(event) = events.recv_deadline(settle) {
+        match event {
+            Event::Frame => positions.push(player.take_frame().unwrap().position),
+            Event::Ended => {
+                ended = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert!(ended);
+    let shown = player.stats().shown;
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(player.stats().shown, shown);
+    assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
+fn turning_looping_off_while_playing_takes_effect_at_the_next_end() {
+    let fixture = Fixture::new(vec![silent_segment(0.6)]);
+    let (player, events) = open_looping(segments_of(&fixture.entry()).unwrap(), true);
+    player.play();
+    wait_for_event(&events, |event| {
+        matches!(event, Event::Frame) && player.take_frame().is_some_and(|f| f.position > 0.1)
+    });
+    player.set_looping(false);
+    wait_for_event(&events, |event| *event == Event::Ended);
+}
+
+#[test]
+fn a_forward_step_at_the_last_frame_does_not_wrap_when_looping() {
+    let fixture = Fixture::new(vec![silent_segment(1.)]);
+    let (player, events) = open_looping(segments_of(&fixture.entry()).unwrap(), true);
+    first_frame(&player, &events);
+    let last = seek_to(&player, 5.).position;
+    assert!(last > 0.9, "showed {last}");
+    let shown = player.stats().shown;
+    player.step(Direction::Forward);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(player.stats().shown, shown);
+    assert!(!events.try_iter().any(|event| event == Event::Ended));
+}
+
+#[test]
+fn a_seek_to_the_end_while_paused_does_not_wrap_when_looping() {
+    let fixture = Fixture::new(vec![silent_segment(1.)]);
+    let (player, events) = open_looping(segments_of(&fixture.entry()).unwrap(), true);
+    first_frame(&player, &events);
+    let last = seek_to(&player, 1.).position;
+    assert!(last > 0.9, "showed {last}");
+    let shown = player.stats().shown;
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(player.stats().shown, shown);
 }
 
 #[test]
@@ -691,6 +808,7 @@ fn measure_frame_timing_and_audio_sync() {
             position: 0.,
             muted: true,
             volume: 1.,
+            looping: false,
             bounds,
         },
         Some(tap),

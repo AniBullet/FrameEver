@@ -454,6 +454,7 @@ const defaults = () => ({
 	items: ITEMS,
 	unseen: 0,
 	playing: false,
+	looping: true,
 	firstRun: false,
 	firstLine: false,
 	place: "all",
@@ -878,7 +879,7 @@ class MainWindow {
 		return `<div class="preview${whole ? " whole" : ""}">
 			<div class="preview-media"><span class="thumb${video ? " filled" : ""}">${art(item.art)}</span></div>
 			${whole ? "" : top}${sides}
-			<div class="preview-foot tnum">${video ? `<button class="play-btn" data-a="play" title="${pick("Play, pause  Space", "播放、暂停  空格")}">${icon(this.s.playing ? "pause" : "play")}</button><span>0:53 · 1591 / ${frames}</span><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><button class="play-btn" title="${pick("Mute  M", "静音  M")}">${icon("volume-2")}</button><div class="slider volume"><i></i><b style="width:70%"></b><u style="left:70%"></u></div>` : `<span style="flex:1"></span>`}<button class="play-btn" title="${size}">${icon("scan")}</button><button class="play-btn" data-a="whole" title="F">${icon(whole ? "minimize" : "maximize")}</button></div></div>`;
+			<div class="preview-foot tnum">${video ? `<button class="play-btn" data-a="play" title="${pick("Play, pause  Space", "播放、暂停  空格")}">${icon(this.s.playing ? "pause" : "play")}</button><span>0:53 · 1591 / ${frames}</span><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><button class="play-btn" title="${pick("Mute  M", "静音  M")}">${icon("volume-2")}</button><div class="slider volume"><i></i><b style="width:70%"></b><u style="left:70%"></u></div><button class="play-btn${this.s.looping ? " on" : ""}" data-a="loop" title="${pick("Loop  R", "循环  R")}">${icon("repeat")}</button>` : `<span style="flex:1"></span>`}<button class="play-btn" title="${size}">${icon("scan")}</button><button class="play-btn" data-a="whole" title="F">${icon(whole ? "minimize" : "maximize")}</button></div></div>`;
 	}
 
 	commands() {
@@ -1437,6 +1438,8 @@ class MainWindow {
 				return this.step(Number(v));
 			case "play":
 				return this.set({ playing: !this.s.playing });
+			case "loop":
+				return this.set({ looping: !this.s.looping });
 			case "delete":
 				return this.set({ dialog: { choice: 0 }, ...close });
 			case "dialog-choice":
@@ -2214,6 +2217,7 @@ document.getElementById("keys-grid").innerHTML =
 			["Previous, next item", "上一个、下一个", "PgUp", "PgDn"],
 			["Back, forward 5 s", "后退、前进 5 秒", "J", "L"],
 			["Mute", "静音", "M"],
+			["Loop", "循环", "R"],
 			["Actual size, fit to window", "原始大小、适应窗口", "Z"],
 			["Zoom at the pointer", "以指针处缩放", L("Wheel", "滚轮")],
 			["Close", "关闭", "Esc"],

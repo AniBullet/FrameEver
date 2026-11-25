@@ -811,7 +811,8 @@ main > section .seg {
 	color: var(--foreground);
 }
 
-.play-btn:hover {
+.play-btn:hover,
+.play-btn.on {
 	background: var(--accent);
 }
 

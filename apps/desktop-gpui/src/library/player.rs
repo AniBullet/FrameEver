@@ -146,6 +146,7 @@ pub struct Start {
     pub position: f64,
     pub muted: bool,
     pub volume: f32,
+    pub looping: bool,
     pub bounds: (u32, u32),
 }
 
@@ -162,6 +163,7 @@ enum Command {
     Step(Direction),
     Muted(bool),
     Volume(f32),
+    Looping(bool),
     Bounds((u32, u32)),
     Stop,
 }
@@ -361,6 +363,10 @@ impl Player {
         self.send(Command::Volume(volume));
     }
 
+    pub fn set_looping(&self, looping: bool) {
+        self.send(Command::Looping(looping));
+    }
+
     pub fn set_bounds(&self, bounds: (u32, u32)) {
         self.send(Command::Bounds(bounds));
     }
@@ -431,6 +437,7 @@ struct Worker {
     steps: VecDeque<Direction>,
     bounds: (u32, u32),
     playing: bool,
+    looping: bool,
     timer: Option<FineTimer>,
     drained: bool,
     ended: bool,
@@ -528,6 +535,7 @@ impl Worker {
             steps: VecDeque::new(),
             bounds: start.bounds,
             playing: false,
+            looping: start.looping,
             timer: None,
             drained: false,
             ended: false,
@@ -604,6 +612,7 @@ impl Worker {
                         audio.output.set_volume(volume);
                     }
                 }
+                Command::Looping(looping) => self.looping = looping,
                 Command::Bounds(bounds) => {
                     let changed = bounds != self.bounds;
                     self.bounds = bounds;
@@ -895,6 +904,10 @@ impl Worker {
         }
         let Some(decoded) = self.pending.take() else {
             if position + END_TOLERANCE >= self.timeline.total() {
+                if self.looping {
+                    self.seek(0.);
+                    return Duration::ZERO;
+                }
                 self.set_playing(false);
                 self.ended = true;
                 self.events.send(Event::Ended).ok();

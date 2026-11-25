@@ -170,6 +170,7 @@ pub(super) enum PreviewKey {
     Back,
     Forward,
     Mute,
+    Loop,
     WholeScreen,
     ActualSize,
 }
@@ -202,6 +203,7 @@ pub(super) fn preview_key(
         ("j", Shown::Video) => PreviewKey::Back,
         ("l", Shown::Video) => PreviewKey::Forward,
         ("m", Shown::Video) => PreviewKey::Mute,
+        ("r", Shown::Video) => PreviewKey::Loop,
         ("f", _) => PreviewKey::WholeScreen,
         ("z", _) => PreviewKey::ActualSize,
         _ => return None,
@@ -1035,6 +1037,7 @@ impl LibraryWindow {
             PreviewKey::Back => self.skip_library_preview(false, window, cx),
             PreviewKey::Forward => self.skip_library_preview(true, window, cx),
             PreviewKey::Mute => self.toggle_library_mute(cx),
+            PreviewKey::Loop => self.toggle_library_loop(cx),
             PreviewKey::WholeScreen => self.toggle_library_full_screen(window, cx),
             PreviewKey::ActualSize => self.toggle_library_actual_size(window, cx),
         }
@@ -1285,6 +1288,7 @@ impl LibraryWindow {
                     .child(self.preview_seek(duration, cx))
                     .child(self.preview_mute_button(cx))
                     .child(self.preview_volume(cx))
+                    .child(self.preview_loop_button(cx))
             })
             .child(
                 self.preview_button(
@@ -1443,6 +1447,7 @@ mod tests {
         assert_eq!(key("j", true), Some(PreviewKey::Back));
         assert_eq!(key("l", true), Some(PreviewKey::Forward));
         assert_eq!(key("m", true), Some(PreviewKey::Mute));
+        assert_eq!(key("r", true), Some(PreviewKey::Loop));
         assert_eq!(key("f", true), Some(PreviewKey::WholeScreen));
         assert_eq!(key("z", true), Some(PreviewKey::ActualSize));
     }
@@ -1456,7 +1461,7 @@ mod tests {
         assert_eq!(screenshot_key("space"), Some(PreviewKey::Close));
         assert_eq!(screenshot_key("f"), Some(PreviewKey::WholeScreen));
         assert_eq!(screenshot_key("z"), Some(PreviewKey::ActualSize));
-        for playback in ["k", "j", "l", "m"] {
+        for playback in ["k", "j", "l", "m", "r"] {
             assert_eq!(screenshot_key(playback), None);
         }
     }
