@@ -1,6 +1,7 @@
 use crate::{
     RecordingStartGate,
-    input_reader::{InputCapture, InputReader, InputTake},
+    input_reader::{Click, ClickTrack, InputCapture, InputReader, InputTake},
+    mouse_hub::{MouseTake, Subscription},
 };
 use frameever_cursor_capture::CursorCropBounds;
 use frameever_cursor_info::CursorShape;
@@ -471,10 +472,14 @@ pub fn spawn_cursor_recorder(
         #[cfg(not(target_os = "macos"))]
         let device_state = DeviceState::new();
         let mut input_take: Option<Option<InputTake>> = None;
-        let mut last_mouse_state = device_state.get_mouse();
+        let mut mouse_events = Subscription::device();
+        let mut clicks = CursorClicks::default();
+        let initial_take = mouse_events.take();
+        let initial_mouse = device_state.get_mouse();
+        clicks.keep_up(initial_take, &initial_mouse.button_pressed);
 
         let mut last_position =
-            frameever_cursor_capture::RawCursorPosition::from_coords(last_mouse_state.coords);
+            frameever_cursor_capture::RawCursorPosition::from_coords(initial_mouse.coords);
 
         std::fs::create_dir_all(&cursors_dir).unwrap();
 
@@ -515,13 +520,15 @@ pub fn spawn_cursor_recorder(
             }
 
             let Some(epoch) = input_epoch(start_gate.as_ref(), start_time) else {
-                last_mouse_state = device_state.get_mouse();
-                last_position = frameever_cursor_capture::RawCursorPosition::from_coords(
-                    last_mouse_state.coords,
-                );
+                let take = mouse_events.take();
+                let waiting_mouse = device_state.get_mouse();
+                clicks.keep_up(take, &waiting_mouse.button_pressed);
+                last_position =
+                    frameever_cursor_capture::RawCursorPosition::from_coords(waiting_mouse.coords);
                 continue;
             };
             let elapsed = epoch.elapsed().as_secs_f64() * 1000.0;
+            let mouse_take = mouse_events.take();
             let mouse_state = device_state.get_mouse();
 
             if let Some(take) =
@@ -561,10 +568,7 @@ pub fn spawn_cursor_recorder(
             // and reading it builds a full TIFF of every representation
             // (~0.5 ms, ~580 KB on a Retina Mac), so skip it on ticks that
             // record neither.
-            let buttons_changed = buttons_changed(
-                &last_mouse_state.button_pressed,
-                &mouse_state.button_pressed,
-            );
+            let buttons_changed = clicks.follow(mouse_take, &mouse_state.button_pressed);
             let previous_cursor_id = last_cursor_id.clone();
             let sample_image = should_sample_cursor_image(
                 position_changed,
@@ -640,26 +644,7 @@ pub fn spawn_cursor_recorder(
                 }
             }
 
-            for (num, &pressed) in mouse_state.button_pressed.iter().enumerate() {
-                let Some(prev) = last_mouse_state.button_pressed.get(num) else {
-                    continue;
-                };
-
-                if pressed == *prev {
-                    continue;
-                }
-
-                let mouse_event = CursorClickEvent {
-                    down: pressed,
-                    active_modifiers: vec![],
-                    cursor_num: num as u8,
-                    cursor_id: cursor_id.clone(),
-                    time_ms: elapsed,
-                };
-                response.clicks.push(mouse_event);
-            }
-
-            last_mouse_state = mouse_state;
+            clicks.record(epoch, elapsed, &cursor_id, &mut response.clicks);
 
             if has_incremental_outputs && last_flush.elapsed() >= flush_interval {
                 let snapshot = || IncrementalSnapshot::capture(&incremental_outputs, &response);
@@ -736,13 +721,46 @@ fn still_shape_confirmation(moves: &[CursorMoveEvent], stop_ms: f64) -> Option<C
     })
 }
 
-/// Whether any button present in both samples changed state: the same pairs
-/// the click events below are generated from.
-fn buttons_changed(previous: &[bool], current: &[bool]) -> bool {
-    previous
-        .iter()
-        .zip(current)
-        .any(|(previous, current)| previous != current)
+#[derive(Default)]
+struct CursorClicks {
+    track: ClickTrack,
+    pending: Vec<Click>,
+    last_ms: f64,
+}
+
+impl CursorClicks {
+    fn keep_up(&mut self, take: MouseTake, polled: &[bool]) {
+        self.track.follow(take, polled);
+        self.pending.clear();
+    }
+
+    fn follow(&mut self, take: MouseTake, polled: &[bool]) -> bool {
+        self.pending.extend(self.track.follow(take, polled));
+        !self.pending.is_empty()
+    }
+
+    fn record(
+        &mut self,
+        epoch: Instant,
+        elapsed_ms: f64,
+        cursor_id: &str,
+        clicks: &mut Vec<CursorClickEvent>,
+    ) {
+        for click in self.pending.drain(..) {
+            let at_ms = click.at.map_or(elapsed_ms, |at| {
+                at.saturating_duration_since(epoch).as_secs_f64() * 1000.0
+            });
+            let time_ms = at_ms.clamp(self.last_ms.min(elapsed_ms), elapsed_ms);
+            self.last_ms = time_ms;
+            clicks.push(CursorClickEvent {
+                down: click.down,
+                active_modifiers: vec![],
+                cursor_num: click.button,
+                cursor_id: cursor_id.to_string(),
+                time_ms,
+            });
+        }
+    }
 }
 
 fn cursor_id_for_image(
@@ -1601,6 +1619,7 @@ mod incremental_writer_tests {
 #[cfg(test)]
 mod cursor_image_tests {
     use super::*;
+    use std::time::Duration;
 
     fn png(color: [u8; 4]) -> Vec<u8> {
         let mut png = std::io::Cursor::new(Vec::new());
@@ -1630,17 +1649,67 @@ mod cursor_image_tests {
         }
     }
 
+    fn clicks_recorded(clicks: &[CursorClickEvent]) -> Vec<(u8, bool, f64)> {
+        clicks
+            .iter()
+            .map(|click| (click.cursor_num, click.down, click.time_ms))
+            .collect()
+    }
+
     #[test]
-    fn button_changes_match_the_pairs_clicks_are_built_from() {
-        assert!(!buttons_changed(
-            &[false, false, false],
-            &[false, false, false]
-        ));
-        assert!(buttons_changed(&[false, false], &[false, true]));
-        assert!(buttons_changed(&[true], &[false]));
-        // Clicks only compare buttons present in both samples.
-        assert!(!buttons_changed(&[false], &[false, true]));
-        assert!(!buttons_changed(&[], &[true]));
+    fn a_hold_only_raw_input_sees_is_a_click_down_and_up_at_the_events_times() {
+        use crate::mouse_hub::testing::ScriptedHub;
+        let hub = ScriptedHub::new();
+        let mut events = hub.subscribe();
+        let mut clicks = CursorClicks::default();
+        let epoch = Instant::now();
+        let at = |ms| epoch + Duration::from_millis(ms);
+        clicks.keep_up(events.take(), &[false; 6]);
+        let mut recorded = Vec::new();
+        let mut changed = Vec::new();
+
+        for (tick_ms, raw) in [
+            (16, None),
+            (32, Some((21, true))),
+            (48, None),
+            (64, Some((55, false))),
+            (80, None),
+        ] {
+            if let Some((ms, down)) = raw {
+                hub.press(at(ms), 2, down);
+            }
+            changed.push(clicks.follow(events.take(), &[false; 6]));
+            clicks.record(epoch, tick_ms as f64, "arrow", &mut recorded);
+        }
+
+        assert_eq!(changed, [false, true, false, true, false]);
+        assert_eq!(
+            clicks_recorded(&recorded),
+            vec![(2, true, 21.0), (2, false, 55.0)]
+        );
+    }
+
+    #[test]
+    fn a_press_only_the_poll_sees_is_a_click_at_the_tick_and_times_never_go_backwards() {
+        use crate::mouse_hub::testing::ScriptedHub;
+        let hub = ScriptedHub::new();
+        let mut events = hub.subscribe();
+        let mut clicks = CursorClicks::default();
+        let epoch = Instant::now();
+        clicks.keep_up(events.take(), &[false; 6]);
+        let mut recorded = Vec::new();
+
+        assert!(clicks.follow(events.take(), &[false, true]));
+        clicks.record(epoch, 16.0, "arrow", &mut recorded);
+        hub.press(epoch + Duration::from_millis(5), 1, false);
+        hub.press(epoch + Duration::from_millis(40), 3, true);
+        assert!(clicks.follow(events.take(), &[false, false]));
+        clicks.record(epoch, 32.0, "arrow", &mut recorded);
+
+        assert_eq!(
+            clicks_recorded(&recorded),
+            vec![(1, true, 16.0), (1, false, 16.0), (3, true, 32.0)]
+        );
     }
 
     #[test]

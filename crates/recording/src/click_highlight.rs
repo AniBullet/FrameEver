@@ -1,4 +1,8 @@
-use crate::frame_overlays::FrameBaker;
+use crate::{
+    frame_overlays::FrameBaker,
+    input_reader::ClickTrack,
+    mouse_hub::{MouseTake, Subscription},
+};
 use frameever_utils::brand::ANNOTATION_AMBER as AMBER;
 use parking_lot::Mutex;
 use std::{
@@ -179,6 +183,25 @@ impl ClickHighlights {
             .collect()
     }
 
+    fn follow(
+        &self,
+        track: &mut ClickTrack,
+        take: MouseTake,
+        polled: &[bool],
+        cursor: (i32, i32),
+        now: Instant,
+    ) {
+        let pressed = track
+            .follow(take, polled)
+            .into_iter()
+            .filter(|click| click.down)
+            .map(|click| click.at.unwrap_or(now))
+            .min();
+        if let Some(at) = pressed {
+            self.press(at, cursor);
+        }
+    }
+
     pub fn baker(&self) -> FrameBaker {
         FrameBaker::new(Some(self.clone()), None)
     }
@@ -197,22 +220,23 @@ impl ClickHighlights {
 fn watch_buttons(shared: Weak<Shared>) {
     use device_query::{DeviceQuery, DeviceState};
     let device = DeviceState::new();
-    let mut previous = device.get_mouse().button_pressed;
+    let mut mouse_events = Subscription::device();
+    let mut track = ClickTrack::default();
+    track.follow(mouse_events.take(), &device.get_mouse().button_pressed);
     loop {
         std::thread::sleep(Duration::from_millis(8));
         let Some(shared) = shared.upgrade() else {
             return;
         };
+        let take = mouse_events.take();
         let mouse = device.get_mouse();
-        let pressed = mouse
-            .button_pressed
-            .iter()
-            .zip(&previous)
-            .any(|(now, before)| *now && !*before);
-        if pressed {
-            ClickHighlights(shared).press(Instant::now(), mouse.coords);
-        }
-        previous = mouse.button_pressed;
+        ClickHighlights(shared).follow(
+            &mut track,
+            take,
+            &mouse.button_pressed,
+            mouse.coords,
+            Instant::now(),
+        );
     }
 }
 
@@ -281,6 +305,42 @@ mod tests {
             }
         }
         assert!(baker.repeated(&cleared, start + PULSE * 2).is_none());
+    }
+
+    #[test]
+    fn a_click_only_raw_input_sees_pulses_from_the_moment_it_was_pressed() {
+        use crate::mouse_hub::testing::ScriptedHub;
+        let hub = ScriptedHub::new();
+        let mut events = hub.subscribe();
+        let mut track = ClickTrack::default();
+        let highlights = highlights();
+        let start = Instant::now();
+        let cursor = (1920 + 100, 100);
+        highlights.follow(&mut track, events.take(), &[false; 6], cursor, start);
+        assert!(highlights.discs(start, (200, 200)).is_empty());
+
+        let pressed = start + Duration::from_millis(3);
+        hub.press(pressed, 1, true);
+        highlights.follow(
+            &mut track,
+            events.take(),
+            &[false; 6],
+            cursor,
+            start + Duration::from_millis(8),
+        );
+        hub.press(start + Duration::from_millis(12), 1, false);
+        highlights.follow(
+            &mut track,
+            events.take(),
+            &[false; 6],
+            cursor,
+            start + Duration::from_millis(16),
+        );
+
+        let discs = highlights.discs(pressed + Duration::from_millis(1), (200, 200));
+        assert_eq!(discs.len(), 1);
+        assert_eq!(discs[0].center, (100.0, 100.0));
+        assert!(highlights.discs(pressed + PULSE, (200, 200)).is_empty());
     }
 
     #[test]

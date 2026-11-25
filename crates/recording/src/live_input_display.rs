@@ -694,6 +694,7 @@ mod tests {
     use crate::{
         click_highlight::{CaptureArea, ClickHighlights, PULSE},
         frame_overlays::FrameOverlays,
+        mouse_hub::testing::ScriptedHub,
     };
     use frameever_project::input_display::key_codes;
     use std::{
@@ -1514,26 +1515,18 @@ mod tests {
 
     #[test]
     fn a_mouse_button_held_where_only_raw_input_sees_it_is_shown_until_raw_input_releases_it() {
-        use crate::input_reader::{ButtonChange, RawMouseInput};
-        let right = |down| RawMouseInput {
-            wheel_steps: Vec::new(),
-            buttons: vec![ButtonChange { button: 2, down }],
-        };
-        let mut ticks = vec![
-            RawMouseInput::default(),
-            right(true),
-            RawMouseInput::default(),
-            RawMouseInput::default(),
-            right(false),
-            RawMouseInput::default(),
-        ]
-        .into_iter();
+        let hub = ScriptedHub::new();
         let mut source = KeyboardAndMouse {
             device: device_query::DeviceState::new(),
-            mouse: MouseInput::scripted(move || ticks.next().unwrap_or_default()),
+            mouse: MouseInput::subscribed(hub.subscribe()),
         };
-        let shown = (0..6)
-            .map(|_| {
+        let script = [None, Some(true), None, None, Some(false), None];
+        let shown = script
+            .into_iter()
+            .map(|raw| {
+                if let Some(down) = raw {
+                    hub.press(Instant::now(), 2, down);
+                }
                 let mut state = DisplayState::default();
                 source.hold_polled(&mut state, &[], &[false; 6]);
                 state.held().collect::<Vec<_>>()
@@ -1556,26 +1549,26 @@ mod tests {
 
     #[test]
     fn raw_mouse_input_keeps_being_drained_before_recording_starts_and_while_paused() {
-        let drains = Arc::new(AtomicUsize::new(0));
-        let counted = drains.clone();
+        let hub = ScriptedHub::new();
         let display = display(BOTTOM_LEFT);
         display.set_paused(true);
+        let subscription = hub.subscribe();
         display.watch_with(
             move || {
                 let source = KeyboardAndMouse {
                     device: device_query::DeviceState::new(),
-                    mouse: MouseInput::scripted(move || {
-                        counted.fetch_add(1, Ordering::SeqCst);
-                        crate::input_reader::RawMouseInput::default()
-                    }),
+                    mouse: MouseInput::subscribed(subscription),
                 };
                 vec![Box::new(source) as Box<dyn InputSource>]
             },
             TargetFocus::none,
             || false,
         );
+        hub.press(Instant::now(), 1, true);
+        hub.press(Instant::now(), 1, false);
+        hub.wheel(Instant::now(), 120);
 
-        assert!(eventually(|| drains.load(Ordering::SeqCst) >= 3));
+        assert!(eventually(|| hub.hub.backlog_lengths() == vec![0]));
         assert_eq!(display.state(), DisplayState::default());
     }
 
