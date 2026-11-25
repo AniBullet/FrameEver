@@ -864,13 +864,21 @@ class MainWindow {
 		const k = KIND[item.kind];
 		const video = item.kind !== "screenshot";
 		const whole = this.s.whole;
-		const top = `<div class="preview-top"><span class="grow"><b>${item.name}</b><span class="dim tnum">${L(...k.name)}${item.dur ? ` · ${item.dur}` : ""} · ${item.size}</span></span><button class="btn">${L("Open in editor", "在编辑器中打开")}</button><button class="btn">${L("Export", "导出")}</button><button class="btn">${L("Show in folder", "在文件夹中显示")}</button><button class="btn ghost icon" data-a="close-preview" title="Esc">${icon("x")}</button></div>`;
-		const media = whole
-			? `<span class="thumb">${art(item.art)}</span>`
-			: `<button class="btn ghost icon" data-a="step" data-v="-1">${icon("chevron-left")}</button><span class="thumb">${art(item.art)}</span><button class="btn ghost icon" data-a="step" data-v="1">${icon("chevron-right")}</button>`;
-		return `<div class="preview${whole ? " whole" : ""}">${whole ? "" : top}
-			<div class="preview-media">${media}</div>
-			<div class="preview-foot tnum">${video ? `<button class="play-btn" data-a="play">${icon(this.s.playing ? "pause" : "play")}</button><span>0:53 / ${item.dur}</span><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><button class="play-btn">${icon("volume-2")}</button>` : `<span style="flex:1"></span>`}<button class="play-btn" data-a="whole" title="F">${icon(whole ? "minimize" : "maximize")}</button></div></div>`;
+		const top = `<div class="preview-top"><span class="grow"><b>${item.name}</b><span class="dim tnum">${L(...k.name)}${item.dur ? ` · ${item.dur}` : ""} · ${item.size}</span></span><button class="btn">${L("Open in editor", "在编辑器中打开")}</button><button class="btn ghost icon" title="${pick("Export", "导出")}">${icon("download")}</button><button class="btn ghost icon" title="${pick("Open in default app", "用默认应用打开")}">${icon("external-link")}</button><button class="btn ghost icon" title="${pick("Show in folder", "在文件夹中显示")}">${icon("folder-open")}</button><button class="btn ghost icon" data-a="close-preview" title="Esc">${icon("x")}</button></div>`;
+		const frames = item.dur
+			? item.dur
+					.split(":")
+					.map(Number)
+					.reduce((total, part) => total * 60 + part, 0) * 30
+			: 0;
+		const sides = `<button class="btn ghost icon preview-side left" data-a="step" data-v="-1" title="${pick("Previous item  PgUp", "上一个  PgUp")}">${icon("chevron-left")}</button><button class="btn ghost icon preview-side right" data-a="step" data-v="1" title="${pick("Next item  PgDn", "下一个  PgDn")}">${icon("chevron-right")}</button>`;
+		const size = video
+			? pick("Actual size  Z", "原始大小  Z")
+			: pick("Fit to window  Z", "适应窗口  Z");
+		return `<div class="preview${whole ? " whole" : ""}">
+			<div class="preview-media"><span class="thumb${video ? " filled" : ""}">${art(item.art)}</span></div>
+			${whole ? "" : top}${sides}
+			<div class="preview-foot tnum">${video ? `<button class="play-btn" data-a="play" title="${pick("Play, pause  Space", "播放、暂停  空格")}">${icon(this.s.playing ? "pause" : "play")}</button><span>0:53 · 1591 / ${frames}</span><div class="slider"><i></i><b style="width:24%"></b><u style="left:24%"></u></div><button class="play-btn" title="${pick("Mute  M", "静音  M")}">${icon("volume-2")}</button><div class="slider volume"><i></i><b style="width:70%"></b><u style="left:70%"></u></div>` : `<span style="flex:1"></span>`}<button class="play-btn" title="${size}">${icon("scan")}</button><button class="play-btn" data-a="whole" title="F">${icon(whole ? "minimize" : "maximize")}</button></div></div>`;
 	}
 
 	commands() {
@@ -1668,10 +1676,17 @@ class MainWindow {
 			e.preventDefault();
 			return this.set({ selected: this.visible().map((item) => item.id) });
 		}
+		const previewVideo =
+			s.preview && this.selectedItems()[0]?.kind !== "screenshot";
 		if (e.key === " " && e.target.tagName !== "BUTTON") {
 			e.preventDefault();
+			if (previewVideo) return this.set({ playing: !s.playing });
 			if (s.selected.length) this.set({ preview: !s.preview, whole: false });
 		}
+		if (s.preview && e.key === "PageUp") return this.step(-1);
+		if (s.preview && e.key === "PageDown") return this.step(1);
+		if (previewVideo && ["ArrowLeft", "ArrowRight"].includes(e.key))
+			return this.set({ playing: false });
 		if (s.preview && e.key === "ArrowLeft") return this.step(-1);
 		if (s.preview && e.key === "ArrowRight") return this.step(1);
 		if (s.preview && e.key.toLowerCase() === "k")
@@ -1836,8 +1851,8 @@ const titles = {
 	keys: [
 		"Keyboard",
 		"键盘",
-		"Every action has a keyboard path. Esc unwinds one level at a time inside the window and never closes it. Ctrl+L in the recording window opens the library or brings it forward; in the library it brings the recording window forward. Closing the library closes only the library; closing the recording window hides it to the tray.",
-		"每个操作都能用键盘完成。Esc 在窗口内逐层退，从不关闭窗口。在录制窗口按 Ctrl+L 打开资源库或把它带到前面，在资源库里按则把录制窗口带到前面。关资源库只关资源库；关录制窗口是藏进托盘。",
+		"Every action has a keyboard path. Esc unwinds one level at a time inside the window and never closes it. Ctrl+L in the recording window opens the library or brings it forward; in the library it brings the recording window forward. Closing the library closes only the library; closing the recording window hides it to the tray. The large preview works like a review player: a video opens filling the stage without cropping, the arrows step exact frames, a drag on the picture scrubs and stays paused, and the label shows the frame as 0:03 · 87 / 240. Its controls sit over the picture and hide after a pause in pointer movement while it plays; the volume is kept until the app closes.",
+		"每个操作都能用键盘完成。Esc 在窗口内逐层退，从不关闭窗口。在录制窗口按 Ctrl+L 打开资源库或把它带到前面，在资源库里按则把录制窗口带到前面。关资源库只关资源库；关录制窗口是藏进托盘。大预览按审片播放器的方式工作：视频打开时铺满画面区域而不裁切，方向键精确逐帧，在画面上拖动是逐帧拖动、松手后保持暂停，标签显示帧号，如 0:03 · 87 / 240。控制条盖在画面上，播放时指针停一会儿就隐藏；音量在应用关闭前一直保留。",
 	],
 };
 for (const [key, [en, zh, leadEn, leadZh]] of Object.entries(titles)) {
@@ -2184,22 +2199,40 @@ document.getElementById("keys-grid").innerHTML =
 			["Command palette", "命令面板", "Ctrl K"],
 			["Library, recording window", "资源库、录制窗口", "Ctrl L"],
 		],
-	)}<h3 style="margin-top:16px">${L("Preview", "预览")}</h3>${keyRows([
-		["Previous, next", "上一个、下一个", "←", "→"],
-		["Play, pause", "播放、暂停", "K"],
-		["Back, forward 5 s", "后退、前进 5 秒", "J", "L"],
-		["Mute", "静音", "M"],
-		["Whole screen", "整屏", "F"],
-		["Actual size, fit to window", "原始大小、适应窗口", "Z"],
+	)}<h3 style="margin-top:16px">${L("Preview: video", "预览：视频")}</h3>${keyRows(
 		[
-			"Same, at the clicked point",
-			"同上，以点击处为准",
-			L("Double-click", "双击"),
+			["One frame back, forward", "后退、前进一帧", "←", "→"],
+			["Scrub frame by frame", "逐帧拖动", L("Drag", "拖动")],
+			["Play, pause", "播放、暂停", "Space", "K", L("Click", "单击")],
+			["Whole screen", "整屏", "F", L("Double-click", "双击")],
+			[
+				"Move a zoomed picture",
+				"移动放大的画面",
+				L("Middle drag", "中键拖动"),
+				L("Space + drag", "空格 + 拖动"),
+			],
+			["Previous, next item", "上一个、下一个", "PgUp", "PgDn"],
+			["Back, forward 5 s", "后退、前进 5 秒", "J", "L"],
+			["Mute", "静音", "M"],
+			["Actual size, fit to window", "原始大小、适应窗口", "Z"],
+			["Zoom at the pointer", "以指针处缩放", L("Wheel", "滚轮")],
+			["Close", "关闭", "Esc"],
 		],
-		["Zoom at the pointer", "以指针处缩放", L("Wheel", "滚轮")],
-		["Move a zoomed picture", "移动放大的画面", L("Drag", "拖动")],
-		["Close", "关闭", "Space", "Esc"],
-	])}</div>`;
+	)}<h3 style="margin-top:16px">${L("Preview: screenshot", "预览：截图")}</h3>${keyRows(
+		[
+			["Previous, next", "上一个、下一个", "←", "→", "PgUp", "PgDn"],
+			["Actual size, fit to window", "原始大小、适应窗口", "Z"],
+			[
+				"Same, at the clicked point",
+				"同上，以点击处为准",
+				L("Double-click", "双击"),
+			],
+			["Zoom at the pointer", "以指针处缩放", L("Wheel", "滚轮")],
+			["Move a zoomed picture", "移动放大的画面", L("Drag", "拖动")],
+			["Whole screen", "整屏", "F"],
+			["Close", "关闭", "Space", "Esc"],
+		],
+	)}</div>`;
 
 onChange(() => {
 	for (const input of document.querySelectorAll("[data-ph-en]"))

@@ -13,7 +13,7 @@ use gpui::{
 use super::{DETAIL_WIDTH, LibraryWindow, focus_ring, t, ui, view};
 use crate::library::{
     MediaKind,
-    player::{self, Event, PlayError, Player, Start},
+    player::{self, Direction, Event, PlayError, Player, Start},
     view::Entry,
 };
 
@@ -23,6 +23,33 @@ const BUTTON_SIZE: f32 = 24.;
 const SKIP_SECONDS: f64 = 5.;
 const ICON_SIZE: f32 = 14.;
 const FILLED_ICON_SIZE: f32 = 12.;
+const VOLUME_WIDTH: f32 = 72.;
+const VOLUME_KEY_STEP: f32 = 0.05;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Volume(f32);
+
+impl Default for Volume {
+    fn default() -> Self {
+        Self(1.)
+    }
+}
+
+impl Volume {
+    fn new(level: f32) -> Self {
+        Self(level.clamp(0., 1.))
+    }
+
+    fn level(self) -> f32 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Grab {
+    Seek { resume: bool },
+    Volume,
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 struct Drawn {
@@ -38,15 +65,17 @@ pub(super) struct PreviewState {
     pump: Option<Task<()>>,
     pub(super) playing: bool,
     muted: bool,
+    volume: Volume,
     position: f64,
     duration: Option<f64>,
     frame: Option<Arc<RenderImage>>,
+    frame_interval: Option<f64>,
     pub(super) frame_source: Option<(u32, u32)>,
     pub(super) retired: Vec<Arc<RenderImage>>,
     failed: Option<PlayError>,
     track: ui::SliderTrack,
-    dragging: bool,
-    resume_after_drag: bool,
+    volume_track: ui::SliderTrack,
+    grab: Option<Grab>,
     bounds: (u32, u32),
     presented: u64,
     drawn: Cell<Drawn>,
@@ -90,6 +119,18 @@ fn time_label(position: f64, duration: f64) -> String {
     )
 }
 
+fn frame_label(position: f64, duration: f64, interval: Option<f64>) -> String {
+    let Some(interval) = interval.filter(|interval| *interval > 0.) else {
+        return time_label(position, duration);
+    };
+    let total = ((duration / interval).round() as u64).max(1);
+    let frame = ((position / interval).round() as u64 + 1).clamp(1, total);
+    format!(
+        "{} · {frame} / {total}",
+        view::format_clock(position.clamp(0., duration))
+    )
+}
+
 fn failure_hint(error: PlayError) -> &'static str {
     match error {
         PlayError::Missing => t!("The file may have been moved or deleted. Check its folder."),
@@ -99,7 +140,19 @@ fn failure_hint(error: PlayError) -> &'static str {
 
 impl PreviewState {
     pub(super) fn dragging(&self) -> bool {
-        self.dragging
+        self.grab.is_some()
+    }
+
+    fn holds_position(&self) -> bool {
+        matches!(self.grab, Some(Grab::Seek { .. }))
+    }
+
+    pub(super) fn position(&self) -> f64 {
+        self.position
+    }
+
+    pub(super) fn frame_interval(&self) -> Option<f64> {
+        self.frame_interval
     }
 
     pub(super) fn note_drawn(&self, now: Instant) {
@@ -133,10 +186,10 @@ impl PreviewState {
         self.position = 0.;
         self.duration = None;
         self.failed = None;
-        self.dragging = false;
-        self.resume_after_drag = false;
+        self.grab = None;
         self.retired.extend(self.frame.take());
         self.frame_source = None;
+        self.frame_interval = None;
     }
 
     pub(super) fn pause(&mut self) {
@@ -183,7 +236,7 @@ impl LibraryWindow {
         let start = Start {
             position,
             muted: preview.muted,
-            volume: 1.,
+            volume: preview.volume.level(),
             bounds: preview.bounds,
         };
         let Some((player, events)) = Player::open(&entry.path, load, start, None) else {
@@ -227,18 +280,20 @@ impl LibraryWindow {
                     return;
                 };
                 preview.frame_source = Some(frame.source);
+                preview.frame_interval =
+                    Some(frame.frame_interval).filter(|interval| *interval > 0.);
                 if let Some(previous) = preview.frame.replace(frame.image)
                     && let Err(error) = window.drop_image(previous)
                 {
                     tracing::debug!("Could not drop a preview frame: {error}");
                 }
                 preview.presented += 1;
-                if !preview.dragging {
+                if !preview.holds_position() {
                     preview.position = frame.position;
                 }
             }
             Event::Tick { position } => {
-                if !preview.dragging {
+                if !preview.holds_position() {
                     preview.position = position;
                 }
             }
@@ -286,7 +341,12 @@ impl LibraryWindow {
         cx.notify();
     }
 
-    fn seek_library_preview(&mut self, position: f64, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn seek_library_preview(
+        &mut self,
+        position: f64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(entry) = self.library.single_entry().cloned() else {
             return;
         };
@@ -297,6 +357,63 @@ impl LibraryWindow {
             player.seek(position);
         }
         cx.notify();
+    }
+
+    pub(super) fn step_library_preview(
+        &mut self,
+        direction: Direction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(entry) = self.library.single_entry().cloned() else {
+            return;
+        };
+        let preview = &mut self.library.detail.preview;
+        preview.pause();
+        if preview.player.is_none() {
+            let position = preview.position;
+            if !self.open_library_preview(&entry, position, window, cx) {
+                return;
+            }
+        }
+        if let Some(player) = &self.library.detail.preview.player {
+            player.step(direction);
+        }
+        cx.notify();
+    }
+
+    fn set_library_volume(&mut self, level: f32, cx: &mut Context<Self>) {
+        let preview = &mut self.library.detail.preview;
+        preview.volume = Volume::new(level);
+        if let Some(player) = &preview.player {
+            player.set_volume(preview.volume.level());
+        }
+        cx.notify();
+    }
+
+    fn drag_library_volume(&mut self, x: Pixels, cx: &mut Context<Self>) {
+        let Some(fraction) = self
+            .library
+            .detail
+            .preview
+            .volume_track
+            .get()
+            .and_then(|track| ui::fraction_from_x(x, track))
+        else {
+            return;
+        };
+        self.set_library_volume(fraction, cx);
+    }
+
+    fn on_library_volume_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+        let level = self.library.detail.preview.volume.level();
+        let Some(next) =
+            ui::keyboard_slider_value(&event.keystroke.key, level, 0., 1., VOLUME_KEY_STEP)
+        else {
+            return;
+        };
+        cx.stop_propagation();
+        self.set_library_volume(next, cx);
     }
 
     pub(super) fn skip_library_preview(
@@ -348,9 +465,8 @@ impl LibraryWindow {
     }
 
     fn finish_library_drag(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let preview = &mut self.library.detail.preview;
-        preview.dragging = false;
-        if std::mem::take(&mut preview.resume_after_drag) {
+        let grab = self.library.detail.preview.grab.take();
+        if grab == Some(Grab::Seek { resume: true }) {
             self.toggle_library_preview(window, cx);
         }
         if self.library_overlay_open() {
@@ -365,11 +481,25 @@ impl LibraryWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if event.keystroke.key == "space" && self.library_overlay_open() {
+        if self.library_overlay_open() {
+            match event.keystroke.key.as_str() {
+                "space" => self.toggle_library_preview(window, cx),
+                "left" => self.step_library_preview(Direction::Back, window, cx),
+                "right" => self.step_library_preview(Direction::Forward, window, cx),
+                _ => return self.seek_library_by_key(event, window, cx),
+            }
             cx.stop_propagation();
-            self.close_library_overlay(window, cx);
             return;
         }
+        self.seek_library_by_key(event, window, cx);
+    }
+
+    fn seek_library_by_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(entry) = self.library.single_entry() else {
             return;
         };
@@ -566,6 +696,7 @@ impl LibraryWindow {
                         .flex_none()
                         .mt(px(6.))
                         .px(px(12.))
+                        .occlude()
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.toggle_library_preview(window, cx);
                         })),
@@ -714,8 +845,9 @@ impl LibraryWindow {
         .on_drag_start(
             cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
                 let preview = &mut this.library.detail.preview;
-                preview.dragging = true;
-                preview.resume_after_drag = preview.playing;
+                preview.grab = Some(Grab::Seek {
+                    resume: preview.playing,
+                });
                 preview.pause();
                 this.drag_library_preview(event.position.x, window, cx);
             }),
@@ -729,6 +861,46 @@ impl LibraryWindow {
                 .min_w_0()
                 .rounded(px(4.))
                 .on_key_down(cx.listener(Self::on_library_seek_key))
+                .child(slider),
+            theme,
+        )
+    }
+
+    pub(super) fn preview_frame_time(&self, duration: f64) -> impl IntoElement {
+        let preview = &self.library.detail.preview;
+        div().flex_shrink_0().child(SharedString::from(frame_label(
+            preview.position,
+            duration,
+            preview.frame_interval,
+        )))
+    }
+
+    pub(super) fn preview_volume(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let preview = &self.library.detail.preview;
+        let slider = ui::Slider::new(
+            "library-preview-volume-slider",
+            preview.volume.level(),
+            preview.volume_track.clone(),
+        )
+        .row_width(px(VOLUME_WIDTH))
+        .track(px(4.), theme.component.slider_bar.into())
+        .fill(theme.foreground.into())
+        .thumb(px(12.), theme.foreground.into(), None)
+        .on_drag_start(cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+            this.library.detail.preview.grab = Some(Grab::Volume);
+            this.drag_library_volume(event.position.x, cx);
+        }));
+        focus_ring(
+            div()
+                .id("library-preview-volume")
+                .tab_index(0)
+                .flex()
+                .flex_shrink_0()
+                .rounded(px(4.))
+                .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                    this.on_library_volume_key(event, cx);
+                }))
                 .child(slider),
             theme,
         )
@@ -776,7 +948,10 @@ impl LibraryWindow {
         ui::Slider::drag_layer(
             "library-preview-drag",
             cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
-                this.drag_library_preview(event.position.x, window, cx);
+                match this.library.detail.preview.grab {
+                    Some(Grab::Volume) => this.drag_library_volume(event.position.x, cx),
+                    _ => this.drag_library_preview(event.position.x, window, cx),
+                }
             }),
             cx.listener(|this, _: &gpui::MouseUpEvent, window, cx| {
                 this.finish_library_drag(window, cx);
@@ -821,5 +996,66 @@ mod tests {
     #[test]
     fn the_time_never_runs_past_the_length() {
         assert_eq!(time_label(61.2, 60.), "1:00 / 1:00");
+    }
+
+    #[test]
+    fn the_frame_label_counts_from_one_and_ends_on_the_last_frame() {
+        let interval = 1. / 30.;
+        let duration = 240. * interval;
+        assert_eq!(frame_label(0., duration, Some(interval)), "0:00 · 1 / 240");
+        assert_eq!(
+            frame_label(86. * interval, duration, Some(interval)),
+            "0:02 · 87 / 240"
+        );
+        assert_eq!(
+            frame_label(239. * interval, duration, Some(interval)),
+            "0:07 · 240 / 240"
+        );
+        assert_eq!(
+            frame_label(duration, duration, Some(interval)),
+            "0:08 · 240 / 240"
+        );
+    }
+
+    #[test]
+    fn the_frame_label_rounds_timestamps_to_the_nearest_frame() {
+        let interval = 1. / 30.;
+        let duration = 240. * interval;
+        assert_eq!(
+            frame_label(86. * interval - 1e-6, duration, Some(interval)),
+            "0:02 · 87 / 240"
+        );
+        assert_eq!(
+            frame_label(86. * interval + 1e-6, duration, Some(interval)),
+            "0:02 · 87 / 240"
+        );
+        assert_eq!(
+            frame_label(-0.01, duration, Some(interval)),
+            "0:00 · 1 / 240"
+        );
+    }
+
+    #[test]
+    fn without_a_frame_interval_the_label_shows_the_time_only() {
+        assert_eq!(frame_label(3.2, 8., None), time_label(3.2, 8.));
+    }
+
+    #[test]
+    fn the_volume_starts_full_and_stays_between_silent_and_full() {
+        assert_eq!(Volume::default().level(), 1.);
+        assert_eq!(Volume::new(0.4).level(), 0.4);
+        assert_eq!(Volume::new(1.5).level(), 1.);
+        assert_eq!(Volume::new(-0.2).level(), 0.);
+    }
+
+    #[test]
+    fn the_volume_outlives_the_player_and_silence_is_not_mute() {
+        let mut preview = PreviewState {
+            volume: Volume::new(0.),
+            ..PreviewState::default()
+        };
+        preview.stop();
+        assert_eq!(preview.volume.level(), 0.);
+        assert!(!preview.muted);
     }
 }

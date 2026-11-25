@@ -6,21 +6,24 @@ use std::{
 
 use gpui::{
     AnyElement, Bounds, Context, CursorStyle, FontWeight, InteractiveElement, IntoElement,
-    KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    KeyDownEvent, KeyUpEvent, Keystroke, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     ParentElement, Pixels, Point, RenderImage, ScrollEvent, SharedString,
     StatefulInteractiveElement, Styled, Task, Window, div, point, prelude::FluentBuilder, px, size,
 };
 
 use super::{HEADER_HEIGHT, LibraryWindow, kind_label, t, view};
 use crate::{
-    library::{self, MediaKind, view::Entry},
+    library::{self, MediaKind, player::Direction, view::Entry},
     theme::motion,
 };
 
 const TOP_BAR: f32 = 48.;
 const FOOT: f32 = 56.;
-const SIDE: f32 = 44.;
+const EDGE_INSET: f32 = 12.;
 const STEP_ICON: f32 = 16.;
+const DRAG_THRESHOLD: f32 = 4.;
+const SCRUB_PIXELS_PER_FRAME: f32 = 4.;
+const FALLBACK_FRAME_INTERVAL: f64 = 1. / 30.;
 const WHOLE_SCREEN_ICON: f32 = 14.;
 const ACTUAL_SIZE_BOUNDS: (u32, u32) = (u32::MAX, u32::MAX);
 const CONTROLS_HOLD: Duration = Duration::from_millis(2500);
@@ -75,14 +78,14 @@ fn size_toggle(
 ) -> (Zoom, SizeAction) {
     let contained = contained_scale(picture, stage);
     match zoom {
-        Zoom::Fit if contained < 1. => (
-            zoomed_to(Zoom::Fit, point, 1., picture, stage),
+        Zoom::Fit | Zoom::Filled if contained < 1. => (
+            zoomed_to(zoom, point, 1., picture, stage),
             SizeAction::ActualSize,
         ),
         Zoom::Fit if contained > 1. => (Zoom::Filled, SizeAction::FitWindow),
-        Zoom::Fit => (Zoom::Fit, SizeAction::ActualSize),
-        Zoom::Filled | Zoom::Scaled { .. } if contained < 1. => (Zoom::Fit, SizeAction::FitWindow),
-        Zoom::Filled | Zoom::Scaled { .. } => (Zoom::Fit, SizeAction::ActualSize),
+        Zoom::Fit | Zoom::Filled => (Zoom::Fit, SizeAction::ActualSize),
+        Zoom::Scaled { .. } if contained < 1. => (Zoom::Fit, SizeAction::FitWindow),
+        Zoom::Scaled { .. } => (Zoom::Fit, SizeAction::ActualSize),
     }
 }
 
@@ -135,10 +138,34 @@ fn wheel_zoom(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Shown {
+    Video,
+    Screenshot,
+}
+
+impl Shown {
+    fn of(kind: MediaKind) -> Self {
+        match kind {
+            MediaKind::Screenshot => Self::Screenshot,
+            _ => Self::Video,
+        }
+    }
+}
+
+fn opening_zoom(shown: Shown) -> Zoom {
+    match shown {
+        Shown::Video => Zoom::Filled,
+        Shown::Screenshot => Zoom::Fit,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PreviewKey {
     Close,
+    HoldSpace,
     Previous,
     Next,
+    StepFrame(Direction),
     PlayPause,
     Back,
     Forward,
@@ -151,34 +178,135 @@ impl PreviewKey {
     fn repeats(self) -> bool {
         matches!(
             self,
-            Self::Previous | Self::Next | Self::Back | Self::Forward
-        )
-    }
-
-    fn video_only(self) -> bool {
-        matches!(
-            self,
-            Self::PlayPause | Self::Back | Self::Forward | Self::Mute
+            Self::Previous | Self::Next | Self::StepFrame(_) | Self::Back | Self::Forward
         )
     }
 }
 
-pub(super) fn preview_key(keystroke: &Keystroke, on_overlay: bool) -> Option<PreviewKey> {
+pub(super) fn preview_key(
+    keystroke: &Keystroke,
+    on_overlay: bool,
+    shown: Shown,
+) -> Option<PreviewKey> {
     if keystroke.modifiers.modified() {
         return None;
     }
-    match keystroke.key.as_str() {
-        "space" if on_overlay => Some(PreviewKey::Close),
-        "left" => Some(PreviewKey::Previous),
-        "right" => Some(PreviewKey::Next),
-        "k" => Some(PreviewKey::PlayPause),
-        "j" => Some(PreviewKey::Back),
-        "l" => Some(PreviewKey::Forward),
-        "m" => Some(PreviewKey::Mute),
-        "f" => Some(PreviewKey::WholeScreen),
-        "z" => Some(PreviewKey::ActualSize),
+    let key = match (keystroke.key.as_str(), shown) {
+        ("space", Shown::Video) if on_overlay => PreviewKey::HoldSpace,
+        ("space", Shown::Screenshot) if on_overlay => PreviewKey::Close,
+        ("left", Shown::Video) => PreviewKey::StepFrame(Direction::Back),
+        ("right", Shown::Video) => PreviewKey::StepFrame(Direction::Forward),
+        ("left", Shown::Screenshot) | ("pageup", _) => PreviewKey::Previous,
+        ("right", Shown::Screenshot) | ("pagedown", _) => PreviewKey::Next,
+        ("k", Shown::Video) => PreviewKey::PlayPause,
+        ("j", Shown::Video) => PreviewKey::Back,
+        ("l", Shown::Video) => PreviewKey::Forward,
+        ("m", Shown::Video) => PreviewKey::Mute,
+        ("f", _) => PreviewKey::WholeScreen,
+        ("z", _) => PreviewKey::ActualSize,
+        _ => return None,
+    };
+    Some(key)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Space {
+    #[default]
+    Up,
+    Held {
+        panned: bool,
+    },
+}
+
+impl Space {
+    fn held(self) -> bool {
+        matches!(self, Self::Held { .. })
+    }
+
+    fn panned(self) -> Self {
+        match self {
+            Self::Up => Self::Up,
+            Self::Held { .. } => Self::Held { panned: true },
+        }
+    }
+
+    fn plays_on_release(self) -> bool {
+        self == Self::Held { panned: false }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Gesture {
+    Pending {
+        from: (f32, f32),
+    },
+    Scrubbing {
+        from_x: f32,
+        from_position: f64,
+        target: f64,
+    },
+    Panning {
+        button: MouseButton,
+        last: (f32, f32),
+    },
+}
+
+impl Gesture {
+    fn button(self) -> MouseButton {
+        match self {
+            Self::Pending { .. } | Self::Scrubbing { .. } => MouseButton::Left,
+            Self::Panning { button, .. } => button,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PressAction {
+    Pend,
+    Pan,
+    WholeScreen,
+    SwitchSize,
+}
+
+fn press_action(
+    shown: Shown,
+    button: MouseButton,
+    click_count: usize,
+    space_held: bool,
+) -> Option<PressAction> {
+    match (button, shown) {
+        (MouseButton::Middle, _) => Some(PressAction::Pan),
+        (MouseButton::Left, _) if space_held => Some(PressAction::Pan),
+        (MouseButton::Left, Shown::Video) if click_count >= 2 => Some(PressAction::WholeScreen),
+        (MouseButton::Left, Shown::Screenshot) if click_count >= 2 => Some(PressAction::SwitchSize),
+        (MouseButton::Left, _) => Some(PressAction::Pend),
         _ => None,
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DragAction {
+    Scrub,
+    Pan,
+}
+
+fn drag_action(shown: Shown, space_held: bool, travel: (f32, f32)) -> Option<DragAction> {
+    if travel.0.hypot(travel.1) <= DRAG_THRESHOLD {
+        return None;
+    }
+    match shown {
+        Shown::Video if !space_held => Some(DragAction::Scrub),
+        _ => Some(DragAction::Pan),
+    }
+}
+
+fn release_plays(shown: Shown, gesture: Option<Gesture>) -> bool {
+    shown == Shown::Video && matches!(gesture, Some(Gesture::Pending { .. }))
+}
+
+fn scrub_target(from_position: f64, travel_x: f32, interval: f64, duration: f64) -> f64 {
+    let frames = f64::from((travel_x / SCRUB_PIXELS_PER_FRAME).trunc());
+    (from_position + frames * interval).clamp(0., duration.max(0.))
 }
 
 pub(super) fn stage_pixels(
@@ -201,10 +329,7 @@ fn stage_box(full_screen: bool, viewport: (f32, f32), header: f32) -> ((f32, f32
     if full_screen {
         ((0., 0.), viewport)
     } else {
-        (
-            (SIDE, header + TOP_BAR),
-            (viewport.0 - SIDE * 2., viewport.1 - header - TOP_BAR - FOOT),
-        )
+        ((0., header), (viewport.0, viewport.1 - header))
     }
 }
 
@@ -247,6 +372,10 @@ fn moved_centre(
     )
 }
 
+fn window_point(position: Point<Pixels>) -> (f32, f32) {
+    (f32::from(position.x), f32::from(position.y))
+}
+
 pub(super) fn actual_size_of(image: (u32, u32), scale: f32) -> (f32, f32) {
     (image.0 as f32 / scale, image.1 as f32 / scale)
 }
@@ -267,7 +396,9 @@ pub(super) struct Overlay {
     closed_at: Option<Instant>,
     full_screen: bool,
     zoom: Zoom,
-    drag: Option<Point<Pixels>>,
+    gesture: Option<Gesture>,
+    space: Space,
+    click_played: bool,
     controls_until: Instant,
     controls_task: Option<Task<()>>,
     still: Option<Still>,
@@ -283,7 +414,9 @@ impl Overlay {
             closed_at: None,
             full_screen: false,
             zoom: Zoom::Fit,
-            drag: None,
+            gesture: None,
+            space: Space::Up,
+            click_played: false,
             controls_until: now,
             controls_task: None,
             still: None,
@@ -358,7 +491,7 @@ impl Overlay {
     }
 
     fn shows_controls(&self, playing: bool, now: Instant) -> bool {
-        !self.full_screen || !playing || now < self.controls_until
+        !playing || now < self.controls_until
     }
 
     fn held_still(&self, path: &Path) -> Option<&Still> {
@@ -425,6 +558,7 @@ impl LibraryWindow {
         self.retire_overlay(replaced);
         window.focus(&self.library.overlay_focus, cx);
         self.show_overlay_item(window, cx);
+        self.wake_overlay_controls(cx);
         cx.notify();
     }
 
@@ -459,8 +593,8 @@ impl LibraryWindow {
         self.library.detail.preview.sync_bounds(bounds);
         if let Some(overlay) = &mut self.library.overlay {
             overlay.still_asked = None;
-            overlay.drag = None;
-            overlay.zoom = Zoom::Fit;
+            overlay.gesture = None;
+            overlay.zoom = opening_zoom(Shown::of(entry.kind));
         }
         if entry.screenshot.is_none() && !self.library.detail.preview.playing {
             self.toggle_library_preview(window, cx);
@@ -560,7 +694,7 @@ impl LibraryWindow {
             }
             None => Zoom::Fit,
         };
-        overlay.drag = None;
+        overlay.gesture = None;
         self.wake_overlay_controls(cx);
         cx.notify();
     }
@@ -608,27 +742,53 @@ impl LibraryWindow {
         )
     }
 
+    fn overlay_shown(&self) -> Option<Shown> {
+        self.library
+            .single_entry()
+            .map(|entry| Shown::of(entry.kind))
+    }
+
     fn press_library_overlay_stage(
         &mut self,
         event: &MouseDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let Some(shown) = self.overlay_shown() else {
+            return;
+        };
         let (_, stage) = self.overlay_stage_box(window);
         let point = self.stage_point(event.position, window);
         let picture = self.overlay_picture(window);
         let Some(overlay) = self.library.overlay.as_mut().filter(|o| o.is_open()) else {
             return;
         };
-        if event.click_count == 2 {
-            overlay.drag = None;
-            overlay.zoom = match picture {
-                Some(picture) => size_toggle(overlay.zoom, point, picture, stage).0,
-                None => Zoom::Fit,
-            };
-            cx.notify();
-        } else if overlay.zoomed() {
-            overlay.drag = Some(event.position);
+        let undo_click = std::mem::take(&mut overlay.click_played);
+        overlay.gesture = None;
+        let at = window_point(event.position);
+        match press_action(shown, event.button, event.click_count, overlay.space.held()) {
+            None => {}
+            Some(PressAction::Pend) => overlay.gesture = Some(Gesture::Pending { from: at }),
+            Some(PressAction::Pan) => {
+                overlay.space = overlay.space.panned();
+                overlay.gesture = Some(Gesture::Panning {
+                    button: event.button,
+                    last: at,
+                });
+            }
+            Some(PressAction::SwitchSize) => {
+                overlay.zoom = match picture {
+                    Some(picture) => size_toggle(overlay.zoom, point, picture, stage).0,
+                    None => Zoom::Fit,
+                };
+                cx.notify();
+            }
+            Some(PressAction::WholeScreen) => {
+                if undo_click {
+                    self.toggle_library_preview(window, cx);
+                }
+                self.toggle_library_full_screen(window, cx);
+            }
         }
     }
 
@@ -638,18 +798,90 @@ impl LibraryWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let Some(entry) = self.library.single_entry() else {
+            return;
+        };
+        let shown = Shown::of(entry.kind);
+        let duration = self.library_preview_length(entry);
+        let preview = &self.library.detail.preview;
+        let position = preview.position();
+        let interval = preview.frame_interval().unwrap_or(FALLBACK_FRAME_INTERVAL);
+        let Some(overlay) = self.library.overlay.as_mut().filter(|o| o.is_open()) else {
+            return;
+        };
+        let Some(gesture) = overlay.gesture else {
+            return;
+        };
+        if event.pressed_button != Some(gesture.button()) {
+            overlay.gesture = None;
+            return;
+        }
+        let at = window_point(event.position);
+        let starting = matches!(gesture, Gesture::Pending { .. });
+        let gesture = match gesture {
+            Gesture::Pending { from } => {
+                match drag_action(shown, overlay.space.held(), (at.0 - from.0, at.1 - from.1)) {
+                    None => return,
+                    Some(DragAction::Pan) => {
+                        overlay.space = overlay.space.panned();
+                        Gesture::Panning {
+                            button: MouseButton::Left,
+                            last: from,
+                        }
+                    }
+                    Some(DragAction::Scrub) => Gesture::Scrubbing {
+                        from_x: from.0,
+                        from_position: position,
+                        target: position,
+                    },
+                }
+            }
+            moving => moving,
+        };
+        match gesture {
+            Gesture::Pending { .. } => {}
+            Gesture::Panning { button, last } => {
+                overlay.gesture = Some(Gesture::Panning { button, last: at });
+                self.pan_library_overlay((at.0 - last.0, at.1 - last.1), window, cx);
+            }
+            Gesture::Scrubbing {
+                from_x,
+                from_position,
+                target,
+            } => {
+                let next = scrub_target(from_position, at.0 - from_x, interval, duration);
+                overlay.gesture = Some(Gesture::Scrubbing {
+                    from_x,
+                    from_position,
+                    target: next,
+                });
+                if starting {
+                    self.pause_library_preview(cx);
+                }
+                if next != target {
+                    self.seek_library_preview(next, window, cx);
+                }
+            }
+        }
+    }
+
+    fn release_library_overlay_stage(
+        &mut self,
+        _: &MouseUpEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(shown) = self.overlay_shown() else {
+            return;
+        };
         let Some(overlay) = &mut self.library.overlay else {
             return;
         };
-        if event.pressed_button != Some(MouseButton::Left) {
-            overlay.drag = None;
-            return;
+        let gesture = overlay.gesture.take();
+        if release_plays(shown, gesture) {
+            overlay.click_played = true;
+            self.toggle_library_preview(window, cx);
         }
-        let Some(from) = overlay.drag.replace(event.position) else {
-            return;
-        };
-        let delta = event.position - from;
-        self.pan_library_overlay((f32::from(delta.x), f32::from(delta.y)), window, cx);
     }
 
     fn pan_library_overlay(
@@ -716,6 +948,10 @@ impl LibraryWindow {
                 MouseButton::Left,
                 cx.listener(Self::press_library_overlay_stage),
             )
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(Self::press_library_overlay_stage),
+            )
             .on_scroll(cx.listener(Self::zoom_library_overlay))
             .child(picture)
     }
@@ -724,9 +960,6 @@ impl LibraryWindow {
         let Some(overlay) = &mut self.library.overlay else {
             return;
         };
-        if !overlay.full_screen {
-            return;
-        }
         let now = Instant::now();
         let hidden = now >= overlay.controls_until;
         overlay.controls_until = now + CONTROLS_HOLD;
@@ -776,32 +1009,52 @@ impl LibraryWindow {
     ) {
         self.wake_overlay_controls(cx);
         let on_overlay = self.library.overlay_focus.is_focused(window);
-        let Some(key) = preview_key(&event.keystroke, on_overlay) else {
+        let Some(shown) = self.overlay_shown() else {
             return;
         };
-        if event.is_held && !key.repeats() {
+        let Some(key) = preview_key(&event.keystroke, on_overlay, shown) else {
             return;
-        }
+        };
         cx.stop_propagation();
-        let video = self
-            .library
-            .single_entry()
-            .is_some_and(|entry| entry.kind != MediaKind::Screenshot);
-        if key.video_only() && !video {
+        if event.is_held && !key.repeats() {
             return;
         }
         match key {
             PreviewKey::Close => {
                 self.close_library_overlay(window, cx);
             }
+            PreviewKey::HoldSpace => {
+                if let Some(overlay) = &mut self.library.overlay {
+                    overlay.space = Space::Held { panned: false };
+                }
+            }
             PreviewKey::Previous => self.step_library_overlay(false, window, cx),
             PreviewKey::Next => self.step_library_overlay(true, window, cx),
+            PreviewKey::StepFrame(direction) => self.step_library_preview(direction, window, cx),
             PreviewKey::PlayPause => self.toggle_library_preview(window, cx),
             PreviewKey::Back => self.skip_library_preview(false, window, cx),
             PreviewKey::Forward => self.skip_library_preview(true, window, cx),
             PreviewKey::Mute => self.toggle_library_mute(cx),
             PreviewKey::WholeScreen => self.toggle_library_full_screen(window, cx),
             PreviewKey::ActualSize => self.toggle_library_actual_size(window, cx),
+        }
+    }
+
+    fn on_library_overlay_key_up(
+        &mut self,
+        event: &KeyUpEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.keystroke.key != "space" {
+            return;
+        }
+        let Some(overlay) = &mut self.library.overlay else {
+            return;
+        };
+        if std::mem::take(&mut overlay.space).plays_on_release() {
+            cx.stop_propagation();
+            self.toggle_library_preview(window, cx);
         }
     }
 
@@ -889,37 +1142,44 @@ impl LibraryWindow {
             })
             .when(exports, |this| {
                 this.child(
-                    self.detail_button("library-overlay-export", t!("Export"), false, false)
-                        .flex_none()
-                        .px(px(12.))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.pause_library_preview(cx);
-                            this.export_library_selection(window, cx);
-                        })),
+                    self.preview_button(
+                        "library-overlay-export",
+                        "icons/download.svg",
+                        STEP_ICON,
+                        t!("Export"),
+                        &[],
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.pause_library_preview(cx);
+                        this.export_library_selection(window, cx);
+                    })),
                 )
             })
             .when(library::file_to_share(entry).is_some(), |this| {
                 this.child(
-                    self.detail_button(
+                    self.preview_button(
                         "library-overlay-external",
+                        "icons/external-link.svg",
+                        STEP_ICON,
                         t!("Open in default app"),
-                        false,
-                        false,
+                        &[],
                     )
-                    .flex_none()
-                    .px(px(12.))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.open_library_file_externally(cx);
                     })),
                 )
             })
             .child(
-                self.detail_button("library-overlay-reveal", t!("Show in folder"), false, false)
-                    .flex_none()
-                    .px(px(12.))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.reveal_library_selection(cx);
-                    })),
+                self.preview_button(
+                    "library-overlay-reveal",
+                    "icons/folder-open.svg",
+                    STEP_ICON,
+                    t!("Show in folder"),
+                    &[],
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.reveal_library_selection(cx);
+                })),
             )
             .child(
                 self.preview_button(
@@ -937,22 +1197,45 @@ impl LibraryWindow {
 
     fn overlay_step_button(
         &self,
-        id: &'static str,
-        icon: &'static str,
-        label: &'static str,
-        key: &'static [&'static str],
         forward: bool,
         entry: &Entry,
         cx: &mut Context<Self>,
-    ) -> gpui::Stateful<gpui::Div> {
+    ) -> gpui::Div {
+        let (id, icon, label, key): (_, _, _, &'static [&'static str]) = if forward {
+            (
+                "library-overlay-next",
+                "icons/chevron-right.svg",
+                t!("Next item"),
+                &["PgDn"],
+            )
+        } else {
+            (
+                "library-overlay-previous",
+                "icons/chevron-left.svg",
+                t!("Previous item"),
+                &["PgUp"],
+            )
+        };
         let reachable = view::neighbour(&self.library.order, &entry.path, forward).is_some();
-        self.preview_button(id, icon, STEP_ICON, label, key)
+        let button = self
+            .preview_button(id, icon, STEP_ICON, label, key)
+            .occlude()
+            .bg(self.theme.popover)
             .when(!reachable, |this| this.opacity(0.5))
             .when(reachable, |this| {
                 this.on_click(cx.listener(move |this, _, window, cx| {
                     this.step_library_overlay(forward, window, cx);
                 }))
-            })
+            });
+        div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .when(forward, |this| this.right(px(EDGE_INSET)))
+            .when(!forward, |this| this.left(px(EDGE_INSET)))
+            .flex()
+            .items_center()
+            .child(button)
     }
 
     fn overlay_size_action(&self, window: &Window) -> SizeAction {
@@ -998,9 +1281,10 @@ impl LibraryWindow {
             })
             .when(entry.kind != MediaKind::Screenshot, |this| {
                 this.child(self.preview_play_button(cx))
-                    .child(self.preview_time(duration))
+                    .child(self.preview_frame_time(duration))
                     .child(self.preview_seek(duration, cx))
                     .child(self.preview_mute_button(cx))
+                    .child(self.preview_volume(cx))
             })
             .child(
                 self.preview_button(
@@ -1075,22 +1359,37 @@ impl LibraryWindow {
             })
             .text_color(theme.foreground)
             .on_key_down(cx.listener(Self::on_library_overlay_key))
+            .on_key_up(cx.listener(Self::on_library_overlay_key_up))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 this.wake_overlay_controls(cx);
                 this.drag_library_overlay_stage(event, window, cx);
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, _| {
-                    if let Some(overlay) = &mut this.library.overlay {
-                        overlay.drag = None;
-                    }
-                }),
+                cx.listener(Self::release_library_overlay_stage),
+            )
+            .on_mouse_up(
+                MouseButton::Middle,
+                cx.listener(Self::release_library_overlay_stage),
             );
         Some(
-            if full_screen {
-                root.child(picture).when(controls, |this| {
-                    this.child(
+            root.child(picture)
+                .when(controls, |this| {
+                    this.when(!full_screen, |this| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .left_0()
+                                .right_0()
+                                .top_0()
+                                .occlude()
+                                .bg(theme.popover)
+                                .child(self.render_overlay_top(entry, cx)),
+                        )
+                    })
+                    .child(self.overlay_step_button(false, entry, cx))
+                    .child(self.overlay_step_button(true, entry, cx))
+                    .child(
                         div()
                             .absolute()
                             .left_0()
@@ -1101,48 +1400,7 @@ impl LibraryWindow {
                             .child(self.render_overlay_foot(entry, window, cx)),
                     )
                 })
-            } else {
-                root.child(self.render_overlay_top(entry, cx))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_1()
-                            .min_h_0()
-                            .items_center()
-                            .gap(px(8.))
-                            .px(px(12.))
-                            .child(self.overlay_step_button(
-                                "library-overlay-previous",
-                                "icons/chevron-left.svg",
-                                t!("Previous item"),
-                                &["←"],
-                                false,
-                                entry,
-                                cx,
-                            ))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .self_stretch()
-                                    .relative()
-                                    .rounded(px(6.))
-                                    .overflow_hidden()
-                                    .child(picture),
-                            )
-                            .child(self.overlay_step_button(
-                                "library-overlay-next",
-                                "icons/chevron-right.svg",
-                                t!("Next item"),
-                                &["→"],
-                                true,
-                                entry,
-                                cx,
-                            )),
-                    )
-                    .child(self.render_overlay_foot(entry, window, cx))
-            }
-            .into_any_element(),
+                .into_any_element(),
         )
     }
 }
@@ -1154,7 +1412,11 @@ mod tests {
     use super::*;
 
     fn key(text: &'static str, on_overlay: bool) -> Option<PreviewKey> {
-        preview_key(&Keystroke::parse(text).unwrap(), on_overlay)
+        preview_key(&Keystroke::parse(text).unwrap(), on_overlay, Shown::Video)
+    }
+
+    fn screenshot_key(text: &'static str) -> Option<PreviewKey> {
+        preview_key(&Keystroke::parse(text).unwrap(), true, Shown::Screenshot)
     }
 
     fn rect(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
@@ -1165,22 +1427,209 @@ mod tests {
     }
 
     #[test]
-    fn every_preview_key_has_its_action() {
-        assert_eq!(key("left", true), Some(PreviewKey::Previous));
-        assert_eq!(key("right", true), Some(PreviewKey::Next));
+    fn every_video_preview_key_has_its_action() {
+        assert_eq!(
+            key("left", true),
+            Some(PreviewKey::StepFrame(Direction::Back))
+        );
+        assert_eq!(
+            key("right", true),
+            Some(PreviewKey::StepFrame(Direction::Forward))
+        );
+        assert_eq!(key("pageup", true), Some(PreviewKey::Previous));
+        assert_eq!(key("pagedown", true), Some(PreviewKey::Next));
+        assert_eq!(key("space", true), Some(PreviewKey::HoldSpace));
         assert_eq!(key("k", true), Some(PreviewKey::PlayPause));
         assert_eq!(key("j", true), Some(PreviewKey::Back));
         assert_eq!(key("l", true), Some(PreviewKey::Forward));
         assert_eq!(key("m", true), Some(PreviewKey::Mute));
         assert_eq!(key("f", true), Some(PreviewKey::WholeScreen));
         assert_eq!(key("z", true), Some(PreviewKey::ActualSize));
-        assert_eq!(key("space", true), Some(PreviewKey::Close));
+    }
+
+    #[test]
+    fn a_screenshot_steps_items_closes_on_space_and_has_no_playback_keys() {
+        assert_eq!(screenshot_key("left"), Some(PreviewKey::Previous));
+        assert_eq!(screenshot_key("right"), Some(PreviewKey::Next));
+        assert_eq!(screenshot_key("pageup"), Some(PreviewKey::Previous));
+        assert_eq!(screenshot_key("pagedown"), Some(PreviewKey::Next));
+        assert_eq!(screenshot_key("space"), Some(PreviewKey::Close));
+        assert_eq!(screenshot_key("f"), Some(PreviewKey::WholeScreen));
+        assert_eq!(screenshot_key("z"), Some(PreviewKey::ActualSize));
+        for playback in ["k", "j", "l", "m"] {
+            assert_eq!(screenshot_key(playback), None);
+        }
+    }
+
+    #[test]
+    fn esc_is_left_to_the_window_so_it_leaves_whole_screen_before_closing() {
+        assert_eq!(key("escape", true), None);
+        assert_eq!(screenshot_key("escape"), None);
     }
 
     #[test]
     fn space_on_a_focused_control_belongs_to_the_control() {
         assert_eq!(key("space", false), None);
+        assert_eq!(
+            preview_key(
+                &Keystroke::parse("space").unwrap(),
+                false,
+                Shown::Screenshot
+            ),
+            None
+        );
         assert_eq!(key("k", false), Some(PreviewKey::PlayPause));
+    }
+
+    #[test]
+    fn a_tapped_space_plays_and_a_space_held_for_a_pan_does_not() {
+        assert!(Space::Held { panned: false }.plays_on_release());
+        assert!(!Space::Held { panned: false }.panned().plays_on_release());
+        assert!(!Space::Up.plays_on_release());
+        assert_eq!(Space::Up.panned(), Space::Up);
+    }
+
+    #[test]
+    fn a_left_press_on_the_picture_waits_to_see_if_it_is_a_click_or_a_drag() {
+        for shown in [Shown::Video, Shown::Screenshot] {
+            assert_eq!(
+                press_action(shown, MouseButton::Left, 1, false),
+                Some(PressAction::Pend)
+            );
+        }
+    }
+
+    #[test]
+    fn a_double_click_switches_whole_screen_for_a_video_and_size_for_a_screenshot() {
+        assert_eq!(
+            press_action(Shown::Video, MouseButton::Left, 2, false),
+            Some(PressAction::WholeScreen)
+        );
+        assert_eq!(
+            press_action(Shown::Screenshot, MouseButton::Left, 2, false),
+            Some(PressAction::SwitchSize)
+        );
+    }
+
+    #[test]
+    fn the_middle_button_or_a_held_space_moves_the_picture() {
+        for shown in [Shown::Video, Shown::Screenshot] {
+            assert_eq!(
+                press_action(shown, MouseButton::Middle, 1, false),
+                Some(PressAction::Pan)
+            );
+            assert_eq!(
+                press_action(shown, MouseButton::Left, 1, true),
+                Some(PressAction::Pan)
+            );
+            assert_eq!(
+                press_action(shown, MouseButton::Left, 2, true),
+                Some(PressAction::Pan)
+            );
+        }
+        assert_eq!(
+            press_action(Shown::Video, MouseButton::Right, 1, false),
+            None
+        );
+    }
+
+    #[test]
+    fn a_drag_starts_only_past_the_threshold() {
+        let short = (DRAG_THRESHOLD - 1., 0.);
+        let long = (DRAG_THRESHOLD + 1., 0.);
+        assert_eq!(drag_action(Shown::Video, false, short), None);
+        assert_eq!(drag_action(Shown::Screenshot, false, short), None);
+        assert_eq!(
+            drag_action(Shown::Video, false, long),
+            Some(DragAction::Scrub)
+        );
+        assert_eq!(
+            drag_action(Shown::Video, false, (0., -long.0)),
+            Some(DragAction::Scrub)
+        );
+        assert_eq!(
+            drag_action(Shown::Screenshot, false, long),
+            Some(DragAction::Pan)
+        );
+        assert_eq!(drag_action(Shown::Video, true, long), Some(DragAction::Pan));
+    }
+
+    #[test]
+    fn only_a_click_on_a_video_plays_or_pauses() {
+        let pending = Some(Gesture::Pending { from: (10., 10.) });
+        assert!(release_plays(Shown::Video, pending));
+        assert!(!release_plays(Shown::Screenshot, pending));
+        assert!(!release_plays(
+            Shown::Video,
+            Some(Gesture::Scrubbing {
+                from_x: 10.,
+                from_position: 1.,
+                target: 2.,
+            })
+        ));
+        assert!(!release_plays(
+            Shown::Video,
+            Some(Gesture::Panning {
+                button: MouseButton::Left,
+                last: (0., 0.),
+            })
+        ));
+        assert!(!release_plays(Shown::Video, None));
+    }
+
+    #[test]
+    fn scrubbing_moves_one_frame_per_few_pixels_of_travel() {
+        let interval = 0.04;
+        assert_eq!(scrub_target(2., 0., interval, 10.), 2.);
+        assert_eq!(
+            scrub_target(2., SCRUB_PIXELS_PER_FRAME - 0.5, interval, 10.),
+            2.
+        );
+        assert_eq!(
+            scrub_target(2., -(SCRUB_PIXELS_PER_FRAME - 0.5), interval, 10.),
+            2.
+        );
+        assert!((scrub_target(2., SCRUB_PIXELS_PER_FRAME * 10., interval, 10.) - 2.4).abs() < 1e-9);
+        assert!(
+            (scrub_target(2., -SCRUB_PIXELS_PER_FRAME * 10., interval, 10.) - 1.6).abs() < 1e-9
+        );
+    }
+
+    #[test]
+    fn scrubbing_stops_at_either_end() {
+        assert_eq!(scrub_target(0.5, -10_000., 0.04, 10.), 0.);
+        assert_eq!(scrub_target(9.5, 10_000., 0.04, 10.), 10.);
+    }
+
+    #[test]
+    fn a_video_opens_filling_the_stage_and_a_screenshot_at_actual_size() {
+        assert_eq!(opening_zoom(Shown::Video), Zoom::Filled);
+        assert_eq!(opening_zoom(Shown::Screenshot), Zoom::Fit);
+    }
+
+    #[test]
+    fn from_filled_a_small_video_goes_to_actual_size_and_back() {
+        let (picture, stage) = ((400., 200.), (1000., 600.));
+        let (zoom, action) = size_toggle(Zoom::Filled, (500., 300.), picture, stage);
+        assert_eq!(action, SizeAction::ActualSize);
+        assert_eq!(zoom.scale(picture, stage), 1.);
+        let (back, action) = size_toggle(zoom, (500., 300.), picture, stage);
+        assert_eq!(action, SizeAction::FitWindow);
+        assert_eq!(back, Zoom::Filled);
+    }
+
+    #[test]
+    fn from_filled_a_large_video_goes_to_actual_size_and_back() {
+        let (picture, stage) = ((3000., 2000.), (1000., 600.));
+        let (zoom, action) = size_toggle(Zoom::Filled, (500., 300.), picture, stage);
+        assert_eq!(action, SizeAction::ActualSize);
+        assert_eq!(zoom.scale(picture, stage), 1.);
+        let (back, action) = size_toggle(zoom, (500., 300.), picture, stage);
+        assert_eq!(action, SizeAction::FitWindow);
+        assert_eq!(
+            drawn_bounds(back, picture, stage),
+            drawn_bounds(Zoom::Filled, picture, stage)
+        );
     }
 
     #[test]
@@ -1192,17 +1641,13 @@ mod tests {
     #[test]
     fn only_movement_repeats_while_held() {
         assert!(PreviewKey::Next.repeats());
+        assert!(PreviewKey::StepFrame(Direction::Back).repeats());
+        assert!(PreviewKey::StepFrame(Direction::Forward).repeats());
         assert!(PreviewKey::Forward.repeats());
         assert!(!PreviewKey::WholeScreen.repeats());
         assert!(!PreviewKey::PlayPause.repeats());
+        assert!(!PreviewKey::HoldSpace.repeats());
         assert!(!PreviewKey::Close.repeats());
-    }
-
-    #[test]
-    fn a_screenshot_ignores_the_playback_keys_only() {
-        assert!(PreviewKey::Mute.video_only());
-        assert!(!PreviewKey::WholeScreen.video_only());
-        assert!(!PreviewKey::Next.video_only());
     }
 
     #[test]
@@ -1210,13 +1655,13 @@ mod tests {
         assert_eq!(stage_pixels(true, false, (1920., 1080.), 1.5), (2880, 1620));
         assert_eq!(
             stage_pixels(false, false, (1000., 700.), 2.),
-            (1824, (560. * 2.) as u32)
+            (2000, ((700. - HEADER_HEIGHT) * 2.).round() as u32)
         );
     }
 
     #[test]
     fn a_window_too_small_for_the_chrome_still_asks_for_a_pixel() {
-        assert_eq!(stage_pixels(false, false, (10., 10.), 1.), (1, 1));
+        assert_eq!(stage_pixels(false, false, (0., 0.), 1.), (1, 1));
     }
 
     #[test]
@@ -1232,13 +1677,10 @@ mod tests {
     }
 
     #[test]
-    fn the_stage_sits_between_the_bars_or_takes_the_whole_screen() {
+    fn the_picture_uses_the_whole_area_under_the_window_header() {
         assert_eq!(
             stage_box(false, (1000., 700.), 40.),
-            (
-                (SIDE, 40. + TOP_BAR),
-                (1000. - SIDE * 2., 700. - 40. - TOP_BAR - FOOT)
-            )
+            ((0., 40.), (1000., 660.))
         );
         assert_eq!(
             stage_box(true, (1920., 1080.), 40.),
@@ -1500,14 +1942,15 @@ mod tests {
     }
 
     #[test]
-    fn whole_screen_controls_hide_only_while_playing_and_idle() {
+    fn controls_hide_only_while_playing_and_idle_in_a_window_and_on_the_whole_screen() {
         let start = Instant::now();
-        let mut overlay = Overlay::new(None, start);
-        assert!(overlay.shows_controls(true, start));
-        overlay.full_screen = true;
-        overlay.controls_until = start + CONTROLS_HOLD;
-        assert!(overlay.shows_controls(true, start));
-        assert!(!overlay.shows_controls(true, start + CONTROLS_HOLD));
-        assert!(overlay.shows_controls(false, start + CONTROLS_HOLD));
+        for full_screen in [false, true] {
+            let mut overlay = Overlay::new(None, start);
+            overlay.full_screen = full_screen;
+            overlay.controls_until = start + CONTROLS_HOLD;
+            assert!(overlay.shows_controls(true, start));
+            assert!(!overlay.shows_controls(true, start + CONTROLS_HOLD));
+            assert!(overlay.shows_controls(false, start + CONTROLS_HOLD));
+        }
     }
 }
