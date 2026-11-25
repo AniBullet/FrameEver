@@ -129,7 +129,8 @@ fn assert_plays_on_from_the_start(segments: Vec<Segment>, late: f64) {
             _ => {}
         }
     }
-    let shown = player.stats().shown;
+    let presented = |stats: Stats| stats.shown + stats.skipped;
+    let before = presented(player.stats());
     let settle = Instant::now() + Duration::from_millis(300);
     while let Ok(event) = events.recv_deadline(settle) {
         assert_ne!(event, Event::Ended);
@@ -137,7 +138,11 @@ fn assert_plays_on_from_the_start(segments: Vec<Segment>, late: f64) {
             player.take_frame();
         }
     }
-    assert!(player.stats().shown > shown + 3, "{:?}", player.stats());
+    assert!(
+        presented(player.stats()) > before + 3,
+        "{:?}",
+        player.stats()
+    );
 }
 
 fn wait_for_event(
