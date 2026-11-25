@@ -121,6 +121,7 @@ pub fn segments_of(entry: &Entry) -> Result<Vec<Segment>, PlayError> {
 pub struct ShownFrame {
     pub image: Arc<RenderImage>,
     pub position: f64,
+    pub source: (u32, u32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -629,7 +630,11 @@ impl Worker {
         let position = self.position_of(decoded.local);
         match self.reader.image(decoded, self.bounds) {
             Ok(image) => {
-                if self.slot.put(ShownFrame { image, position }) {
+                if self.slot.put(ShownFrame {
+                    image,
+                    position,
+                    source: decoded.size(),
+                }) {
                     self.events.send(Event::Frame).ok();
                 }
                 self.shown_any = true;

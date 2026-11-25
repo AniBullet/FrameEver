@@ -2192,16 +2192,12 @@ document.getElementById("keys-grid").innerHTML =
 		["Whole screen", "整屏", "F"],
 		["Actual size, fit to window", "原始大小、适应窗口", "Z"],
 		[
-			"Same, on the clicked point",
-			"同上，以点击处为中心",
+			"Same, at the clicked point",
+			"同上，以点击处为准",
 			L("Double-click", "双击"),
 		],
-		[
-			"Move at actual size",
-			"原始大小时移动画面",
-			L("Drag", "拖动"),
-			L("Wheel", "滚轮"),
-		],
+		["Zoom at the pointer", "以指针处缩放", L("Wheel", "滚轮")],
+		["Move a zoomed picture", "移动放大的画面", L("Drag", "拖动")],
 		["Close", "关闭", "Space", "Esc"],
 	])}</div>`;
 

@@ -11,7 +11,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Task, Window, div, point, prelude::FluentBuilder, px, size,
 };
 
-use super::{HEADER_HEIGHT, LibraryWindow, kind_label, preview::ActualSize, t, view};
+use super::{HEADER_HEIGHT, LibraryWindow, kind_label, t, view};
 use crate::{
     library::{self, MediaKind, view::Entry},
     theme::motion,
@@ -26,11 +26,83 @@ const ACTUAL_SIZE_BOUNDS: (u32, u32) = (u32::MAX, u32::MAX);
 const CONTROLS_HOLD: Duration = Duration::from_millis(2500);
 const MIDDLE: (f32, f32) = (0.5, 0.5);
 const WHEEL_LINE: f32 = 40.;
+const ZOOM_PER_LINE: f32 = 1.2;
+const MAX_ZOOM: f32 = 8.;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Zoom {
     Fit,
-    Actual { centre: (f32, f32) },
+    Scaled { scale: f32, centre: (f32, f32) },
+}
+
+impl Zoom {
+    fn scale(self, picture: (f32, f32), stage: (f32, f32)) -> f32 {
+        match self {
+            Self::Fit => fitted_scale(picture, stage),
+            Self::Scaled { scale, .. } => scale,
+        }
+    }
+
+    fn centre(self) -> (f32, f32) {
+        match self {
+            Self::Fit => MIDDLE,
+            Self::Scaled { centre, .. } => centre,
+        }
+    }
+}
+
+fn fitted_scale(picture: (f32, f32), stage: (f32, f32)) -> f32 {
+    (stage.0 / picture.0.max(1.))
+        .min(stage.1 / picture.1.max(1.))
+        .min(1.)
+}
+
+pub(super) struct Placed {
+    pub(super) origin: (f32, f32),
+    pub(super) size: (f32, f32),
+}
+
+fn drawn_bounds(zoom: Zoom, picture: (f32, f32), stage: (f32, f32)) -> ((f32, f32), (f32, f32)) {
+    let scale = zoom.scale(picture, stage);
+    let drawn = (picture.0 * scale, picture.1 * scale);
+    (actual_origin(zoom.centre(), drawn, stage), drawn)
+}
+
+fn zoomed_to(
+    zoom: Zoom,
+    point: (f32, f32),
+    scale: f32,
+    picture: (f32, f32),
+    stage: (f32, f32),
+) -> Zoom {
+    let scale = scale.min(MAX_ZOOM);
+    if scale <= fitted_scale(picture, stage) {
+        return Zoom::Fit;
+    }
+    let (origin, drawn) = drawn_bounds(zoom, picture, stage);
+    let axis = |point: f32, origin: f32, drawn: f32, picture: f32, stage: f32| {
+        let fraction = ((point - origin) / drawn.max(1.)).clamp(0., 1.);
+        let next = (picture * scale).max(1.);
+        (stage / 2. - (point - fraction * next)) / next
+    };
+    Zoom::Scaled {
+        scale,
+        centre: (
+            axis(point.0, origin.0, drawn.0, picture.0, stage.0),
+            axis(point.1, origin.1, drawn.1, picture.1, stage.1),
+        ),
+    }
+}
+
+fn wheel_zoom(
+    zoom: Zoom,
+    point: (f32, f32),
+    lines: f32,
+    picture: (f32, f32),
+    stage: (f32, f32),
+) -> Zoom {
+    let scale = zoom.scale(picture, stage) * ZOOM_PER_LINE.powf(lines);
+    zoomed_to(zoom, point, scale, picture, stage)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,24 +218,18 @@ fn moved_centre(
     )
 }
 
-fn point_in_picture(point: (f32, f32), picture: (f32, f32), stage: (f32, f32)) -> (f32, f32) {
-    let fit = (stage.0 / picture.0.max(1.)).min(stage.1 / picture.1.max(1.));
-    let axis = |point: f32, picture: f32, stage: f32| {
-        let drawn = (picture * fit).max(1.);
-        ((point - (stage - drawn) / 2.) / drawn).clamp(0., 1.)
-    };
-    (
-        axis(point.0, picture.0, stage.0),
-        axis(point.1, picture.1, stage.1),
-    )
-}
-
 pub(super) fn actual_size_of(image: (u32, u32), scale: f32) -> (f32, f32) {
     (image.0 as f32 / scale, image.1 as f32 / scale)
 }
 
 fn progress(elapsed: Duration, total: Duration) -> f32 {
     (elapsed.as_secs_f32() / total.as_secs_f32()).min(1.)
+}
+
+struct Still {
+    path: PathBuf,
+    image: Arc<RenderImage>,
+    source: Option<(u32, u32)>,
 }
 
 pub(super) struct Overlay {
@@ -175,7 +241,7 @@ pub(super) struct Overlay {
     drag: Option<Point<Pixels>>,
     controls_until: Instant,
     controls_task: Option<Task<()>>,
-    still: Option<(PathBuf, Arc<RenderImage>)>,
+    still: Option<Still>,
     still_asked: Option<(u32, u32)>,
     still_task: Option<Task<()>>,
 }
@@ -205,8 +271,8 @@ impl Overlay {
         self.full_screen
     }
 
-    fn actual_size(&self) -> bool {
-        matches!(self.zoom, Zoom::Actual { .. })
+    fn zoomed(&self) -> bool {
+        matches!(self.zoom, Zoom::Scaled { .. })
     }
 
     pub(super) fn covers_page(&self, now: Instant) -> bool {
@@ -266,11 +332,12 @@ impl Overlay {
         !self.full_screen || !playing || now < self.controls_until
     }
 
+    fn held_still(&self, path: &Path) -> Option<&Still> {
+        self.still.as_ref().filter(|still| still.path == path)
+    }
+
     fn still_of(&self, path: &Path) -> Option<Arc<RenderImage>> {
-        self.still
-            .as_ref()
-            .filter(|(held, _)| held == path)
-            .map(|(_, image)| image.clone())
+        self.held_still(path).map(|still| still.image.clone())
     }
 }
 
@@ -286,11 +353,11 @@ impl LibraryWindow {
         self.library.overlay.as_ref().is_some_and(Overlay::is_open)
     }
 
-    pub(super) fn library_actual_size(&self) -> bool {
+    pub(super) fn library_zoomed(&self) -> bool {
         self.library
             .overlay
             .as_ref()
-            .is_some_and(|overlay| overlay.is_open() && overlay.actual_size())
+            .is_some_and(|overlay| overlay.is_open() && overlay.zoomed())
     }
 
     pub(super) fn library_full_screen(&self) -> bool {
@@ -336,7 +403,7 @@ impl LibraryWindow {
         let preview = &mut self.library.detail.preview;
         preview
             .retired
-            .extend(overlay.and_then(|overlay| overlay.still.map(|(_, image)| image)));
+            .extend(overlay.and_then(|overlay| overlay.still.map(|still| still.image)));
     }
 
     pub(super) fn library_stage_pixels(&self, window: &Window) -> (u32, u32) {
@@ -346,7 +413,7 @@ impl LibraryWindow {
                 let viewport = window.viewport_size();
                 stage_pixels(
                     overlay.full_screen,
-                    overlay.actual_size(),
+                    overlay.zoomed(),
                     (f32::from(viewport.width), f32::from(viewport.height)),
                     scale,
                 )
@@ -364,9 +431,7 @@ impl LibraryWindow {
         if let Some(overlay) = &mut self.library.overlay {
             overlay.still_asked = None;
             overlay.drag = None;
-            if overlay.actual_size() {
-                overlay.zoom = Zoom::Actual { centre: MIDDLE };
-            }
+            overlay.zoom = Zoom::Fit;
         }
         if entry.screenshot.is_none() && !self.library.detail.preview.playing {
             self.toggle_library_preview(window, cx);
@@ -384,21 +449,28 @@ impl LibraryWindow {
         let task = cx.spawn_in(window, async move |this, cx| {
             let image = cx
                 .background_executor()
-                .spawn(async move { library::decode_still(&png, bounds) })
+                .spawn(async move {
+                    let source = image::image_dimensions(&png).ok();
+                    library::decode_still(&png, bounds).map(|image| (image, source))
+                })
                 .await;
             this.update(cx, |this, cx| {
                 let page = &mut this.library;
-                let Some(image) = image else {
+                let Some((image, source)) = image else {
                     return;
                 };
                 let wanted = page.selection.single() == Some(path.as_path());
                 match page.overlay.as_mut().filter(|_| wanted) {
                     Some(overlay) => {
-                        let replaced = overlay.still.replace((path, image));
+                        let replaced = overlay.still.replace(Still {
+                            path,
+                            image,
+                            source,
+                        });
                         page.detail
                             .preview
                             .retired
-                            .extend(replaced.map(|(_, image)| image));
+                            .extend(replaced.map(|still| still.image));
                         cx.notify();
                     }
                     None => page.detail.preview.retired.push(image),
@@ -447,13 +519,17 @@ impl LibraryWindow {
         cx.notify();
     }
 
-    fn toggle_library_actual_size(&mut self, cx: &mut Context<Self>) {
+    fn toggle_library_actual_size(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let (_, stage) = self.overlay_stage_box(window);
+        let picture = self.overlay_picture(window);
         let Some(overlay) = self.library.overlay.as_mut().filter(|o| o.is_open()) else {
             return;
         };
-        overlay.zoom = match overlay.zoom {
-            Zoom::Fit => Zoom::Actual { centre: MIDDLE },
-            Zoom::Actual { .. } => Zoom::Fit,
+        overlay.zoom = match (overlay.zoom, picture) {
+            (Zoom::Fit, Some(picture)) => {
+                zoomed_to(Zoom::Fit, (stage.0 / 2., stage.1 / 2.), 1., picture, stage)
+            }
+            _ => Zoom::Fit,
         };
         overlay.drag = None;
         self.wake_overlay_controls(cx);
@@ -476,12 +552,31 @@ impl LibraryWindow {
 
     fn overlay_picture(&self, window: &Window) -> Option<(f32, f32)> {
         let entry = self.library.single_entry()?;
-        let still = self.library.overlay.as_ref()?.still_of(&entry.path);
-        let pixels = self.preview_image(entry, still)?.size(0);
-        Some(actual_size_of(
-            (u32::from(pixels.width), u32::from(pixels.height)),
-            window.scale_factor(),
-        ))
+        let overlay = self.library.overlay.as_ref()?;
+        let source = match overlay.held_still(&entry.path) {
+            Some(still) => still.source,
+            None => self.library.detail.preview.frame_source,
+        }
+        .or_else(|| {
+            let pixels = self.preview_image(entry, None)?.size(0);
+            Some((u32::from(pixels.width), u32::from(pixels.height)))
+        })?;
+        Some(actual_size_of(source, window.scale_factor()))
+    }
+
+    fn overlay_placed(&self, window: &Window) -> Option<Placed> {
+        let zoom = self.library.overlay.as_ref()?.zoom;
+        let picture = self.overlay_picture(window)?;
+        let (origin, size) = drawn_bounds(zoom, picture, self.overlay_stage_box(window).1);
+        Some(Placed { origin, size })
+    }
+
+    fn stage_point(&self, position: Point<Pixels>, window: &Window) -> (f32, f32) {
+        let (origin, _) = self.overlay_stage_box(window);
+        (
+            f32::from(position.x) - origin.0,
+            f32::from(position.y) - origin.1,
+        )
     }
 
     fn press_library_overlay_stage(
@@ -490,7 +585,8 @@ impl LibraryWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (origin, stage) = self.overlay_stage_box(window);
+        let (_, stage) = self.overlay_stage_box(window);
+        let point = self.stage_point(event.position, window);
         let picture = self.overlay_picture(window);
         let Some(overlay) = self.library.overlay.as_mut().filter(|o| o.is_open()) else {
             return;
@@ -498,20 +594,11 @@ impl LibraryWindow {
         if event.click_count == 2 {
             overlay.drag = None;
             overlay.zoom = match (overlay.zoom, picture) {
-                (Zoom::Fit, Some(picture)) => Zoom::Actual {
-                    centre: point_in_picture(
-                        (
-                            f32::from(event.position.x) - origin.0,
-                            f32::from(event.position.y) - origin.1,
-                        ),
-                        picture,
-                        stage,
-                    ),
-                },
+                (Zoom::Fit, Some(picture)) => zoomed_to(Zoom::Fit, point, 1., picture, stage),
                 _ => Zoom::Fit,
             };
             cx.notify();
-        } else if overlay.actual_size() {
+        } else if overlay.zoomed() {
             overlay.drag = Some(event.position);
         }
     }
@@ -549,10 +636,37 @@ impl LibraryWindow {
         let Some(overlay) = self.library.overlay.as_mut().filter(|o| o.is_open()) else {
             return;
         };
-        if let Zoom::Actual { centre } = overlay.zoom {
-            overlay.zoom = Zoom::Actual {
-                centre: moved_centre(centre, delta, picture, stage),
+        if let Zoom::Scaled { scale, centre } = overlay.zoom {
+            let drawn = (picture.0 * scale, picture.1 * scale);
+            overlay.zoom = Zoom::Scaled {
+                scale,
+                centre: moved_centre(centre, delta, drawn, stage),
             };
+            cx.notify();
+        }
+    }
+
+    fn zoom_library_overlay(
+        &mut self,
+        event: &ScrollEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let lines = f32::from(event.delta.pixel_delta(px(WHEEL_LINE)).y) / WHEEL_LINE;
+        if lines == 0. {
+            return;
+        }
+        let (_, stage) = self.overlay_stage_box(window);
+        let point = self.stage_point(event.position, window);
+        let Some(picture) = self.overlay_picture(window) else {
+            return;
+        };
+        let Some(overlay) = self.library.overlay.as_mut().filter(|o| o.is_open()) else {
+            return;
+        };
+        let zoom = wheel_zoom(overlay.zoom, point, lines, picture, stage);
+        if zoom != overlay.zoom {
+            overlay.zoom = zoom;
             cx.notify();
         }
     }
@@ -566,17 +680,14 @@ impl LibraryWindow {
             .id("library-overlay-stage")
             .absolute()
             .inset_0()
-            .when(self.library_actual_size(), |this| {
+            .when(self.library_zoomed(), |this| {
                 this.cursor(CursorStyle::OpenHand)
             })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(Self::press_library_overlay_stage),
             )
-            .on_scroll(cx.listener(|this, event: &ScrollEvent, window, cx| {
-                let delta = event.delta.pixel_delta(px(WHEEL_LINE));
-                this.pan_library_overlay((f32::from(delta.x), f32::from(delta.y)), window, cx);
-            }))
+            .on_scroll(cx.listener(Self::zoom_library_overlay))
             .child(picture)
     }
 
@@ -661,7 +772,7 @@ impl LibraryWindow {
             PreviewKey::Forward => self.skip_library_preview(true, window, cx),
             PreviewKey::Mute => self.toggle_library_mute(cx),
             PreviewKey::WholeScreen => self.toggle_library_full_screen(window, cx),
-            PreviewKey::ActualSize => self.toggle_library_actual_size(cx),
+            PreviewKey::ActualSize => self.toggle_library_actual_size(window, cx),
         }
     }
 
@@ -823,7 +934,7 @@ impl LibraryWindow {
         } else {
             ("icons/maximize.svg", t!("Whole screen"))
         };
-        let (size_icon, size_label) = if self.library_actual_size() {
+        let (size_icon, size_label) = if self.library_zoomed() {
             ("icons/ratio.svg", t!("Fit to window"))
         } else {
             ("icons/scan.svg", t!("Actual size"))
@@ -855,8 +966,8 @@ impl LibraryWindow {
                     size_label,
                     &["Z"],
                 )
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_library_actual_size(cx);
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.toggle_library_actual_size(window, cx);
                 })),
             )
             .child(
@@ -895,15 +1006,8 @@ impl LibraryWindow {
             size: size(viewport.width, viewport.height - top),
         };
         let area = overlay.area(whole, now, cx.reduce_motion());
-        let actual_size = match overlay.zoom {
-            Zoom::Fit => None,
-            Zoom::Actual { centre } => Some(ActualSize {
-                scale: window.scale_factor(),
-                centre,
-                stage: self.overlay_stage_box(window).1,
-            }),
-        };
-        let picture = self.preview_picture(entry, overlay.still_of(&entry.path), actual_size, cx);
+        let placed = self.overlay_placed(window);
+        let picture = self.preview_picture(entry, overlay.still_of(&entry.path), placed, cx);
         let picture = self.overlay_stage(picture, cx);
         let controls = overlay.shows_controls(preview.playing, now);
         let full_screen = overlay.full_screen;
@@ -1144,16 +1248,102 @@ mod tests {
         assert_eq!(actual_origin(moved, picture, stage), (300., -2000.));
     }
 
+    fn close(a: (f32, f32), b: (f32, f32)) -> bool {
+        (a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3
+    }
+
+    fn picture_point(
+        zoom: Zoom,
+        point: (f32, f32),
+        picture: (f32, f32),
+        stage: (f32, f32),
+    ) -> (f32, f32) {
+        let (origin, drawn) = drawn_bounds(zoom, picture, stage);
+        (
+            (point.0 - origin.0) / drawn.0,
+            (point.1 - origin.1) / drawn.1,
+        )
+    }
+
     #[test]
-    fn a_double_click_finds_the_point_of_the_fitted_picture() {
-        let stage = (1000., 600.);
+    fn a_picture_smaller_than_the_stage_opens_at_its_own_size() {
         assert_eq!(
-            point_in_picture((500., 300.), (1920., 1080.), stage),
-            MIDDLE
+            drawn_bounds(Zoom::Fit, (400., 200.), (1000., 600.)),
+            ((300., 200.), (400., 200.))
         );
-        assert_eq!(point_in_picture((0., 0.), (1080., 1920.), stage), (0., 0.));
-        let (x, y) = point_in_picture((584.375, 450.), (1080., 1920.), stage);
-        assert!((x - 0.75).abs() < 1e-4 && (y - 0.75).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_picture_larger_than_the_stage_opens_whole_inside_it() {
+        assert_eq!(
+            drawn_bounds(Zoom::Fit, (2000., 1000.), (1000., 600.)),
+            ((0., 50.), (1000., 500.))
+        );
+        assert_eq!(
+            drawn_bounds(Zoom::Fit, (1080., 1920.), (1000., 600.)),
+            ((331.25, 0.), (337.5, 600.))
+        );
+    }
+
+    #[test]
+    fn a_double_click_shows_actual_size_around_the_clicked_point() {
+        let (picture, stage) = ((1080., 1920.), (1000., 600.));
+        let point = (500., 450.);
+        assert!(close(
+            picture_point(Zoom::Fit, point, picture, stage),
+            (0.5, 0.75)
+        ));
+        let zoom = zoomed_to(Zoom::Fit, point, 1., picture, stage);
+        let Zoom::Scaled { scale, .. } = zoom else {
+            panic!("still fitted");
+        };
+        assert_eq!(scale, 1.);
+        assert!(close(
+            picture_point(zoom, point, picture, stage),
+            (0.5, 0.75)
+        ));
+        assert_eq!(drawn_bounds(zoom, picture, stage).1, picture);
+    }
+
+    #[test]
+    fn the_wheel_zooms_around_the_pointer() {
+        let (picture, stage) = ((3000., 2000.), (1000., 600.));
+        let point = (700., 200.);
+        let before = picture_point(Zoom::Fit, point, picture, stage);
+        let zoom = wheel_zoom(Zoom::Fit, point, 3., picture, stage);
+        assert!(matches!(zoom, Zoom::Scaled { .. }));
+        assert!(close(picture_point(zoom, point, picture, stage), before));
+        let deeper = wheel_zoom(zoom, point, 2., picture, stage);
+        assert!(close(picture_point(deeper, point, picture, stage), before));
+    }
+
+    #[test]
+    fn the_wheel_also_zooms_a_picture_that_fits() {
+        let zoom = wheel_zoom(Zoom::Fit, (500., 300.), 1., (400., 200.), (1000., 600.));
+        let Zoom::Scaled { scale, .. } = zoom else {
+            panic!("still fitted");
+        };
+        assert!((scale - ZOOM_PER_LINE).abs() < 1e-4);
+    }
+
+    #[test]
+    fn zooming_out_past_the_fitted_size_returns_to_fit() {
+        let (picture, stage) = ((3000., 2000.), (1000., 600.));
+        let zoom = wheel_zoom(Zoom::Fit, (500., 300.), 2., picture, stage);
+        assert_eq!(
+            wheel_zoom(zoom, (500., 300.), -3., picture, stage),
+            Zoom::Fit
+        );
+        assert_eq!(
+            wheel_zoom(Zoom::Fit, (500., 300.), -1., picture, stage),
+            Zoom::Fit
+        );
+    }
+
+    #[test]
+    fn the_wheel_stops_at_the_largest_zoom() {
+        let zoom = wheel_zoom(Zoom::Fit, (500., 300.), 200., (400., 200.), (1000., 600.));
+        assert_eq!(zoom.scale((400., 200.), (1000., 600.)), MAX_ZOOM);
     }
 
     #[test]

@@ -41,6 +41,7 @@ pub(super) struct PreviewState {
     position: f64,
     duration: Option<f64>,
     frame: Option<Arc<RenderImage>>,
+    pub(super) frame_source: Option<(u32, u32)>,
     pub(super) retired: Vec<Arc<RenderImage>>,
     failed: Option<PlayError>,
     track: ui::SliderTrack,
@@ -62,13 +63,6 @@ fn stage_height(picture: Option<(u32, u32)>) -> f32 {
     picture.map_or(STAGE_LOWEST, |(width, height)| {
         (STAGE_WIDTH * height as f32 / width.max(1) as f32).clamp(STAGE_LOWEST, STAGE_WIDTH)
     })
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ActualSize {
-    pub(super) scale: f32,
-    pub(super) centre: (f32, f32),
-    pub(super) stage: (f32, f32),
 }
 
 fn seek_fraction(position: f64, duration: f64) -> f32 {
@@ -142,6 +136,7 @@ impl PreviewState {
         self.dragging = false;
         self.resume_after_drag = false;
         self.retired.extend(self.frame.take());
+        self.frame_source = None;
     }
 
     pub(super) fn pause(&mut self) {
@@ -230,6 +225,7 @@ impl LibraryWindow {
                 let Some(frame) = preview.player.as_ref().and_then(Player::take_frame) else {
                     return;
                 };
+                preview.frame_source = Some(frame.source);
                 if let Some(previous) = preview.frame.replace(frame.image)
                     && let Err(error) = window.drop_image(previous)
                 {
@@ -535,7 +531,7 @@ impl LibraryWindow {
         &self,
         entry: &Entry,
         still: Option<Arc<RenderImage>>,
-        actual_size: Option<ActualSize>,
+        placed: Option<super::overlay::Placed>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = self.theme;
@@ -574,13 +570,9 @@ impl LibraryWindow {
                         })),
                 )
                 .into_any_element()
-        } else if let Some((image, actual)) = image.clone().zip(actual_size) {
-            let pixels = image.size(0);
-            let picture = super::overlay::actual_size_of(
-                (u32::from(pixels.width), u32::from(pixels.height)),
-                actual.scale,
-            );
-            let (left, top) = super::overlay::actual_origin(actual.centre, picture, actual.stage);
+        } else if preview.frame.is_none() && !painted {
+            self.render_tile_cover(entry, image, 24.)
+        } else if let Some((image, placed)) = image.clone().zip(placed) {
             div()
                 .relative()
                 .size_full()
@@ -588,14 +580,12 @@ impl LibraryWindow {
                 .child(
                     img(image)
                         .absolute()
-                        .left(px(left))
-                        .top(px(top))
-                        .w(px(picture.0))
-                        .h(px(picture.1)),
+                        .left(px(placed.origin.0))
+                        .top(px(placed.origin.1))
+                        .w(px(placed.size.0))
+                        .h(px(placed.size.1)),
                 )
                 .into_any_element()
-        } else if preview.frame.is_none() && !painted {
-            self.render_tile_cover(entry, image, 24.)
         } else if let Some(image) = image {
             img(image)
                 .size_full()

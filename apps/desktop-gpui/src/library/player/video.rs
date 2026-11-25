@@ -51,6 +51,12 @@ pub struct DecodedFrame {
     frame: ffmpeg::frame::Video,
 }
 
+impl DecodedFrame {
+    pub fn size(&self) -> (u32, u32) {
+        (self.frame.width(), self.frame.height())
+    }
+}
+
 struct Scaler {
     context: scaling::Context,
     source: (Pixel, u32, u32),
