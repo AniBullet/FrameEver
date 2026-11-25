@@ -1,4 +1,8 @@
-use crate::{click_highlight::ChannelOrder, gamepad::GamepadWatch, input_reader::TargetFocus};
+use crate::{
+    click_highlight::ChannelOrder,
+    gamepad::GamepadWatch,
+    input_reader::{MouseInput, TargetFocus},
+};
 use frameever_project::{
     InputDisplay, InputDisplayStyle, XY,
     input_display::{
@@ -133,13 +137,30 @@ impl DeviceInUse {
 
 pub trait InputSource {
     fn read(&mut self, state: &mut DisplayState);
+
+    fn idle(&mut self) {}
 }
 
-pub struct KeyboardAndMouse(device_query::DeviceState);
+pub struct KeyboardAndMouse {
+    device: device_query::DeviceState,
+    mouse: MouseInput,
+}
 
 impl KeyboardAndMouse {
     pub fn new() -> Self {
-        Self(device_query::DeviceState::new())
+        Self {
+            device: device_query::DeviceState::new(),
+            mouse: MouseInput::device(),
+        }
+    }
+
+    fn hold_polled(
+        &mut self,
+        state: &mut DisplayState,
+        keys: &[device_query::Keycode],
+        polled: &[bool],
+    ) {
+        hold(state, keys, &self.mouse.read(polled).buttons);
     }
 }
 
@@ -152,11 +173,13 @@ impl Default for KeyboardAndMouse {
 impl InputSource for KeyboardAndMouse {
     fn read(&mut self, state: &mut DisplayState) {
         use device_query::DeviceQuery;
-        hold(
-            state,
-            &self.0.get_keys(),
-            &self.0.get_mouse().button_pressed,
-        );
+        let keys = self.device.get_keys();
+        let polled = self.device.get_mouse().button_pressed;
+        self.hold_polled(state, &keys, &polled);
+    }
+
+    fn idle(&mut self) {
+        self.mouse.keep_up();
     }
 }
 
@@ -288,6 +311,9 @@ fn watch_sources(
             return;
         };
         if shared.paused.load(Ordering::SeqCst) || !recording() {
+            for source in &mut sources {
+                source.idle();
+            }
             continue;
         }
         let mut polled = DisplayState::default();
@@ -1484,6 +1510,73 @@ mod tests {
                 Input::MouseButton(4),
             ]
         );
+    }
+
+    #[test]
+    fn a_mouse_button_held_where_only_raw_input_sees_it_is_shown_until_raw_input_releases_it() {
+        use crate::input_reader::{ButtonChange, RawMouseInput};
+        let right = |down| RawMouseInput {
+            wheel_steps: Vec::new(),
+            buttons: vec![ButtonChange { button: 2, down }],
+        };
+        let mut ticks = vec![
+            RawMouseInput::default(),
+            right(true),
+            RawMouseInput::default(),
+            RawMouseInput::default(),
+            right(false),
+            RawMouseInput::default(),
+        ]
+        .into_iter();
+        let mut source = KeyboardAndMouse {
+            device: device_query::DeviceState::new(),
+            mouse: MouseInput::scripted(move || ticks.next().unwrap_or_default()),
+        };
+        let shown = (0..6)
+            .map(|_| {
+                let mut state = DisplayState::default();
+                source.hold_polled(&mut state, &[], &[false; 6]);
+                state.held().collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let right_held = vec![Input::MouseButton(2)];
+
+        assert_eq!(
+            shown,
+            vec![
+                vec![],
+                right_held.clone(),
+                right_held.clone(),
+                right_held,
+                vec![],
+                vec![]
+            ]
+        );
+    }
+
+    #[test]
+    fn raw_mouse_input_keeps_being_drained_before_recording_starts_and_while_paused() {
+        let drains = Arc::new(AtomicUsize::new(0));
+        let counted = drains.clone();
+        let display = display(BOTTOM_LEFT);
+        display.set_paused(true);
+        display.watch_with(
+            move || {
+                let source = KeyboardAndMouse {
+                    device: device_query::DeviceState::new(),
+                    mouse: MouseInput::scripted(move || {
+                        counted.fetch_add(1, Ordering::SeqCst);
+                        crate::input_reader::RawMouseInput::default()
+                    }),
+                };
+                vec![Box::new(source) as Box<dyn InputSource>]
+            },
+            TargetFocus::none,
+            || false,
+        );
+
+        assert!(eventually(|| drains.load(Ordering::SeqCst) >= 3));
+        assert_eq!(display.state(), DisplayState::default());
     }
 
     struct Scripted {

@@ -89,6 +89,117 @@ pub fn wheel_steps(pending: &mut i32, delta: i16) -> impl Iterator<Item = bool> 
     std::iter::repeat_n(steps > 0, steps.unsigned_abs() as usize)
 }
 
+const BUTTON_SLOTS: usize = 6;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ButtonChange {
+    pub button: u8,
+    pub down: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RawMouseInput {
+    pub wheel_steps: Vec<bool>,
+    pub buttons: Vec<ButtonChange>,
+}
+
+pub fn button_changes(flags: u16) -> impl Iterator<Item = ButtonChange> {
+    MOUSE_BUTTONS.flat_map(move |button| {
+        let down_flag = 1u16 << (2 * (button - 1));
+        [(down_flag, true), (down_flag << 1, false)]
+            .into_iter()
+            .filter(move |(flag, _)| flags & flag != 0)
+            .map(move |(_, down)| ButtonChange {
+                button: button as u8,
+                down,
+            })
+    })
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HeldButtons {
+    raw: [bool; BUTTON_SLOTS],
+    polled: [bool; BUTTON_SLOTS],
+}
+
+impl HeldButtons {
+    pub fn apply(&mut self, change: ButtonChange) {
+        if let Some(held) = self.raw.get_mut(usize::from(change.button)) {
+            *held = change.down;
+        }
+    }
+
+    pub fn merge(&mut self, polled: &[bool]) -> Vec<bool> {
+        (0..polled.len().max(BUTTON_SLOTS))
+            .map(|index| {
+                let polled_down = polled.get(index).copied().unwrap_or(false);
+                let (Some(raw), Some(was_polled_down)) =
+                    (self.raw.get_mut(index), self.polled.get_mut(index))
+                else {
+                    return polled_down;
+                };
+                if *was_polled_down && !polled_down {
+                    *raw = false;
+                }
+                *was_polled_down = polled_down;
+                polled_down || *raw
+            })
+            .collect()
+    }
+}
+
+enum RawMouseProbe {
+    Device(platform::RawMouseReader),
+    Scripted(Box<dyn FnMut() -> RawMouseInput>),
+}
+
+pub struct MouseInput {
+    probe: Option<RawMouseProbe>,
+    held: HeldButtons,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MouseRead {
+    pub buttons: Vec<bool>,
+    pub wheel_steps: Vec<bool>,
+}
+
+impl MouseInput {
+    pub fn device() -> Self {
+        Self {
+            probe: platform::RawMouseReader::new().map(RawMouseProbe::Device),
+            held: HeldButtons::default(),
+        }
+    }
+
+    pub fn scripted(probe: impl FnMut() -> RawMouseInput + 'static) -> Self {
+        Self {
+            probe: Some(RawMouseProbe::Scripted(Box::new(probe))),
+            held: HeldButtons::default(),
+        }
+    }
+
+    pub fn read(&mut self, polled: &[bool]) -> MouseRead {
+        let wheel_steps = self.keep_up();
+        MouseRead {
+            buttons: self.held.merge(polled),
+            wheel_steps,
+        }
+    }
+
+    pub fn keep_up(&mut self) -> Vec<bool> {
+        let raw = match &mut self.probe {
+            Some(RawMouseProbe::Device(reader)) => reader.drain(),
+            Some(RawMouseProbe::Scripted(probe)) => probe(),
+            None => RawMouseInput::default(),
+        };
+        for change in raw.buttons {
+            self.held.apply(change);
+        }
+        raw.wheel_steps
+    }
+}
+
 enum FocusProbe {
     Window(platform::TargetWindow),
     Scripted(Box<dyn FnMut() -> Option<bool>>),
@@ -135,7 +246,7 @@ impl TargetFocus {
 }
 
 pub struct InputReader {
-    wheel: Option<platform::WheelReader>,
+    mouse: MouseInput,
     target: TargetFocus,
     gamepad: Option<GamepadWatch>,
 }
@@ -191,7 +302,7 @@ impl InputTake {
 impl InputReader {
     pub fn new(capture: &InputCapture) -> Option<Self> {
         capture.record.then(|| Self {
-            wheel: platform::WheelReader::new(),
+            mouse: MouseInput::device(),
             target: TargetFocus::of(capture.target_window.as_ref()),
             gamepad: GamepadWatch::connected(),
         })
@@ -202,15 +313,17 @@ impl InputReader {
         self
     }
 
+    pub fn with_mouse(mut self, mouse: MouseInput) -> Self {
+        self.mouse = mouse;
+        self
+    }
+
     pub fn sample(&mut self, buttons: &[bool]) -> InputSample {
         let target_in_front = self.target.read();
+        let mouse = self.mouse.read(buttons);
         InputSample {
-            buttons: buttons.to_vec(),
-            wheel_steps: self
-                .wheel
-                .as_mut()
-                .map(platform::WheelReader::drain)
-                .unwrap_or_default(),
+            buttons: mouse.buttons,
+            wheel_steps: mouse.wheel_steps,
             target_in_front,
             gamepad: self.gamepad.as_mut().and_then(GamepadWatch::read),
         }
@@ -243,12 +356,12 @@ mod platform {
     const WHEEL_FLAG: u16 = 0x0400;
     const MAX_MESSAGES_PER_DRAIN: usize = 8192;
 
-    pub struct WheelReader {
+    pub struct RawMouseReader {
         window: HWND,
         pending: i32,
     }
 
-    impl WheelReader {
+    impl RawMouseReader {
         pub fn new() -> Option<Self> {
             let window = unsafe {
                 CreateWindowExW(
@@ -277,15 +390,15 @@ mod platform {
                 RegisterRawInputDevices(&[device], std::mem::size_of::<RAWINPUTDEVICE>() as u32)
             };
             if let Err(error) = registered {
-                tracing::warn!(%error, "Wheel steps are not recorded");
+                tracing::warn!(%error, "Raw mouse input is not read");
                 unsafe { DestroyWindow(window) }.ok();
                 return None;
             }
             Some(Self { window, pending: 0 })
         }
 
-        pub fn drain(&mut self) -> Vec<bool> {
-            let mut steps = Vec::new();
+        pub fn drain(&mut self) -> super::RawMouseInput {
+            let mut input = super::RawMouseInput::default();
             let mut message = MSG::default();
             for _ in 0..MAX_MESSAGES_PER_DRAIN {
                 if !unsafe { PeekMessageW(&mut message, Some(self.window), 0, 0, PM_REMOVE) }
@@ -294,9 +407,14 @@ mod platform {
                     break;
                 }
                 if message.message == WM_INPUT
-                    && let Some(delta) = wheel_delta(HRAWINPUT(message.lParam.0 as _))
+                    && let Some((flags, data)) = mouse_buttons(HRAWINPUT(message.lParam.0 as _))
                 {
-                    steps.extend(super::wheel_steps(&mut self.pending, delta));
+                    input.buttons.extend(super::button_changes(flags));
+                    if flags & WHEEL_FLAG != 0 {
+                        input
+                            .wheel_steps
+                            .extend(super::wheel_steps(&mut self.pending, data as i16));
+                    }
                 }
                 unsafe {
                     DefWindowProcW(
@@ -307,11 +425,11 @@ mod platform {
                     )
                 };
             }
-            steps
+            input
         }
     }
 
-    impl Drop for WheelReader {
+    impl Drop for RawMouseReader {
         fn drop(&mut self) {
             let device = RAWINPUTDEVICE {
                 usUsagePage: GENERIC_DESKTOP_PAGE,
@@ -327,7 +445,7 @@ mod platform {
         }
     }
 
-    fn wheel_delta(handle: HRAWINPUT) -> Option<i16> {
+    fn mouse_buttons(handle: HRAWINPUT) -> Option<(u16, u16)> {
         let mut raw = RAWINPUT::default();
         let mut size = std::mem::size_of::<RAWINPUT>() as u32;
         let read = unsafe {
@@ -343,7 +461,7 @@ mod platform {
             return None;
         }
         let buttons = unsafe { raw.data.mouse.Anonymous.Anonymous };
-        (buttons.usButtonFlags & WHEEL_FLAG != 0).then_some(buttons.usButtonData as i16)
+        Some((buttons.usButtonFlags, buttons.usButtonData))
     }
 
     pub struct TargetWindow(HWND);
@@ -368,15 +486,15 @@ mod platform {
 
 #[cfg(not(windows))]
 mod platform {
-    pub struct WheelReader;
+    pub struct RawMouseReader;
 
-    impl WheelReader {
+    impl RawMouseReader {
         pub fn new() -> Option<Self> {
             None
         }
 
-        pub fn drain(&mut self) -> Vec<bool> {
-            Vec::new()
+        pub fn drain(&mut self) -> super::RawMouseInput {
+            super::RawMouseInput::default()
         }
     }
 
@@ -740,10 +858,199 @@ mod tests {
         })
         .unwrap();
 
-        assert!(reader.wheel.is_some());
+        assert!(matches!(reader.mouse.probe, Some(RawMouseProbe::Device(_))));
         let sample = reader.sample(&[false; 6]);
         assert_eq!(sample.target_in_front, None);
         drop(reader);
-        assert!(platform::WheelReader::new().is_some());
+        assert!(platform::RawMouseReader::new().is_some());
+    }
+
+    fn change(button: u8, down: bool) -> ButtonChange {
+        ButtonChange { button, down }
+    }
+
+    #[test]
+    fn each_raw_button_flag_is_a_press_or_release_of_its_button() {
+        let pairs = [
+            (0x0001, change(1, true)),
+            (0x0002, change(1, false)),
+            (0x0004, change(2, true)),
+            (0x0008, change(2, false)),
+            (0x0010, change(3, true)),
+            (0x0020, change(3, false)),
+            (0x0040, change(4, true)),
+            (0x0080, change(4, false)),
+            (0x0100, change(5, true)),
+            (0x0200, change(5, false)),
+        ];
+        for (flag, expected) in pairs {
+            assert_eq!(button_changes(flag).collect::<Vec<_>>(), vec![expected]);
+        }
+        assert_eq!(button_changes(0x0400).count(), 0);
+        assert_eq!(button_changes(0).count(), 0);
+        assert_eq!(
+            button_changes(0x0004 | 0x0400 | 0x0080).collect::<Vec<_>>(),
+            vec![change(2, true), change(4, false)]
+        );
+    }
+
+    fn held_after(changes: &[ButtonChange]) -> Vec<bool> {
+        let mut held = HeldButtons::default();
+        for change in changes {
+            held.apply(*change);
+        }
+        held.merge(&[false; 6])
+    }
+
+    #[test]
+    fn raw_presses_and_releases_fold_into_the_buttons_held() {
+        assert_eq!(held_after(&[]), vec![false; 6]);
+        assert_eq!(
+            held_after(&[change(2, true)]),
+            vec![false, false, true, false, false, false]
+        );
+        assert_eq!(
+            held_after(&[change(2, true), change(2, false)]),
+            vec![false; 6]
+        );
+        assert_eq!(
+            held_after(&[change(2, true), change(2, true)]),
+            vec![false, false, true, false, false, false]
+        );
+        assert_eq!(
+            held_after(&[change(2, true), change(2, true), change(2, false)]),
+            vec![false; 6]
+        );
+        assert_eq!(held_after(&[change(3, false)]), vec![false; 6]);
+        assert_eq!(
+            held_after(&[1, 2, 3, 4, 5].map(|button| change(button, true))),
+            vec![false, true, true, true, true, true]
+        );
+        assert_eq!(
+            held_after(&[
+                change(1, true),
+                change(5, true),
+                change(1, false),
+                change(4, true)
+            ]),
+            vec![false, false, false, false, true, true]
+        );
+    }
+
+    fn buttons(held: &[usize]) -> Vec<bool> {
+        let mut pressed = vec![false; 6];
+        for button in held {
+            pressed[*button] = true;
+        }
+        pressed
+    }
+
+    #[test]
+    fn a_button_is_down_while_either_the_poll_or_raw_input_says_so() {
+        let mut held = HeldButtons::default();
+        assert_eq!(held.merge(&buttons(&[1])), buttons(&[1]));
+        held.apply(change(2, true));
+        assert_eq!(held.merge(&buttons(&[1])), buttons(&[1, 2]));
+        assert_eq!(held.merge(&buttons(&[])), buttons(&[2]));
+        held.apply(change(2, false));
+        assert_eq!(held.merge(&buttons(&[])), buttons(&[]));
+        assert_eq!(held.merge(&[false, true, false]), buttons(&[1]));
+    }
+
+    #[test]
+    fn a_release_raw_input_missed_is_taken_from_the_poll_once_the_poll_saw_the_button_down() {
+        let mut held = HeldButtons::default();
+        held.apply(change(1, true));
+        assert_eq!(held.merge(&buttons(&[1])), buttons(&[1]));
+        assert_eq!(held.merge(&buttons(&[])), buttons(&[]));
+        assert_eq!(held.merge(&buttons(&[])), buttons(&[]));
+
+        held.apply(change(2, true));
+        assert_eq!(held.merge(&buttons(&[])), buttons(&[2]));
+        assert_eq!(held.merge(&buttons(&[])), buttons(&[2]));
+        held.apply(change(2, false));
+        assert_eq!(held.merge(&buttons(&[])), buttons(&[]));
+    }
+
+    #[test]
+    fn a_button_already_held_when_reading_starts_shows_as_the_poll_has_it_and_never_sticks() {
+        let mut polled_works = HeldButtons::default();
+        assert_eq!(polled_works.merge(&buttons(&[2])), buttons(&[2]));
+        polled_works.apply(change(2, false));
+        assert_eq!(polled_works.merge(&buttons(&[])), buttons(&[]));
+
+        let mut poll_blind = HeldButtons::default();
+        assert_eq!(poll_blind.merge(&buttons(&[])), buttons(&[]));
+        poll_blind.apply(change(2, false));
+        assert_eq!(poll_blind.merge(&buttons(&[])), buttons(&[]));
+        poll_blind.apply(change(2, true));
+        assert_eq!(poll_blind.merge(&buttons(&[])), buttons(&[2]));
+    }
+
+    fn scripted_mouse(ticks: Vec<Vec<ButtonChange>>) -> MouseInput {
+        let mut ticks = ticks.into_iter();
+        MouseInput::scripted(move || RawMouseInput {
+            wheel_steps: Vec::new(),
+            buttons: ticks.next().unwrap_or_default(),
+        })
+    }
+
+    #[test]
+    fn a_hold_only_raw_input_sees_is_recorded_from_its_press_to_its_release() {
+        use frameever_project::{
+            KeyboardEvents,
+            input_display::{Input, InputEvents, InputRecord},
+        };
+        let reader = InputReader::new(&InputCapture {
+            record: true,
+            target_window: None,
+        })
+        .unwrap()
+        .with_gamepads(GamepadWatch::new(
+            crate::gamepad::testing::Scripted::default(),
+        ))
+        .with_mouse(scripted_mouse(vec![
+            vec![],
+            vec![change(2, true)],
+            vec![],
+            vec![change(2, false)],
+            vec![],
+        ]));
+        let mut take = InputTake::new(reader);
+        let mut events = Vec::new();
+        let mut presses = Vec::new();
+        for time_ms in [0.0, 16.0, 32.0, 48.0, 64.0] {
+            take.tick(time_ms, Vec::new(), &[false; 6], &mut events, &mut presses);
+        }
+
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| (event.time_ms, event.kind))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    16.0,
+                    InputEventKind::MouseButton {
+                        button: 2,
+                        down: true
+                    }
+                ),
+                (
+                    48.0,
+                    InputEventKind::MouseButton {
+                        button: 2,
+                        down: false
+                    }
+                ),
+            ]
+        );
+        let record = InputRecord::from_events(&KeyboardEvents::default(), &InputEvents { events });
+        assert_eq!(record.state_at(8.0).held().count(), 0);
+        assert_eq!(
+            record.state_at(40.0).held().collect::<Vec<_>>(),
+            vec![Input::MouseButton(2)]
+        );
+        assert_eq!(record.state_at(56.0).held().count(), 0);
     }
 }
