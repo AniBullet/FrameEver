@@ -90,6 +90,7 @@ fn start_at(position: f64) -> Start {
     Start {
         position,
         muted: true,
+        volume: 1.,
         bounds: BOUNDS,
     }
 }
@@ -220,6 +221,207 @@ fn segments_play_one_after_another_on_one_timeline() {
     player.play();
     wait_for_event(&events, |event| *event == Event::Ended);
     assert!(started.elapsed().as_secs_f64() > 0.7);
+}
+
+const FRAME: f64 = 1. / 30.;
+
+fn variable_segment(slots: &[u32], gop: u32) -> SegmentSpec {
+    SegmentSpec {
+        display: VideoTrackSpec {
+            gop,
+            ..VideoTrackSpec::new(320, 180, 30, Timing::Slots(slots.to_vec()))
+        },
+        camera: None,
+        mic: None,
+        system_audio: None,
+    }
+}
+
+fn decodable_positions(segments: &[Segment]) -> Vec<f64> {
+    let mut start = 0.;
+    let mut positions = Vec::new();
+    for segment in segments {
+        let mut reader = video::VideoReader::open(&segment.video).unwrap();
+        while let Some(frame) = reader.next() {
+            positions.push(start + frame.local);
+        }
+        start += probe_duration(&segment.video).unwrap();
+    }
+    positions
+}
+
+fn wait_for_shown(player: &Player, shown: u64) {
+    let deadline = Instant::now() + LONG_WAIT;
+    while player.stats().shown < shown {
+        assert!(Instant::now() < deadline, "only {:?}", player.stats());
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn first_frame(player: &Player, events: &flume::Receiver<Event>) -> ShownFrame {
+    wait_for_event(events, |event| matches!(event, Event::Frame));
+    player.take_frame().unwrap()
+}
+
+fn seek_to(player: &Player, position: f64) -> ShownFrame {
+    let shown = player.stats().shown;
+    player.seek(position);
+    wait_for_shown(player, shown + 1);
+    player.take_frame().unwrap()
+}
+
+fn step_to(player: &Player, direction: Direction) -> ShownFrame {
+    let shown = player.stats().shown;
+    player.step(direction);
+    wait_for_shown(player, shown + 1);
+    player.take_frame().unwrap()
+}
+
+#[test]
+fn stepping_back_then_forward_returns_to_the_same_frame() {
+    let fixture = Fixture::new(vec![silent_segment(3.)]);
+    let (player, events) = open(segments_of(&fixture.entry()).unwrap(), 0.);
+    first_frame(&player, &events);
+    for target in [1., 61. * FRAME] {
+        let shown = seek_to(&player, target).position;
+        let back = step_to(&player, Direction::Back).position;
+        assert!(
+            (shown - back - FRAME).abs() < 1e-3,
+            "from {shown} back to {back}"
+        );
+        let forward = step_to(&player, Direction::Forward).position;
+        assert_eq!(forward, shown);
+    }
+}
+
+#[test]
+fn steps_at_either_end_stay_put() {
+    let fixture = Fixture::new(vec![silent_segment(1.)]);
+    let (player, events) = open(segments_of(&fixture.entry()).unwrap(), 0.);
+    assert_eq!(first_frame(&player, &events).position, 0.);
+    let shown = player.stats().shown;
+    player.step(Direction::Back);
+    player.step(Direction::Forward);
+    wait_for_shown(&player, shown + 1);
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(player.stats().shown, shown + 1);
+    let second = player.take_frame().unwrap().position;
+    assert!((second - FRAME).abs() < 1e-3, "showed {second}");
+
+    let last = seek_to(&player, 5.).position;
+    let shown = player.stats().shown;
+    player.step(Direction::Forward);
+    player.step(Direction::Back);
+    wait_for_shown(&player, shown + 1);
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(player.stats().shown, shown + 1);
+    let before_last = player.take_frame().unwrap().position;
+    assert!(
+        (last - before_last - FRAME).abs() < 1e-3,
+        "{last} then {before_last}"
+    );
+}
+
+#[test]
+fn stepping_visits_every_frame_of_a_variable_rate_recording_once_each_way() {
+    let first_slots = vec![0, 1, 2, 5, 6, 9, 10, 11, 17, 18, 19, 20, 24];
+    let second_slots = vec![0, 3, 4, 5, 8, 13, 14];
+    let fixture = Fixture::new(vec![
+        variable_segment(&first_slots, 4),
+        variable_segment(&second_slots, 3),
+    ]);
+    let segments = segments_of(&fixture.entry()).unwrap();
+    let expected = decodable_positions(&segments);
+    let uneven = first_slots[..first_slots.len() - 1]
+        .iter()
+        .zip(&expected)
+        .all(|(slot, position)| (position - f64::from(*slot) * FRAME).abs() < 1e-6);
+    assert!(
+        uneven && expected.len() >= first_slots.len() + second_slots.len() - 2,
+        "{expected:?}"
+    );
+    let (player, events) = open(segments, 0.);
+    let mut forward = vec![first_frame(&player, &events).position];
+    for _ in 1..expected.len() {
+        forward.push(step_to(&player, Direction::Forward).position);
+    }
+    assert_eq!(forward, expected);
+    let mut back = vec![*forward.last().unwrap()];
+    for _ in 1..expected.len() {
+        back.push(step_to(&player, Direction::Back).position);
+    }
+    back.reverse();
+    assert_eq!(back, expected);
+}
+
+#[test]
+fn queued_steps_each_take_effect() {
+    let fixture = Fixture::new(vec![silent_segment(1.)]);
+    let (player, events) = open(segments_of(&fixture.entry()).unwrap(), 0.);
+    first_frame(&player, &events);
+    let shown = player.stats().shown;
+    for _ in 0..3 {
+        player.step(Direction::Forward);
+    }
+    wait_for_shown(&player, shown + 3);
+    let third = player.take_frame().unwrap().position;
+    assert!((third - 3. * FRAME).abs() < 1e-3, "showed {third}");
+    player.step(Direction::Back);
+    player.step(Direction::Back);
+    wait_for_shown(&player, shown + 5);
+    let first = player.take_frame().unwrap().position;
+    assert!((first - FRAME).abs() < 1e-3, "showed {first}");
+}
+
+#[test]
+fn a_step_pauses_playback() {
+    let fixture = Fixture::new(vec![silent_segment(2.)]);
+    let (player, events) = open(segments_of(&fixture.entry()).unwrap(), 0.);
+    first_frame(&player, &events);
+    player.play();
+    std::thread::sleep(Duration::from_millis(300));
+    player.step(Direction::Forward);
+    std::thread::sleep(Duration::from_millis(300));
+    let shown = player.stats().shown;
+    let stepped = player.take_frame().unwrap().position;
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(player.stats().shown, shown);
+    assert!(player.take_frame().is_none());
+    assert!(stepped < 0.9, "showed {stepped}");
+}
+
+#[test]
+fn a_bounds_change_after_a_step_keeps_the_frame() {
+    let fixture = Fixture::new(vec![silent_segment(2.)]);
+    let (player, events) = open(segments_of(&fixture.entry()).unwrap(), 0.);
+    first_frame(&player, &events);
+    seek_to(&player, 1.);
+    let back = step_to(&player, Direction::Back).position;
+    let shown = player.stats().shown;
+    player.set_bounds((80, 45));
+    wait_for_shown(&player, shown + 1);
+    let frame = player.take_frame().unwrap();
+    assert_eq!(frame.position, back);
+    let size = frame.image.size(0);
+    assert_eq!((i32::from(size.width), i32::from(size.height)), (80, 45));
+}
+
+#[test]
+fn a_shown_frame_carries_the_frame_interval_of_its_segment() {
+    let fixture = Fixture::new(vec![
+        silent_segment(0.5),
+        SegmentSpec {
+            display: VideoTrackSpec::new(320, 180, 60, Timing::Constant { duration: 0.5 }),
+            camera: None,
+            mic: None,
+            system_audio: None,
+        },
+    ]);
+    let (player, events) = open(segments_of(&fixture.entry()).unwrap(), 0.);
+    let first = first_frame(&player, &events);
+    assert!((first.frame_interval - FRAME).abs() < 1e-6, "{first:?}");
+    let later = seek_to(&player, 0.75);
+    assert!((later.frame_interval - 1. / 60.).abs() < 1e-6, "{later:?}");
 }
 
 #[cfg(windows)]
@@ -488,6 +690,7 @@ fn measure_frame_timing_and_audio_sync() {
         Start {
             position: 0.,
             muted: true,
+            volume: 1.,
             bounds,
         },
         Some(tap),

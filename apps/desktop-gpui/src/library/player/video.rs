@@ -17,6 +17,19 @@ const SHOW_EARLY: f64 = 0.002;
 const LATE_AFTER: f64 = 0.05;
 const LONGEST_HOLD: Duration = Duration::from_millis(100);
 const DECODER_THREADS: usize = 4;
+const BASE_RATES: std::ops::RangeInclusive<f64> = 1.0..=240.0;
+const FALLBACK_RATE: f64 = 30.;
+
+pub fn frame_interval(base_rate: f64, average_rate: f64) -> f64 {
+    let rate = if BASE_RATES.contains(&base_rate) {
+        base_rate
+    } else if average_rate > 0. {
+        average_rate
+    } else {
+        FALLBACK_RATE
+    };
+    1. / rate
+}
 
 pub fn fit_size(source: (u32, u32), bounds: (u32, u32)) -> (u32, u32) {
     let scale = (bounds.0 as f64 / source.0.max(1) as f64)
@@ -98,7 +111,7 @@ impl VideoReader {
             .ok_or(PlayError::Unreadable)?;
         let index = stream.index();
         let time_base = f64::from(stream.time_base());
-        let rate = f64::from(stream.avg_frame_rate());
+        let interval = frame_interval(f64::from(stream.rate()), f64::from(stream.avg_frame_rate()));
         let mut context = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
             .map_err(unreadable)?;
         context.set_threading(threading::Config {
@@ -117,7 +130,7 @@ impl VideoReader {
             decoder,
             time_base,
             start,
-            frame_gap: if rate > 0. { 1. / rate } else { 1. / 30. },
+            frame_gap: interval,
             scaler: None,
             draining: false,
         })
@@ -242,6 +255,19 @@ mod tests {
     fn frames_fit_inside_the_box_and_keep_their_shape() {
         assert_eq!(fit_size((1920, 1080), (630, 354)), (629, 354));
         assert_eq!(fit_size((1080, 1920), (630, 354)), (199, 354));
+    }
+
+    #[test]
+    fn the_frame_interval_follows_the_base_rate_over_the_average() {
+        assert_eq!(frame_interval(30., 32.14), 1. / 30.);
+        assert_eq!(frame_interval(60., 12.), 1. / 60.);
+    }
+
+    #[test]
+    fn the_frame_interval_falls_back_to_the_average_then_thirty() {
+        assert_eq!(frame_interval(90_000., 25.), 1. / 25.);
+        assert_eq!(frame_interval(0., 25.), 1. / 25.);
+        assert_eq!(frame_interval(f64::NAN, 0.), 1. / 30.);
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     path::{Path, PathBuf},
     sync::{
         Arc, Condvar, Mutex, MutexGuard, PoisonError,
@@ -122,6 +123,7 @@ pub struct ShownFrame {
     pub image: Arc<RenderImage>,
     pub position: f64,
     pub source: (u32, u32),
+    pub frame_interval: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -143,14 +145,23 @@ pub struct Stats {
 pub struct Start {
     pub position: f64,
     pub muted: bool,
+    pub volume: f32,
     pub bounds: (u32, u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    Back,
+    Forward,
 }
 
 enum Command {
     Play,
     Pause,
     Seek(f64),
+    Step(Direction),
     Muted(bool),
+    Volume(f32),
     Bounds((u32, u32)),
     Stop,
 }
@@ -338,8 +349,16 @@ impl Player {
         self.send(Command::Seek(position));
     }
 
+    pub fn step(&self, direction: Direction) {
+        self.send(Command::Step(direction));
+    }
+
     pub fn set_muted(&self, muted: bool) {
         self.send(Command::Muted(muted));
+    }
+
+    pub fn set_volume(&self, volume: f32) {
+        self.send(Command::Volume(volume));
     }
 
     pub fn set_bounds(&self, bounds: (u32, u32)) {
@@ -367,20 +386,55 @@ struct AudioLink {
     thread: JoinHandle<()>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+struct FrameKey {
+    segment: usize,
+    local: f64,
+}
+
+struct TimedFrame {
+    decoded: DecodedFrame,
+    key: FrameKey,
+    position: f64,
+    interval: f64,
+}
+
+enum Search {
+    Nearest {
+        target: f64,
+        last: Option<TimedFrame>,
+    },
+    After {
+        from: Shown,
+    },
+    Before {
+        from: Shown,
+        reach: f64,
+        last: Option<TimedFrame>,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Shown {
+    key: FrameKey,
+    position: f64,
+    next_follows: bool,
+}
+
 struct Worker {
     segments: Vec<Segment>,
     timeline: Timeline,
     current: usize,
     reader: VideoReader,
-    pending: Option<DecodedFrame>,
-    seeking: Option<f64>,
-    seek_last: Option<DecodedFrame>,
+    pending: Option<TimedFrame>,
+    search: Option<Search>,
+    steps: VecDeque<Direction>,
     bounds: (u32, u32),
     playing: bool,
     timer: Option<FineTimer>,
     drained: bool,
     ended: bool,
-    shown_any: bool,
+    shown: Option<Shown>,
     shown_at: Instant,
     ticked_at: Instant,
     clock: Arc<Clock>,
@@ -412,6 +466,7 @@ fn open_audio(
         timeline: timeline.clone(),
         position: start.position,
         muted: start.muted,
+        volume: start.volume,
         clock: clock.clone(),
         tap,
     };
@@ -466,14 +521,17 @@ impl Worker {
             current,
             reader,
             pending: None,
-            seeking: Some(start.position),
-            seek_last: None,
+            search: Some(Search::Nearest {
+                target: start.position,
+                last: None,
+            }),
+            steps: VecDeque::new(),
             bounds: start.bounds,
             playing: false,
             timer: None,
             drained: false,
             ended: false,
-            shown_any: false,
+            shown: None,
             shown_at: now,
             ticked_at: now,
             clock,
@@ -520,8 +578,16 @@ impl Worker {
         while let Some(command) = next {
             match command {
                 Command::Stop => return false,
-                Command::Seek(position) => seek = Some(position),
+                Command::Seek(position) => {
+                    self.steps.clear();
+                    seek = Some(position);
+                }
+                Command::Step(direction) => {
+                    self.set_playing(false);
+                    self.steps.push_back(direction);
+                }
                 Command::Play => {
+                    self.steps.clear();
                     if let Some(position) = seek.take() {
                         self.seek(position);
                     }
@@ -533,10 +599,16 @@ impl Worker {
                         audio.output.set_muted(muted);
                     }
                 }
+                Command::Volume(volume) => {
+                    if let Some(audio) = &self.audio {
+                        audio.output.set_volume(volume);
+                    }
+                }
                 Command::Bounds(bounds) => {
                     let changed = bounds != self.bounds;
                     self.bounds = bounds;
-                    if changed && !self.playing && seek.is_none() {
+                    let settled = seek.is_none() && self.search.is_none() && self.steps.is_empty();
+                    if changed && !self.playing && settled {
                         seek = Some(self.clock.position());
                     }
                 }
@@ -565,9 +637,12 @@ impl Worker {
         }
     }
 
-    fn seek(&mut self, position: f64) {
-        let position = position.clamp(0., self.timeline.total());
+    fn locate(&self, position: f64) -> FrameKey {
         let (segment, local) = self.timeline.locate(position);
+        FrameKey { segment, local }
+    }
+
+    fn move_reader(&mut self, FrameKey { segment, local }: FrameKey) -> bool {
         if segment != self.current {
             match VideoReader::open(&self.segments[segment].video) {
                 Ok(reader) => {
@@ -576,15 +651,32 @@ impl Worker {
                 }
                 Err(error) => {
                     self.events.send(Event::Failed(error)).ok();
-                    return;
+                    return false;
                 }
             }
         }
         self.reader.seek(local);
         self.pending = None;
-        self.seeking = Some(position);
-        self.seek_last = None;
         self.drained = false;
+        if let Some(shown) = &mut self.shown {
+            shown.next_follows = false;
+        }
+        true
+    }
+
+    fn seek(&mut self, position: f64) {
+        let position = position.clamp(0., self.timeline.total());
+        if !self.move_reader(self.locate(position)) {
+            return;
+        }
+        self.search = Some(Search::Nearest {
+            target: position,
+            last: None,
+        });
+        self.place(position);
+    }
+
+    fn place(&mut self, position: f64) {
         self.ended = false;
         self.clock.place(position, Instant::now());
         if let Some(audio) = &self.audio {
@@ -599,14 +691,18 @@ impl Worker {
         }
     }
 
-    fn position_of(&self, local: f64) -> f64 {
-        self.timeline.start_of(self.current) + local
-    }
-
-    fn decode(&mut self) -> Option<DecodedFrame> {
+    fn decode(&mut self) -> Option<TimedFrame> {
         loop {
-            if let Some(frame) = self.reader.next() {
-                return Some(frame);
+            if let Some(decoded) = self.reader.next() {
+                return Some(TimedFrame {
+                    key: FrameKey {
+                        segment: self.current,
+                        local: decoded.local,
+                    },
+                    position: self.timeline.start_of(self.current) + decoded.local,
+                    interval: self.reader.frame_gap(),
+                    decoded,
+                });
             }
             let next = self.current + 1;
             if next >= self.timeline.len() {
@@ -626,50 +722,146 @@ impl Worker {
         }
     }
 
-    fn show(&mut self, decoded: &DecodedFrame) {
-        let position = self.position_of(decoded.local);
-        match self.reader.image(decoded, self.bounds) {
+    fn show(&mut self, frame: &TimedFrame) {
+        match self.reader.image(&frame.decoded, self.bounds) {
             Ok(image) => {
                 if self.slot.put(ShownFrame {
                     image,
-                    position,
-                    source: decoded.size(),
+                    position: frame.position,
+                    source: frame.decoded.size(),
+                    frame_interval: frame.interval,
                 }) {
                     self.events.send(Event::Frame).ok();
                 }
-                self.shown_any = true;
+                self.shown = Some(Shown {
+                    key: frame.key,
+                    position: frame.position,
+                    next_follows: true,
+                });
                 self.shown_at = Instant::now();
                 lock(&self.stats).shown += 1;
             }
             Err(error) => {
                 tracing::warn!("drawing a video frame failed: {error}");
-                if !self.shown_any {
+                if self.shown.is_none() {
                     self.events.send(Event::Failed(PlayError::Unreadable)).ok();
                 }
             }
         }
     }
 
-    fn step_seek(&mut self, target: f64) -> Duration {
-        let Some(decoded) = self.decode() else {
-            self.seeking = None;
+    fn begin_step(&mut self, direction: Direction) {
+        let Some(shown) = self.shown else {
+            self.steps.clear();
+            return;
+        };
+        match direction {
+            Direction::Forward => {
+                if shown.next_follows || self.move_reader(shown.key) {
+                    self.search = Some(Search::After { from: shown });
+                }
+            }
+            Direction::Back => {
+                let reach = (shown.position - self.reader.frame_gap()).max(0.);
+                if self.move_reader(self.locate(reach)) {
+                    self.search = Some(Search::Before {
+                        from: shown,
+                        reach,
+                        last: None,
+                    });
+                }
+            }
+        }
+    }
+
+    fn finish_step(&mut self) {
+        let Some(shown) = &mut self.shown else {
+            return;
+        };
+        shown.next_follows = true;
+        let position = shown.position;
+        self.place(position);
+    }
+
+    fn advance_search(&mut self, search: Search) -> Duration {
+        let Some(frame) = self.pending.take().or_else(|| self.decode()) else {
             self.drained = true;
-            if let Some(last) = self.seek_last.take() {
-                self.show(&last);
-            }
-            if !self.shown_any {
-                self.events.send(Event::Failed(PlayError::Unreadable)).ok();
-            }
+            self.end_search(search);
             return Duration::ZERO;
         };
-        if self.position_of(decoded.local) + self.reader.frame_gap() * 0.5 >= target {
-            self.show(&decoded);
-            self.seeking = None;
-            self.seek_last = None;
-        } else {
-            self.seek_last = Some(decoded);
+        match search {
+            Search::Nearest { target, .. } if frame.position < target => {
+                self.search = Some(Search::Nearest {
+                    target,
+                    last: Some(frame),
+                });
+            }
+            Search::Nearest { target, last } => match last {
+                Some(last) if target - last.position < frame.position - target => {
+                    self.show(&last);
+                    self.pending = Some(frame);
+                }
+                _ => self.show(&frame),
+            },
+            Search::After { from } if frame.key <= from.key => {
+                self.search = Some(Search::After { from });
+            }
+            Search::After { .. } => {
+                self.show(&frame);
+                self.finish_step();
+            }
+            Search::Before { from, reach, .. } if frame.key < from.key => {
+                self.search = Some(Search::Before {
+                    from,
+                    reach,
+                    last: Some(frame),
+                });
+            }
+            Search::Before {
+                last: Some(last), ..
+            } => {
+                self.show(&last);
+                self.pending = Some(frame);
+                self.finish_step();
+            }
+            Search::Before { from, reach, .. } if reach > 0. => {
+                let reach = (from.position - 2. * (from.position - reach)).max(0.);
+                if self.move_reader(self.locate(reach)) {
+                    self.search = Some(Search::Before {
+                        from,
+                        reach,
+                        last: None,
+                    });
+                }
+            }
+            Search::Before { from, .. } => {
+                if frame.key > from.key {
+                    self.pending = Some(frame);
+                }
+                self.finish_step();
+            }
         }
         Duration::ZERO
+    }
+
+    fn end_search(&mut self, search: Search) {
+        match search {
+            Search::Nearest { last, .. } => {
+                if let Some(last) = last {
+                    self.show(&last);
+                }
+                if self.shown.is_none() {
+                    self.events.send(Event::Failed(PlayError::Unreadable)).ok();
+                }
+            }
+            Search::After { .. } | Search::Before { last: None, .. } => self.finish_step(),
+            Search::Before {
+                last: Some(last), ..
+            } => {
+                self.show(&last);
+                self.finish_step();
+            }
+        }
     }
 
     fn tick(&mut self, now: Instant, position: f64) {
@@ -680,8 +872,16 @@ impl Worker {
     }
 
     fn step(&mut self) -> Duration {
-        if let Some(target) = self.seeking {
-            return self.step_seek(target);
+        if self.search.is_none()
+            && let Some(direction) = self.steps.pop_front()
+        {
+            self.begin_step(direction);
+        }
+        if let Some(search) = self.search.take() {
+            return self.advance_search(search);
+        }
+        if !self.steps.is_empty() {
+            return Duration::ZERO;
         }
         if !self.playing || self.ended {
             return IDLE_WAIT;
@@ -703,7 +903,7 @@ impl Worker {
             return DRAIN_WAIT;
         };
         let since_shown = now.saturating_duration_since(self.shown_at);
-        match pace(self.position_of(decoded.local), position, since_shown) {
+        match pace(decoded.position, position, since_shown) {
             Pace::Wait(lead) => {
                 self.pending = Some(decoded);
                 wait_for(lead, now, self.ticked_at + TICK_EVERY)
@@ -713,6 +913,9 @@ impl Worker {
                 Duration::ZERO
             }
             Pace::Skip => {
+                if let Some(shown) = &mut self.shown {
+                    shown.next_follows = false;
+                }
                 lock(&self.stats).skipped += 1;
                 Duration::ZERO
             }

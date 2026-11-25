@@ -3,7 +3,7 @@ use std::{
     path::Path,
     sync::{
         Arc, Mutex, MutexGuard,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -415,14 +415,28 @@ pub enum AudioCommand {
 pub struct Output {
     buffer: Arc<Mutex<AudioBuffer>>,
     muted: Arc<AtomicBool>,
+    volume: Arc<AtomicU32>,
     playing: Arc<AtomicBool>,
 }
 
+pub fn volume_level(value: f32) -> f32 {
+    if value.is_nan() {
+        1.
+    } else {
+        value.clamp(0., 1.)
+    }
+}
+
+fn gain(muted: bool, volume: f32) -> f32 {
+    if muted { 0. } else { volume }
+}
+
 impl Output {
-    fn new(rate: u32, position: f64, muted: bool) -> Self {
+    fn new(rate: u32, position: f64, muted: bool, volume: f32) -> Self {
         Self {
             buffer: Arc::new(Mutex::new(AudioBuffer::new(rate, position))),
             muted: Arc::new(AtomicBool::new(muted)),
+            volume: Arc::new(AtomicU32::new(volume_level(volume).to_bits())),
             playing: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -439,6 +453,15 @@ impl Output {
         self.muted.store(muted, Ordering::Release);
     }
 
+    pub fn set_volume(&self, volume: f32) {
+        self.volume
+            .store(volume_level(volume).to_bits(), Ordering::Release);
+    }
+
+    fn volume(&self) -> f32 {
+        f32::from_bits(self.volume.load(Ordering::Acquire))
+    }
+
     pub fn set_playing(&self, playing: bool) {
         self.playing.store(playing, Ordering::Release);
     }
@@ -449,6 +472,7 @@ pub struct Feed {
     pub timeline: Timeline,
     pub position: f64,
     pub muted: bool,
+    pub volume: f32,
     pub clock: Arc<Clock>,
     pub tap: Option<AudioTap>,
 }
@@ -479,18 +503,20 @@ impl Callback {
         if let Some(tap) = &mut self.tap {
             tap(&self.stereo, now + Duration::from_secs_f64(latency));
         }
-        let muted = self.output.muted.load(Ordering::Acquire);
+        let gain = gain(
+            self.output.muted.load(Ordering::Acquire),
+            self.output.volume(),
+        );
         for (frame, pair) in out
             .chunks_exact_mut(self.channels)
             .zip(self.stereo.chunks_exact(STEREO))
         {
-            write_frame(frame, pair, muted);
+            write_frame(frame, pair, gain);
         }
     }
 }
 
-fn write_frame<T: SizedSample + FromSample<f32>>(frame: &mut [T], pair: &[f32], muted: bool) {
-    let gain = if muted { 0. } else { 1. };
+fn write_frame<T: SizedSample + FromSample<f32>>(frame: &mut [T], pair: &[f32], gain: f32) {
     match frame {
         [only] => *only = T::from_sample((pair[0] + pair[1]) * 0.5 * gain),
         [left, right, rest @ ..] => {
@@ -596,6 +622,7 @@ pub fn run(
         timeline,
         position,
         muted,
+        volume,
         clock,
         tap,
     } = feed;
@@ -608,7 +635,7 @@ pub fn run(
         return;
     };
     let rate = supported.sample_rate().0;
-    let output = Output::new(rate, position, muted);
+    let output = Output::new(rate, position, muted, volume);
     let callback = Callback {
         output: output.clone(),
         clock: clock.clone(),
@@ -820,17 +847,46 @@ mod tests {
     #[test]
     fn stereo_goes_to_the_first_two_channels_and_mono_takes_the_average() {
         let mut surround = [1f32; 4];
-        write_frame(&mut surround, &[0.5, 0.25], false);
+        write_frame(&mut surround, &[0.5, 0.25], gain(false, 1.));
         assert_eq!(surround, [0.5, 0.25, 0., 0.]);
         let mut mono = [1f32];
-        write_frame(&mut mono, &[0.5, 0.25], false);
+        write_frame(&mut mono, &[0.5, 0.25], gain(false, 1.));
         assert_eq!(mono, [0.375]);
     }
 
     #[test]
     fn muting_silences_the_output() {
         let mut stereo = [1f32; 2];
-        write_frame(&mut stereo, &[0.5, 0.25], true);
+        write_frame(&mut stereo, &[0.5, 0.25], gain(true, 1.));
         assert_eq!(stereo, [0., 0.]);
+    }
+
+    #[test]
+    fn the_volume_scales_the_output_and_muting_overrides_it() {
+        let mut stereo = [1f32; 2];
+        write_frame(&mut stereo, &[0.5, 0.25], gain(false, 0.5));
+        assert_eq!(stereo, [0.25, 0.125]);
+        write_frame(&mut stereo, &[0.5, 0.25], gain(true, 0.5));
+        assert_eq!(stereo, [0., 0.]);
+    }
+
+    #[test]
+    fn volume_levels_stay_between_silent_and_full() {
+        assert_eq!(volume_level(0.3), 0.3);
+        assert_eq!(volume_level(1.5), 1.);
+        assert_eq!(volume_level(-0.2), 0.);
+        assert_eq!(volume_level(f32::INFINITY), 1.);
+        assert_eq!(volume_level(f32::NEG_INFINITY), 0.);
+        assert_eq!(volume_level(f32::NAN), 1.);
+    }
+
+    #[test]
+    fn the_output_keeps_the_clamped_volume() {
+        let output = Output::new(48_000, 0., false, 2.);
+        assert_eq!(output.volume(), 1.);
+        output.set_volume(0.25);
+        assert_eq!(output.volume(), 0.25);
+        output.set_volume(f32::NAN);
+        assert_eq!(output.volume(), 1.);
     }
 }

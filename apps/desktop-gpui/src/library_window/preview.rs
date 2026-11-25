@@ -183,6 +183,7 @@ impl LibraryWindow {
         let start = Start {
             position,
             muted: preview.muted,
+            volume: 1.,
             bounds: preview.bounds,
         };
         let Some((player, events)) = Player::open(&entry.path, load, start, None) else {
