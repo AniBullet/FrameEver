@@ -273,6 +273,7 @@ const startFrom = (from) => {
 	return {
 		from,
 		kind: from === "pad" ? "pad" : "keys",
+		controller: "auto",
 		size: 100,
 		opacity: 100,
 		keys,
@@ -289,7 +290,7 @@ const startFrom = (from) => {
 };
 let m = startFrom("wasd");
 const mine = () => {
-	if (m.kind === "pad") return pad(s.pad, m.pad);
+	if (m.kind === "pad") return pad(madePad(), m.pad);
 	const blocks = m.keys.map((k) => [k.x, k.y, k.w, 1]);
 	if (m.mouse.on) blocks.push([m.mouse.x, m.mouse.y, MOUSE_W, MOUSE_H]);
 	if (blocks.length === 0) return { view: [U, U], body: "" };
@@ -581,7 +582,7 @@ const renderRows = () => {
 const renderBoard = () => {
 	const board = document.getElementById("board");
 	if (m.kind === "pad") {
-		const { view, body } = pad(s.pad, m.pad);
+		const { view, body } = pad(madePad(), m.pad);
 		board.innerHTML = `<svg class="io ${s.variant} pad" viewBox="-6 -2 ${view[0] + 12} ${view[1] + 4}">${body}</svg>`;
 		return;
 	}
@@ -598,6 +599,13 @@ const renderBoard = () => {
 		: "";
 	board.innerHTML = `<svg class="io ${s.variant}" viewBox="0 0 ${COLS * U} ${ROWS * U}"><defs><pattern id="dots" width="${U / 2}" height="${U / 2}" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="rgba(255,255,255,0.16)"/></pattern></defs><rect width="${COLS * U}" height="${ROWS * U}" fill="url(#dots)"/>${keys}${block}</svg>`;
 };
+const CONTROLLERS = [
+	["auto", "Automatic", "自动"],
+	["xbox", "Xbox", "Xbox"],
+	["ps", "PlayStation", "PlayStation"],
+	["switch", "Switch", "Switch"],
+];
+const madePad = () => (m.controller === "auto" ? s.pad : m.controller);
 const MAKER_SHARE = { wasd: 30, full: 52, pad: 36, empty: 30 };
 const makerLook = () =>
 	`opacity:${m.opacity / 100};width:${Math.min(100, ((MAKER_SHARE[m.from] ?? 30) * m.size) / 100)}%`;
@@ -610,7 +618,7 @@ const renderMaker = () => {
 		`<span class="caption">${L("Start from", "起点")}</span><div class="seg">${STARTS.map(([id, en, zh]) => `<button data-mf="${id}" class="${m.from === id ? "on" : ""}">${L(en, zh)}</button>`).join("")}</div><span class="grow"></span>${
 			m.kind === "keys"
 				? `${flag("capture", m.capture, "Press keys to add", "按键添加")}${flag("mouse", m.mouse.on, "Mouse", "鼠标")}<button class="btn" data-md="all">${L("Clear", "清空")}</button>`
-				: ""
+				: `<span class="caption">${L("Controller", "手柄类型")}</span><div class="seg">${CONTROLLERS.map(([id, en, zh]) => `<button data-mc="${id}" class="${m.controller === id ? "on" : ""}">${L(en, zh)}</button>`).join("")}</div>`
 		}`;
 	renderBoard();
 	const picked = m.keys[m.sel];
@@ -663,19 +671,20 @@ const renderAll = () => {
 	renderRows();
 	document.getElementById("t-maker").innerHTML = L("Make a preset", "制作预设");
 	document.getElementById("l-maker").innerHTML = L(
-		"A preset starts from any built-in one. A keyboard preset holds keys and one mouse block that is dragged like a key and shows only the buttons chosen for it. A gamepad preset is the built-in pad with parts switched off; its parts are not moved one by one, and its picture always stays inside the board. Under the board, one panel holds the preset's own size and opacity on the left and what is selected on the right; the window is exactly as tall as these rows. Size and opacity are saved in the preset and multiply the project's or the setting's own size and opacity. The right side draws the result the way the video will: bottom left, at the share of the frame it takes, at its opacity, in the chosen style, and it lights up as you press.",
-		"预设可以从任何内置预设开始。键盘预设里有按键和一个鼠标块，鼠标块像按键一样拖动，只画选中的那些按钮。手柄预设是内置手柄去掉不要的部分，不逐个移动零件，手柄的图始终画在面板里面。面板下方是一个属性栏：左边是预设自己的大小和不透明度，右边是选中的那一项；窗口正好和这几行一样高。大小和不透明度保存在预设里，和项目或设置里的大小、不透明度相乘。右边按视频里的样子画出结果：在左下角，按它占画面的比例和它的不透明度，用选中的样式，按下时会亮。",
+		"A preset starts from any built-in one. A keyboard preset holds keys and one mouse block that is dragged like a key and shows only the buttons chosen for it. A gamepad preset is the built-in pad with parts switched off; its parts are not moved one by one, its picture always stays inside the board, and it either follows the gamepad that was used or names one controller. Under the board, one panel holds the preset's own size and opacity on the left and what is selected on the right; the window is exactly as tall as these rows. Size and opacity are saved in the preset and multiply the project's or the setting's own size and opacity. The right side draws the result the way the video will: bottom left, at the share of the frame it takes, at its opacity, in the chosen style, and it lights up as you press.",
+		"预设可以从任何内置预设开始。键盘预设里有按键和一个鼠标块，鼠标块像按键一样拖动，只画选中的那些按钮。手柄预设是内置手柄去掉不要的部分，不逐个移动零件，手柄的图始终画在面板里面；它可以跟随实际用的手柄，也可以指定一种型号。面板下方是一个属性栏：左边是预设自己的大小和不透明度，右边是选中的那一项；窗口正好和这几行一样高。大小和不透明度保存在预设里，和项目或设置里的大小、不透明度相乘。右边按视频里的样子画出结果：在左下角，按它占画面的比例和它的不透明度，用选中的样式，按下时会亮。",
 	);
 	renderMaker();
 };
 
 document.addEventListener("click", (event) => {
 	const made = event.target.closest(
-		"[data-mt],[data-mw],[data-md],[data-mf],[data-mp],[data-pp]",
+		"[data-mt],[data-mw],[data-md],[data-mf],[data-mp],[data-pp],[data-mc]",
 	);
 	if (made) {
-		const { mt, mw, md, mf, mp, pp } = made.dataset;
+		const { mt, mw, md, mf, mp, pp, mc } = made.dataset;
 		if (mf) m = startFrom(mf);
+		if (mc) m.controller = mc;
 		if (mt === "capture") m.capture = !m.capture;
 		if (mt === "mouse") {
 			m.mouse.on = !m.mouse.on;

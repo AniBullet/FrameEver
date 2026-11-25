@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use frameever_project::input_display::{
-    DisplayState, GamepadPart, Input, InputDisplayStyle, KeyLayout, MAKER_COLUMNS, MAKER_ROWS,
-    MAKER_WIDTHS, MOUSE_BLOCK, MakerSelection, MakerStart, MousePart, PRESET_OPACITY_RANGE,
-    PRESET_SIZE_RANGE, PresetMaker,
+    DisplayState, GamepadKind, GamepadPart, Input, InputDisplayStyle, KeyLayout, MAKER_COLUMNS,
+    MAKER_ROWS, MAKER_WIDTHS, MOUSE_BLOCK, MakerSelection, MakerStart, MousePart,
+    PRESET_OPACITY_RANGE, PRESET_SIZE_RANGE, PresetMaker,
     key_codes::{ALT_LEFT, CONTROL_LEFT, META_LEFT, SHIFT_LEFT},
     keystroke_code,
 };
@@ -68,6 +68,22 @@ fn start_label(start: MakerStart) -> &'static str {
         MakerStart::FullKeyboard => t!("Full keyboard"),
         MakerStart::Gamepad => t!("Gamepad"),
         MakerStart::Empty => t!("Empty"),
+    }
+}
+
+const CONTROLLERS: [Option<GamepadKind>; 4] = [
+    None,
+    Some(GamepadKind::Xbox),
+    Some(GamepadKind::PlayStation),
+    Some(GamepadKind::Switch),
+];
+
+fn controller_label(controller: Option<GamepadKind>) -> &'static str {
+    match controller {
+        None => t!("Automatic"),
+        Some(GamepadKind::Xbox) => "Xbox",
+        Some(GamepadKind::PlayStation) => "PlayStation",
+        Some(GamepadKind::Switch) => "Switch",
     }
 }
 
@@ -1033,7 +1049,36 @@ impl Render for InputPresetMaker {
                 )
             });
         let bar = if self.model.gamepad.is_some() {
-            bar
+            bar.child(div().flex_1())
+                .child(
+                    div()
+                        .text_color(Hsla::from(theme.muted_foreground))
+                        .child(t!("Controller")),
+                )
+                .child(
+                    ui::SegmentedControl::editor(
+                        &theme,
+                        "preset-maker-controller",
+                        CONTROLLERS
+                            .into_iter()
+                            .map(|controller| {
+                                ui::SegmentOption::new(
+                                    controller_label(controller),
+                                    controller == self.model.controller,
+                                )
+                            })
+                            .collect(),
+                    )
+                    .on_select(cx.listener(
+                        |this, index: &usize, window, cx| {
+                            if let Some(controller) = CONTROLLERS.get(*index) {
+                                this.model.set_controller(*controller);
+                            }
+                            this.focus_root(window, cx);
+                            cx.notify();
+                        },
+                    )),
+                )
         } else {
             bar.child(self.render_switch(
                 "preset-maker-capture".into(),
@@ -1251,6 +1296,24 @@ mod tests {
         for part in GamepadPart::ALL {
             assert!(!gamepad_part_label(part).is_empty());
         }
+    }
+
+    #[test]
+    fn a_pad_preset_offers_automatic_and_every_controller() {
+        assert_eq!(CONTROLLERS[0], None);
+        for kind in GamepadKind::ALL {
+            assert!(CONTROLLERS.contains(&Some(kind)));
+        }
+        let mut model = PresetMaker::starting(MakerStart::Gamepad, "Pad");
+        let mut preview = MakerPreview::default();
+        let style = InputDisplayStyle::Keycaps;
+        assert!(preview.refresh(unscaled_layout(&model), style, DisplayState::default()));
+        let follows = shown(&preview);
+        model.set_controller(Some(GamepadKind::PlayStation));
+        assert!(preview.refresh(unscaled_layout(&model), style, DisplayState::default()));
+        assert!(shown(&preview) != follows);
+        assert_eq!(controller_label(None), "Automatic");
+        assert_eq!(controller_label(Some(GamepadKind::Switch)), "Switch");
     }
 
     #[test]

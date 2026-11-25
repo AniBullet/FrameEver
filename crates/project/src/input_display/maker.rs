@@ -1,4 +1,5 @@
 use super::{
+    GamepadKind,
     builtin::{
         BuiltinPresetId, GamepadPart, GamepadParts, KeyLayout, LayoutKey, LayoutMouse, MOUSE_BLOCK,
         MousePart, MouseParts, PRESET_FULL, PRESET_OPACITY_RANGE, PRESET_SIZE_RANGE,
@@ -85,6 +86,7 @@ pub struct PresetMaker {
     pub keys: Vec<LayoutKey>,
     pub mouse: Option<BoardMouse>,
     pub gamepad: Option<GamepadParts>,
+    pub controller: Option<GamepadKind>,
     pub selected: Option<MakerSelection>,
     pub capture: bool,
     pub start: Option<MakerStart>,
@@ -134,6 +136,7 @@ impl PresetMaker {
             opacity: layout.opacity_percent(),
             keys: layout.keys,
             gamepad: layout.gamepad,
+            controller: layout.gamepad.and(layout.controller),
             selected: None,
             capture: false,
             start: None,
@@ -145,6 +148,7 @@ impl PresetMaker {
         if self.gamepad.is_some() {
             return KeyLayout {
                 gamepad: self.gamepad,
+                controller: self.controller,
                 size: stored_percent(self.size),
                 opacity: stored_percent(self.opacity),
                 ..Default::default()
@@ -174,9 +178,18 @@ impl PresetMaker {
                 parts: mouse.parts,
             }),
             gamepad: None,
+            controller: None,
             size: stored_percent(self.size),
             opacity: stored_percent(self.opacity),
         }
+    }
+
+    pub fn set_controller(&mut self, controller: Option<GamepadKind>) -> bool {
+        if self.gamepad.is_none() || self.controller == controller {
+            return false;
+        }
+        self.controller = controller;
+        true
     }
 
     pub fn set_size(&mut self, percent: f64) -> bool {
@@ -631,6 +644,27 @@ mod tests {
             assert_eq!(preset.elements.len(), 2, "{style:?}");
             assert_eq!((preset.width, preset.height), layout.size());
         }
+    }
+
+    #[test]
+    fn a_pad_preset_can_name_its_controller_and_a_keyboard_preset_cannot() {
+        let mut pad = PresetMaker::starting(MakerStart::Gamepad, "Pad");
+        assert_eq!(pad.controller, None);
+        assert_eq!(pad.layout().controller, None);
+        assert!(pad.set_controller(Some(GamepadKind::PlayStation)));
+        assert!(!pad.set_controller(Some(GamepadKind::PlayStation)));
+        let layout = pad.layout();
+        assert_eq!(layout.controller, Some(GamepadKind::PlayStation));
+        assert_eq!(
+            PresetMaker::editing("Pad", &layout).controller,
+            Some(GamepadKind::PlayStation)
+        );
+        assert!(pad.set_controller(None));
+        assert_eq!(pad.layout().controller, None);
+
+        let mut keys = PresetMaker::starting(MakerStart::WasdMouse, "Keys");
+        assert!(!keys.set_controller(Some(GamepadKind::Switch)));
+        assert_eq!(keys.layout().controller, None);
     }
 
     #[test]

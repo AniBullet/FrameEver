@@ -484,6 +484,7 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("My preset", "我的预设"),
     ("Preset name", "预设名称"),
     ("Press keys to add", "按键添加"),
+    ("Controller", "手柄类型"),
     (
         "Select a key or the mouse to edit it",
         "选中按键或鼠标来编辑",

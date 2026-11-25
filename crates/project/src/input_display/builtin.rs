@@ -203,6 +203,8 @@ pub struct KeyLayout {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gamepad: Option<GamepadParts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controller: Option<GamepadKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opacity: Option<f64>,
@@ -1096,7 +1098,7 @@ impl KeyLayout {
         let palette = Palette::of(style);
         if let Some(shown) = self.gamepad {
             let (width, height) = self.size();
-            let mut parts = gamepad_parts(controller, &palette);
+            let mut parts = gamepad_parts(self.controller.unwrap_or(controller), &palette);
             parts.retain(|part| {
                 GamepadPart::of_element(&part.id).is_none_or(|part| shown.shows(part))
             });
@@ -1277,6 +1279,33 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_made_pad_follows_the_connected_controller_unless_it_names_one() {
+        let style = InputDisplayStyle::Keycaps;
+        let follows = KeyLayout {
+            gamepad: Some(GamepadParts::default()),
+            ..Default::default()
+        };
+        assert!(!serde_json::to_string(&follows).unwrap().contains("controller"));
+        assert_ne!(
+            follows.art_for(style, GamepadKind::Switch),
+            follows.art_for(style, GamepadKind::PlayStation)
+        );
+
+        let named = KeyLayout {
+            controller: Some(GamepadKind::Switch),
+            ..follows.clone()
+        };
+        assert_eq!(named.art(style), follows.art_for(style, GamepadKind::Switch));
+        assert_eq!(
+            named.art_for(style, GamepadKind::PlayStation),
+            follows.art_for(style, GamepadKind::Switch)
+        );
+        let read: KeyLayout =
+            serde_json::from_str(&serde_json::to_string(&named).unwrap()).unwrap();
+        assert_eq!(read, named);
     }
 
     #[test]
