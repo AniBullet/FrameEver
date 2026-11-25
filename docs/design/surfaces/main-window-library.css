@@ -378,21 +378,23 @@ main > section .seg {
 }
 
 .sum {
-	flex: 1;
-	min-width: 0;
+	flex: none;
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: 8px;
 	height: 28px;
 	padding: 0 6px;
 	border: 0;
 	border-radius: var(--radius-sm);
 	background: transparent;
 	color: var(--muted-foreground);
-	font-size: var(--text-small);
 	cursor: pointer;
-	white-space: nowrap;
-	overflow: hidden;
+}
+
+.sum-state {
+	display: flex;
+	align-items: center;
+	gap: 6px;
 }
 
 .sum:hover {

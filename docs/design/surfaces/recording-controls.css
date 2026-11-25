@@ -603,11 +603,11 @@
 }
 
 .sum {
-	flex: 1;
-	min-width: 0;
+	position: relative;
+	flex: none;
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: 8px;
 	height: 28px;
 	padding: 0 6px;
 	border: 0;
@@ -618,6 +618,29 @@
 	cursor: pointer;
 	white-space: nowrap;
 	overflow: hidden;
+}
+
+.sum-state {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.sum-tip {
+	display: none;
+	position: absolute;
+	left: 0;
+	bottom: calc(100% + 6px);
+	padding: 4px 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: var(--popover);
+	color: var(--popover-foreground);
+	white-space: nowrap;
+}
+
+.sum:hover .sum-tip {
+	display: block;
 }
 
 .sum:hover,

@@ -32,6 +32,7 @@ const MAX_ZOOM: f32 = 8.;
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Zoom {
     Fit,
+    Filled,
     Scaled { scale: f32, centre: (f32, f32) },
 }
 
@@ -39,22 +40,50 @@ impl Zoom {
     fn scale(self, picture: (f32, f32), stage: (f32, f32)) -> f32 {
         match self {
             Self::Fit => fitted_scale(picture, stage),
+            Self::Filled => contained_scale(picture, stage).min(MAX_ZOOM),
             Self::Scaled { scale, .. } => scale,
         }
     }
 
     fn centre(self) -> (f32, f32) {
         match self {
-            Self::Fit => MIDDLE,
+            Self::Fit | Self::Filled => MIDDLE,
             Self::Scaled { centre, .. } => centre,
         }
     }
 }
 
+fn contained_scale(picture: (f32, f32), stage: (f32, f32)) -> f32 {
+    (stage.0 / picture.0.max(1.)).min(stage.1 / picture.1.max(1.))
+}
+
 fn fitted_scale(picture: (f32, f32), stage: (f32, f32)) -> f32 {
-    (stage.0 / picture.0.max(1.))
-        .min(stage.1 / picture.1.max(1.))
-        .min(1.)
+    contained_scale(picture, stage).min(1.)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SizeAction {
+    ActualSize,
+    FitWindow,
+}
+
+fn size_toggle(
+    zoom: Zoom,
+    point: (f32, f32),
+    picture: (f32, f32),
+    stage: (f32, f32),
+) -> (Zoom, SizeAction) {
+    let contained = contained_scale(picture, stage);
+    match zoom {
+        Zoom::Fit if contained < 1. => (
+            zoomed_to(Zoom::Fit, point, 1., picture, stage),
+            SizeAction::ActualSize,
+        ),
+        Zoom::Fit if contained > 1. => (Zoom::Filled, SizeAction::FitWindow),
+        Zoom::Fit => (Zoom::Fit, SizeAction::ActualSize),
+        Zoom::Filled | Zoom::Scaled { .. } if contained < 1. => (Zoom::Fit, SizeAction::FitWindow),
+        Zoom::Filled | Zoom::Scaled { .. } => (Zoom::Fit, SizeAction::ActualSize),
+    }
 }
 
 pub(super) struct Placed {
@@ -525,11 +554,11 @@ impl LibraryWindow {
         let Some(overlay) = self.library.overlay.as_mut().filter(|o| o.is_open()) else {
             return;
         };
-        overlay.zoom = match (overlay.zoom, picture) {
-            (Zoom::Fit, Some(picture)) => {
-                zoomed_to(Zoom::Fit, (stage.0 / 2., stage.1 / 2.), 1., picture, stage)
+        overlay.zoom = match picture {
+            Some(picture) => {
+                size_toggle(overlay.zoom, (stage.0 / 2., stage.1 / 2.), picture, stage).0
             }
-            _ => Zoom::Fit,
+            None => Zoom::Fit,
         };
         overlay.drag = None;
         self.wake_overlay_controls(cx);
@@ -593,9 +622,9 @@ impl LibraryWindow {
         };
         if event.click_count == 2 {
             overlay.drag = None;
-            overlay.zoom = match (overlay.zoom, picture) {
-                (Zoom::Fit, Some(picture)) => zoomed_to(Zoom::Fit, point, 1., picture, stage),
-                _ => Zoom::Fit,
+            overlay.zoom = match picture {
+                Some(picture) => size_toggle(overlay.zoom, point, picture, stage).0,
+                None => Zoom::Fit,
             };
             cx.notify();
         } else if overlay.zoomed() {
@@ -926,7 +955,23 @@ impl LibraryWindow {
             })
     }
 
-    fn render_overlay_foot(&self, entry: &Entry, cx: &mut Context<Self>) -> gpui::Div {
+    fn overlay_size_action(&self, window: &Window) -> SizeAction {
+        let zoom = self.library.overlay.as_ref().map(|overlay| overlay.zoom);
+        match (zoom, self.overlay_picture(window)) {
+            (Some(zoom), Some(picture)) => {
+                let (_, stage) = self.overlay_stage_box(window);
+                size_toggle(zoom, (stage.0 / 2., stage.1 / 2.), picture, stage).1
+            }
+            _ => SizeAction::ActualSize,
+        }
+    }
+
+    fn render_overlay_foot(
+        &self,
+        entry: &Entry,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         let theme = self.theme;
         let full_screen = self.library_full_screen();
         let (icon, label) = if full_screen {
@@ -934,10 +979,9 @@ impl LibraryWindow {
         } else {
             ("icons/maximize.svg", t!("Whole screen"))
         };
-        let (size_icon, size_label) = if self.library_zoomed() {
-            ("icons/ratio.svg", t!("Fit to window"))
-        } else {
-            ("icons/scan.svg", t!("Actual size"))
+        let (size_icon, size_label) = match self.overlay_size_action(window) {
+            SizeAction::FitWindow => ("icons/ratio.svg", t!("Fit to window")),
+            SizeAction::ActualSize => ("icons/scan.svg", t!("Actual size")),
         };
         let duration = self.library_preview_length(entry);
         div()
@@ -1054,7 +1098,7 @@ impl LibraryWindow {
                             .bottom_0()
                             .occlude()
                             .bg(theme.popover)
-                            .child(self.render_overlay_foot(entry, cx)),
+                            .child(self.render_overlay_foot(entry, window, cx)),
                     )
                 })
             } else {
@@ -1096,7 +1140,7 @@ impl LibraryWindow {
                                 cx,
                             )),
                     )
-                    .child(self.render_overlay_foot(entry, cx))
+                    .child(self.render_overlay_foot(entry, window, cx))
             }
             .into_any_element(),
         )
@@ -1303,6 +1347,55 @@ mod tests {
             (0.5, 0.75)
         ));
         assert_eq!(drawn_bounds(zoom, picture, stage).1, picture);
+    }
+
+    #[test]
+    fn a_picture_larger_than_the_stage_switches_between_fit_and_actual_size() {
+        let (picture, stage) = ((3000., 2000.), (1000., 600.));
+        let (zoom, action) = size_toggle(Zoom::Fit, (500., 300.), picture, stage);
+        assert_eq!(action, SizeAction::ActualSize);
+        assert_eq!(zoom.scale(picture, stage), 1.);
+        let (back, action) = size_toggle(zoom, (500., 300.), picture, stage);
+        assert_eq!(action, SizeAction::FitWindow);
+        assert_eq!(back, Zoom::Fit);
+    }
+
+    #[test]
+    fn a_picture_smaller_than_the_stage_grows_to_fill_it_without_cropping() {
+        let (picture, stage) = ((400., 200.), (1000., 600.));
+        assert_eq!(Zoom::Fit.scale(picture, stage), 1.);
+        let (zoom, action) = size_toggle(Zoom::Fit, (900., 50.), picture, stage);
+        assert_eq!(action, SizeAction::FitWindow);
+        assert_eq!(zoom.scale(picture, stage), 2.5);
+        assert_eq!(
+            drawn_bounds(zoom, picture, stage),
+            ((0., 50.), (1000., 500.))
+        );
+        let (back, action) = size_toggle(zoom, (500., 300.), picture, stage);
+        assert_eq!(action, SizeAction::ActualSize);
+        assert_eq!(back, Zoom::Fit);
+    }
+
+    #[test]
+    fn a_filled_picture_follows_the_stage_when_it_changes_size() {
+        let picture = (400., 200.);
+        assert_eq!(
+            drawn_bounds(Zoom::Filled, picture, (2000., 1200.)),
+            ((0., 100.), (2000., 1000.))
+        );
+        assert_eq!(
+            drawn_bounds(Zoom::Filled, picture, (800., 600.)),
+            ((0., 100.), (800., 400.))
+        );
+    }
+
+    #[test]
+    fn a_picture_that_exactly_fits_stays_as_it_is() {
+        let (picture, stage) = ((1000., 500.), (1000., 600.));
+        assert_eq!(
+            size_toggle(Zoom::Fit, (500., 300.), picture, stage).0,
+            Zoom::Fit
+        );
     }
 
     #[test]

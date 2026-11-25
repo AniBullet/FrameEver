@@ -46,6 +46,22 @@ fn summary(mode: Mode, settings: &GeneralSettings) -> String {
     result
 }
 
+fn state_icons(mode: Mode, settings: &GeneralSettings) -> Vec<&'static str> {
+    if mode != Mode::Instant {
+        return Vec::new();
+    }
+    [
+        (
+            settings.instant_click_highlight,
+            "icons/mouse-pointer-2.svg",
+        ),
+        (settings.instant_show_input, "icons/keyboard.svg"),
+    ]
+    .into_iter()
+    .filter_map(|(on, icon)| on.then_some(icon))
+    .collect()
+}
+
 struct OptionRow {
     label: &'static str,
     key: &'static str,
@@ -304,55 +320,69 @@ impl MainWindow {
         if self.session.read(cx).phase != crate::session::Phase::Idle {
             return None;
         }
-        let summary = summary(self.mode, &GeneralSettings::load());
-        let accessible_label = format!("{}: {summary}", t!("Recording options"));
+        let settings = GeneralSettings::load();
+        let label: SharedString = format!(
+            "{}: {}",
+            t!("Recording options"),
+            summary(self.mode, &settings)
+        )
+        .into();
+        let tooltip = label.clone();
         let theme = self.theme;
+        let button = focus_ring(
+            div()
+                .id("recording-options-summary")
+                .track_focus(&self.recording_options_trigger)
+                .tab_index(0)
+                .flex()
+                .flex_shrink_0()
+                .h(px(28.))
+                .items_center()
+                .gap(px(8.))
+                .px(px(6.))
+                .rounded(px(8.))
+                .aria_label(label)
+                .tooltip(move |_, cx| ui::Tooltip::new(&theme, tooltip.clone()).view(cx))
+                .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+                .when(self.recording_options_open, |style| {
+                    style.bg(theme.accent).text_color(theme.foreground)
+                })
+                .hover(move |style| style.bg(theme.accent).text_color(theme.foreground))
+                .child(
+                    svg()
+                        .path("icons/sliders-horizontal.svg")
+                        .size(px(16.))
+                        .flex_shrink_0()
+                        .text_color(theme.muted_foreground),
+                )
+                .children(state_icons(self.mode, &settings).into_iter().map(|icon| {
+                    svg()
+                        .path(icon)
+                        .size(px(14.))
+                        .flex_shrink_0()
+                        .text_color(theme.muted_foreground)
+                })),
+            theme,
+        )
+        .on_click(cx.listener(|this, _, window, cx| {
+            if !this.close_recording_options(window, cx) {
+                this.clear_mode_hover();
+                this.recording_options_open = true;
+                this.recording_options_menu = None;
+                this.recording_options_presets = listed_user_presets();
+                this.recording_options_save_failed = false;
+                window.focus(&this.recording_options_focus, cx);
+                cx.notify();
+            }
+        }));
         Some(
-            focus_ring(
-                div()
-                    .id("recording-options-summary")
-                    .track_focus(&self.recording_options_trigger)
-                    .tab_index(0)
-                    .flex()
-                    .flex_1()
-                    .min_w_0()
-                    .h(px(28.))
-                    .items_center()
-                    .gap(px(6.))
-                    .px(px(6.))
-                    .rounded(px(8.))
-                    .text_size(px(12.))
-                    .aria_label(accessible_label)
-                    .tooltip(move |_, cx| {
-                        ui::Tooltip::new(&theme, t!("Recording options")).view(cx)
-                    })
-                    .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
-                    .when(self.recording_options_open, |style| {
-                        style.bg(theme.accent).text_color(theme.foreground)
-                    })
-                    .hover(move |style| style.bg(theme.accent).text_color(theme.foreground))
-                    .child(
-                        svg()
-                            .path("icons/sliders-horizontal.svg")
-                            .size(px(14.))
-                            .flex_shrink_0()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(div().truncate().child(summary)),
-                theme,
-            )
-            .on_click(cx.listener(|this, _, window, cx| {
-                if !this.close_recording_options(window, cx) {
-                    this.clear_mode_hover();
-                    this.recording_options_open = true;
-                    this.recording_options_menu = None;
-                    this.recording_options_presets = listed_user_presets();
-                    this.recording_options_save_failed = false;
-                    window.focus(&this.recording_options_focus, cx);
-                    cx.notify();
-                }
-            }))
-            .into_any_element(),
+            div()
+                .flex()
+                .flex_1()
+                .min_w_0()
+                .items_center()
+                .child(button)
+                .into_any_element(),
         )
     }
 
@@ -751,6 +781,25 @@ mod tests {
             "1080p · Click highlight · Show input · 60 FPS · 3 s"
         );
         assert_eq!(summary(Mode::Studio, &settings), "Balanced · 60 FPS · 3 s");
+    }
+
+    #[test]
+    fn the_footer_marks_what_an_instant_recording_will_draw_into_the_video() {
+        let mut settings = GeneralSettings::default();
+        settings.instant_click_highlight = false;
+        settings.instant_show_input = false;
+        assert!(state_icons(Mode::Instant, &settings).is_empty());
+        settings.instant_show_input = true;
+        assert_eq!(
+            state_icons(Mode::Instant, &settings),
+            ["icons/keyboard.svg"]
+        );
+        settings.instant_click_highlight = true;
+        assert_eq!(
+            state_icons(Mode::Instant, &settings),
+            ["icons/mouse-pointer-2.svg", "icons/keyboard.svg"]
+        );
+        assert!(state_icons(Mode::Studio, &settings).is_empty());
     }
 
     #[test]

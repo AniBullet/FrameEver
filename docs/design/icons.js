@@ -77,6 +77,8 @@ window.FRAMEEVER_ICONS = {
 	minus: '<path d="M5 12h14"/>',
 	monitor:
 		'<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
+	"mouse-pointer-2":
+		'<path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>',
 	"panel-left":
 		'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
 	"panel-right":

@@ -357,6 +357,10 @@ const summary = () => {
 			: "";
 	return `<span class="tnum">${first}${drawn} · ${L(`${opt.fps} FPS`, `${opt.fps} 帧/秒`)}${cd}</span>`;
 };
+const summaryState = () =>
+	opt.mode === "instant" && (opt.clicks || opt.input)
+		? `<span class="sum-state">${opt.clicks ? icon("mouse-pointer-2", "sm") : ""}${opt.input ? icon("keyboard", "sm") : ""}</span>`
+		: "";
 
 const optPop = (bottom) => {
 	const studio = opt.mode === "studio";
@@ -463,7 +467,7 @@ const renderOptions = () => {
 	const { mode, open } = opt;
 	const start = L("Start recording", "开始录制");
 	const shotTitle = pick("Screenshot this display", "截取这个显示器");
-	const middle = `<button class="sum ${open ? "on" : ""}" data-opt="toggle" title="${pick("Recording options", "录制选项")}">${icon("sliders-horizontal", "sm")}${summary()}</button>`;
+	const middle = `<button class="sum ${open ? "on" : ""}" data-opt="toggle" title="${pick("Recording options", "录制选项")}">${icon("sliders-horizontal")}${summaryState()}<span class="sum-tip">${summary()}</span></button><span class="grow"></span>`;
 	document.getElementById("opt-stage").innerHTML =
 		`<div class="win" style="height:386px">
 		<div class="titlebar"><span class="mark"></span><span>FrameEver</span></div>
@@ -516,8 +520,8 @@ const copy = () => {
 		],
 		"t-options": ["Recording options before you start", "开始前的录制选项"],
 		"l-options": [
-			"The compact window already holds source, camera, microphone and system audio, so the popover carries only what lives on the Recording settings page, with the same names, in the order they are used: quality, frame rate, countdown, then the mode's own options (Studio: separate cursor and record input; Instant: click highlight and show input with its device, preset, size, opacity and corner), then auto-stop. The preset list holds gamepad presets while the device is Gamepad and keyboard presets otherwise. Size and opacity are steps here and sliders in Settings; the corner here is one of four, and Settings places the display anywhere. It opens from a summary in the footer, so the window stays 386 px and always shows what's set; for Instant the summary names click highlight and show input right after the resolution while they are on, because they change what the video contains and the end of the line is what gets cut. All recording settings opens the Studio or Instant page of the settings window. The summary replaces the item count, which the library shows anyway. Open it with Tab and Enter, close it with Esc. The recording mode is Studio or Instant only. A screenshot is its own button beside Start recording: it captures the chosen source at once and takes none of these options.",
-			"紧凑窗口已经有来源、摄像头、麦克风和系统声音，所以这个浮层只放设置“录制”页里的项目，名称完全一致，按使用顺序排：画质、帧率、倒计时，然后是这个模式自己的选项（工作室：单独捕获光标和记录操作输入；即时：点击高亮、显示操作及其设备、预设、大小、不透明度和角落），最后是自动停止。设备选“手柄”时预设列表列手柄预设，否则列键盘预设。大小和不透明度在这里是几档，在设置里是滑块；这里的位置只有四个角，设置里可以放到任意位置。它从底栏的摘要打开，所以窗口保持 386 px，并一直显示当前设置；即时模式下，点击高亮和显示操作开着时紧跟在分辨率后面写出来，因为它们会改变视频的内容，而被截断的总是行尾。“全部录制设置”打开设置窗口的工作室页或即时页。摘要替换的是条目数，资源库里本来就有。Tab 加 Enter 打开，Esc 关闭。录制模式只有工作室和即时。截图是“开始录制”旁边单独的按钮：点一下就截取当前选的来源，不受这些选项影响。",
+			"The compact window already holds source, camera, microphone and system audio, so the popover carries only what lives on the Recording settings page, with the same names, in the order they are used: quality, frame rate, countdown, then the mode's own options (Studio: separate cursor and record input; Instant: click highlight and show input with its device, preset, size, opacity and corner), then auto-stop. The preset list holds gamepad presets while the device is Gamepad and keyboard presets otherwise. Size and opacity are steps here and sliders in Settings; the corner here is one of four, and Settings places the display anywhere. It opens from an icon button in the footer, so the window stays 386 px. The button's tooltip reads the whole setting (quality or resolution, frame rate, countdown). For Instant, a pointer icon and a keyboard icon sit beside it while click highlight and show input are on, because they change what the video contains. All recording settings opens the Studio or Instant page of the settings window. The button replaces the item count, which the library shows anyway. Open it with Tab and Enter, close it with Esc. The recording mode is Studio or Instant only. A screenshot is its own button beside Start recording: it captures the chosen source at once and takes none of these options.",
+			"紧凑窗口已经有来源、摄像头、麦克风和系统声音，所以这个浮层只放设置“录制”页里的项目，名称完全一致，按使用顺序排：画质、帧率、倒计时，然后是这个模式自己的选项（工作室：单独捕获光标和记录操作输入；即时：点击高亮、显示操作及其设备、预设、大小、不透明度和角落），最后是自动停止。设备选“手柄”时预设列表列手柄预设，否则列键盘预设。大小和不透明度在这里是几档，在设置里是滑块；这里的位置只有四个角，设置里可以放到任意位置。它从底栏的图标按钮打开，所以窗口保持 386 px。按钮的悬停提示写出完整设置（画质或分辨率、帧率、倒计时）。即时模式下，点击高亮和显示操作开着时，按钮旁边各有一个指针图标和键盘图标，因为它们会改变视频的内容。“全部录制设置”打开设置窗口的工作室页或即时页。这个按钮替换的是条目数，资源库里本来就有。Tab 加 Enter 打开，Esc 关闭。录制模式只有工作室和即时。截图是“开始录制”旁边单独的按钮：点一下就截取当前选的来源，不受这些选项影响。",
 		],
 		"t-keys": ["Keyboard", "键盘"],
 		"l-keys": [
