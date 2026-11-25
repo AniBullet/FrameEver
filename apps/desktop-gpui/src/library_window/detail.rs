@@ -1076,7 +1076,23 @@ impl LibraryWindow {
         if self.library.selection.items().len() > 1 {
             return Some(self.render_library_batch(cx).into_any_element());
         }
-        let entry = self.library.single_entry()?.clone();
+        let Some(entry) = self.library.single_entry().cloned() else {
+            return Some(
+                div()
+                    .flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .justify_center()
+                    .w(px(DETAIL_WIDTH))
+                    .min_h_0()
+                    .border_l_1()
+                    .border_color(theme.border)
+                    .text_size(px(12.))
+                    .text_color(theme.muted_foreground)
+                    .child(t!("Select an item to see its details"))
+                    .into_any_element(),
+            );
+        };
         let copyable = library::file_to_share(&entry).is_some();
         let name = ui::TextInput::bare(
             &theme,

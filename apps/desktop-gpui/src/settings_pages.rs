@@ -2608,6 +2608,12 @@ fn markdown_paragraphs(content: &str) -> Vec<MarkdownParagraph> {
         .collect()
 }
 
+fn longer_than_preview(entry: Option<&ChangelogEntry>) -> bool {
+    entry.is_some_and(|entry| {
+        markdown_paragraphs(&entry.content).len() > CHANGELOG_PREVIEW_PARAGRAPHS
+    })
+}
+
 impl SettingsWindow {
     pub(crate) fn render_changelog(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let theme = self.theme;
@@ -2620,9 +2626,7 @@ impl SettingsWindow {
         } else {
             CHANGELOG_PREVIEW_PARAGRAPHS
         };
-        let longer = entries.first().is_some_and(|entry| {
-            markdown_paragraphs(&entry.content).len() > CHANGELOG_PREVIEW_PARAGRAPHS
-        });
+        let longer = longer_than_preview(entries.first());
         let entries = entries
             .into_iter()
             .take(shown)
@@ -5389,10 +5393,28 @@ mod tests {
     }
 
     #[test]
-    fn the_latest_changelog_entry_is_longer_than_its_preview() {
-        let entries = parse_changelog(CHANGELOG);
-        let latest = markdown_paragraphs(&entries[0].content);
-        assert!(latest.len() > CHANGELOG_PREVIEW_PARAGRAPHS);
+    fn an_entry_offers_more_only_when_it_is_longer_than_its_preview() {
+        let bullets = |count: usize| {
+            let lines: Vec<String> = (0..count)
+                .map(|index| format!("- change {index}"))
+                .collect();
+            format!(
+                "## [9.9.9] — 2026-01-01
+
+### 改进
+{}
+",
+                lines.join(
+                    "
+"
+                )
+            )
+        };
+        let short = parse_changelog(&bullets(2));
+        let long = parse_changelog(&bullets(CHANGELOG_PREVIEW_PARAGRAPHS + 1));
+        assert!(!longer_than_preview(short.first()));
+        assert!(longer_than_preview(long.first()));
+        assert!(!longer_than_preview(None));
     }
 
     #[test]

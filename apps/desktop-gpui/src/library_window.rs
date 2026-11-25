@@ -896,14 +896,6 @@ impl LibraryPage {
     fn single_entry(&self) -> Option<&Entry> {
         self.entry(self.selection.single()?)
     }
-
-    fn panel_width(&self) -> f32 {
-        if self.selection.is_empty() {
-            0.
-        } else {
-            DETAIL_WIDTH
-        }
-    }
 }
 
 fn job_label(job: JobState) -> &'static str {
@@ -1177,7 +1169,7 @@ impl LibraryWindow {
     pub(super) fn sync_library_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let viewport = f32::from(window.viewport_size().width);
         self.sync_sidebar_width(viewport);
-        let width = viewport - self.library.panel_width() - self.sidebar_width();
+        let width = viewport - DETAIL_WIDTH - self.sidebar_width();
 
         let columns = view::columns(width - PADDING * 2., self.library.state.tile_size);
         let tab = self.library.state.tab;
@@ -2604,8 +2596,7 @@ impl LibraryWindow {
 
     fn library_tile_width(&self, window: &Window) -> f32 {
         let columns = self.library.columns.max(1) as f32;
-        let content =
-            f32::from(window.viewport_size().width) - self.library.panel_width() - PADDING * 2.;
+        let content = f32::from(window.viewport_size().width) - DETAIL_WIDTH - PADDING * 2.;
         (content - TILE_GAP * (columns - 1.)) / columns
     }
 

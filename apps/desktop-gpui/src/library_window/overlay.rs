@@ -26,7 +26,7 @@ const SCRUB_PIXELS_PER_FRAME: f32 = 4.;
 const FALLBACK_FRAME_INTERVAL: f64 = 1. / 30.;
 const WHOLE_SCREEN_ICON: f32 = 14.;
 const ACTUAL_SIZE_BOUNDS: (u32, u32) = (u32::MAX, u32::MAX);
-const CONTROLS_HOLD: Duration = Duration::from_millis(2500);
+const FOOT_REACH: f32 = 24.;
 const MIDDLE: (f32, f32) = (0.5, 0.5);
 const WHEEL_LINE: f32 = 40.;
 const ZOOM_PER_LINE: f32 = 1.2;
@@ -327,6 +327,10 @@ pub(super) fn stage_pixels(
     )
 }
 
+fn pointer_reaches_foot(pointer_y: f32, viewport_height: f32) -> bool {
+    pointer_y >= viewport_height - FOOT - FOOT_REACH
+}
+
 fn stage_box(full_screen: bool, viewport: (f32, f32), header: f32) -> ((f32, f32), (f32, f32)) {
     if full_screen {
         ((0., 0.), viewport)
@@ -404,8 +408,7 @@ pub(super) struct Overlay {
     gesture: Option<Gesture>,
     space: Space,
     click_played: bool,
-    controls_until: Instant,
-    controls_task: Option<Task<()>>,
+    foot_reached: bool,
     still: Option<Still>,
     still_asked: Option<(u32, u32)>,
     still_task: Option<Task<()>>,
@@ -422,8 +425,7 @@ impl Overlay {
             gesture: None,
             space: Space::Up,
             click_played: false,
-            controls_until: now,
-            controls_task: None,
+            foot_reached: false,
             still: None,
             still_asked: None,
             still_task: None,
@@ -504,8 +506,8 @@ impl Overlay {
         self.gesture = None;
     }
 
-    fn shows_controls(&self, now: Instant) -> bool {
-        !self.full_screen || now < self.controls_until
+    fn shows_controls(&self) -> bool {
+        !self.full_screen || self.foot_reached
     }
 
     fn held_still(&self, path: &Path) -> Option<&Still> {
@@ -578,7 +580,6 @@ impl LibraryWindow {
         self.retire_overlay(replaced);
         window.focus(&self.library.overlay_focus, cx);
         self.show_overlay_item(window, cx);
-        self.wake_overlay_controls(cx);
         cx.notify();
     }
 
@@ -676,7 +677,6 @@ impl LibraryWindow {
         };
         overlay.closed_at = Some(Instant::now());
         overlay.let_go();
-        overlay.controls_task = None;
         overlay.still_task = None;
         let was_full_screen = std::mem::take(&mut overlay.full_screen);
         if was_full_screen {
@@ -698,8 +698,8 @@ impl LibraryWindow {
             return;
         };
         overlay.full_screen = !overlay.full_screen;
+        overlay.foot_reached = false;
         window.toggle_fullscreen();
-        self.wake_overlay_controls(cx);
         cx.notify();
     }
 
@@ -716,7 +716,6 @@ impl LibraryWindow {
             None => Zoom::Fit,
         };
         overlay.gesture = None;
-        self.wake_overlay_controls(cx);
         cx.notify();
     }
 
@@ -985,35 +984,22 @@ impl LibraryWindow {
             .child(picture)
     }
 
-    fn wake_overlay_controls(&mut self, cx: &mut Context<Self>) {
-        let Some(overlay) = &mut self.library.overlay else {
-            return;
-        };
-        let now = Instant::now();
-        let hidden = now >= overlay.controls_until;
-        overlay.controls_until = now + CONTROLS_HOLD;
-        if !hidden {
-            return;
+    fn track_overlay_pointer(
+        &mut self,
+        position: Point<Pixels>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let reached = pointer_reaches_foot(
+            f32::from(position.y),
+            f32::from(window.viewport_size().height),
+        );
+        if let Some(overlay) = &mut self.library.overlay
+            && overlay.foot_reached != reached
+        {
+            overlay.foot_reached = reached;
+            cx.notify();
         }
-        overlay.controls_task = Some(cx.spawn(async move |this, cx| {
-            loop {
-                let Ok(Some(until)) = this.update(cx, |this, _| {
-                    this.library
-                        .overlay
-                        .as_ref()
-                        .map(|overlay| overlay.controls_until)
-                }) else {
-                    return;
-                };
-                let left = until.saturating_duration_since(Instant::now());
-                if left.is_zero() {
-                    this.update(cx, |_, cx| cx.notify()).ok();
-                    return;
-                }
-                cx.background_executor().timer(left).await;
-            }
-        }));
-        cx.notify();
     }
 
     fn step_library_overlay(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -1036,7 +1022,6 @@ impl LibraryWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.wake_overlay_controls(cx);
         let on_overlay = self.library.overlay_focus.is_focused(window);
         let Some(shown) = self.overlay_shown() else {
             return;
@@ -1381,7 +1366,7 @@ impl LibraryWindow {
         let placed = self.overlay_placed(window);
         let picture = self.preview_picture(entry, overlay.still_of(&entry.path), placed, cx);
         let picture = self.overlay_stage(picture, cx);
-        let controls = overlay.shows_controls(now);
+        let controls = overlay.shows_controls();
         let full_screen = overlay.full_screen;
         let root = div()
             .id("library-overlay")
@@ -1404,8 +1389,8 @@ impl LibraryWindow {
             .text_color(theme.foreground)
             .on_key_down(cx.listener(Self::on_library_overlay_key))
             .on_key_up(cx.listener(Self::on_library_overlay_key_up))
-            .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, _, cx| {
-                this.wake_overlay_controls(cx);
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                this.track_overlay_pointer(event.position, window, cx);
             }))
             .on_mouse_up(
                 MouseButton::Left,
@@ -1457,7 +1442,7 @@ impl LibraryWindow {
                 "library-overlay-drag",
                 button,
                 cx.listener(|this, event: &MouseMoveEvent, window, cx| {
-                    this.wake_overlay_controls(cx);
+                    this.track_overlay_pointer(event.position, window, cx);
                     this.drag_library_overlay_stage(event, window, cx);
                 }),
                 cx.listener(Self::release_library_overlay_stage),
@@ -2063,14 +2048,28 @@ mod tests {
     }
 
     #[test]
-    fn the_bars_stay_in_a_window_and_leave_the_whole_screen_once_the_pointer_rests() {
-        let start = Instant::now();
-        let mut overlay = Overlay::new(None, start);
-        overlay.controls_until = start + CONTROLS_HOLD;
-        assert!(overlay.shows_controls(start));
-        assert!(overlay.shows_controls(start + CONTROLS_HOLD));
+    fn the_bars_stay_in_a_window_and_show_on_the_whole_screen_only_at_the_bottom_edge() {
+        let mut overlay = Overlay::new(None, Instant::now());
+        assert!(overlay.shows_controls());
         overlay.full_screen = true;
-        assert!(overlay.shows_controls(start));
-        assert!(!overlay.shows_controls(start + CONTROLS_HOLD));
+        assert!(!overlay.shows_controls());
+        overlay.foot_reached = true;
+        assert!(overlay.shows_controls());
+        overlay.full_screen = false;
+        overlay.foot_reached = false;
+        assert!(overlay.shows_controls());
+    }
+
+    #[test]
+    fn the_pointer_reaches_the_foot_only_in_the_band_above_the_bottom_edge() {
+        let screen = 1080.;
+        assert!(!pointer_reaches_foot(0., screen));
+        assert!(!pointer_reaches_foot(540., screen));
+        assert!(!pointer_reaches_foot(
+            screen - FOOT - FOOT_REACH - 1.,
+            screen
+        ));
+        assert!(pointer_reaches_foot(screen - FOOT - FOOT_REACH, screen));
+        assert!(pointer_reaches_foot(screen - 1., screen));
     }
 }
