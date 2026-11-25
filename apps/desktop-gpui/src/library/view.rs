@@ -131,6 +131,8 @@ pub struct ViewState {
     pub view: ViewMode,
     #[serde(default)]
     pub sidebar_hidden: bool,
+    #[serde(default)]
+    pub detail_hidden: bool,
 }
 
 impl Default for ViewState {
@@ -143,6 +145,7 @@ impl Default for ViewState {
             tile_size: TILE_DEFAULT,
             view: ViewMode::Grid,
             sidebar_hidden: false,
+            detail_hidden: false,
         }
     }
 }
@@ -1450,8 +1453,10 @@ mod tests {
             view: ViewMode::List,
             tile_size: 200.,
             sidebar_hidden: true,
+            detail_hidden: true,
             ..ViewState::default()
         };
+        assert!(!ViewState::default().detail_hidden);
         state.set_sort(SortKey::Duration);
         state.toggle_status(StatusFilter::CompressedCopy);
         let saved = serde_json::to_string(&state).unwrap();

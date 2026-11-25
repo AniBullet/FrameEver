@@ -1073,6 +1073,9 @@ impl LibraryWindow {
 
     pub(super) fn render_library_detail(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let theme = self.theme;
+        if self.library.state.detail_hidden {
+            return None;
+        }
         if self.library.selection.items().len() > 1 {
             return Some(self.render_library_batch(cx).into_any_element());
         }

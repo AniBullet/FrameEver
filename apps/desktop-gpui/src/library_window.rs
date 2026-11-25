@@ -1169,7 +1169,7 @@ impl LibraryWindow {
     pub(super) fn sync_library_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let viewport = f32::from(window.viewport_size().width);
         self.sync_sidebar_width(viewport);
-        let width = viewport - DETAIL_WIDTH - self.sidebar_width();
+        let width = viewport - self.detail_width() - self.sidebar_width();
 
         let columns = view::columns(width - PADDING * 2., self.library.state.tile_size);
         let tab = self.library.state.tab;
@@ -1945,6 +1945,51 @@ impl LibraryWindow {
                     }),
             )
             .child(self.render_view_switch(cx))
+            .child(self.render_detail_toggle(cx))
+    }
+
+    fn detail_width(&self) -> f32 {
+        if self.library.state.detail_hidden {
+            0.
+        } else {
+            DETAIL_WIDTH
+        }
+    }
+
+    fn render_detail_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let label = if self.library.state.detail_hidden {
+            t!("Show details")
+        } else {
+            t!("Hide details")
+        };
+        focus_ring(
+            div()
+                .id("library-detail-toggle")
+                .tab_index(0)
+                .flex()
+                .flex_shrink_0()
+                .items_center()
+                .justify_center()
+                .size(px(crate::theme::CONTROL_HEIGHT))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(move |style| style.bg(theme.accent))
+                .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).view(cx))
+                .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+                .child(
+                    svg()
+                        .path("icons/panel-right.svg")
+                        .size(px(16.))
+                        .text_color(theme.foreground),
+                ),
+            theme,
+        )
+        .on_click(cx.listener(|this, _, _, cx| {
+            let scroll = this.library.list.logical_scroll_top();
+            this.change_library_view(cx, |state| state.detail_hidden = !state.detail_hidden);
+            this.library.list.scroll_to(scroll);
+        }))
     }
 
     fn render_view_switch(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -2596,7 +2641,7 @@ impl LibraryWindow {
 
     fn library_tile_width(&self, window: &Window) -> f32 {
         let columns = self.library.columns.max(1) as f32;
-        let content = f32::from(window.viewport_size().width) - DETAIL_WIDTH - PADDING * 2.;
+        let content = f32::from(window.viewport_size().width) - self.detail_width() - PADDING * 2.;
         (content - TILE_GAP * (columns - 1.)) / columns
     }
 

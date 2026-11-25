@@ -947,6 +947,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Updates by itself", "自动更新"),
     ("Hide sidebar", "隐藏侧栏"),
     ("Show sidebar", "显示侧栏"),
+    ("Hide details", "隐藏详情栏"),
+    ("Show details", "显示详情栏"),
     ("Nothing here yet", "这里还没有条目"),
     (
         "Nothing matches these rules yet",
