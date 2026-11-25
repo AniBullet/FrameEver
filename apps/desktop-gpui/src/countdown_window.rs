@@ -40,6 +40,10 @@ fn mark_origin(
     )
 }
 
+fn names_keys(frame: CountdownFrame, interactive: bool, window_active: bool) -> bool {
+    frame != CountdownFrame::Cue && interactive && window_active
+}
+
 pub struct CountdownWindow {
     session: Entity<RecordingSession>,
     focus: FocusHandle,
@@ -63,6 +67,8 @@ impl CountdownWindow {
         crate::theme::bind_window(window, cx);
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
+        cx.observe_window_activation(window, |_, _, cx| cx.notify())
+            .detach();
         cx.observe_in(&session, window, |this, session, window, cx| {
             let session = session.read(cx);
             this.frame = countdown_frame(
@@ -208,7 +214,7 @@ impl Render for CountdownWindow {
             .items_center()
             .gap(px(8.))
             .child(mark);
-        if self.frame != CountdownFrame::Cue && self.interactive {
+        if names_keys(self.frame, self.interactive, window.is_window_active()) {
             let caption = if self.can_skip {
                 format!("Esc  {}    Enter  {}", t!("Cancel"), t!("Start now"))
             } else {
@@ -236,6 +242,15 @@ impl Render for CountdownWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_keys_are_named_only_while_the_countdown_can_take_them() {
+        let counting = CountdownFrame::Number(2);
+        assert!(names_keys(counting, true, true));
+        assert!(!names_keys(counting, true, false));
+        assert!(!names_keys(counting, false, true));
+        assert!(!names_keys(CountdownFrame::Cue, true, true));
+    }
 
     #[test]
     fn countdown_numbers_become_the_record_mark_for_the_cue_then_disappear() {

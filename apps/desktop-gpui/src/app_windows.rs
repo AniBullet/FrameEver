@@ -8315,6 +8315,9 @@ pub(crate) fn open_countdown(
                 .ok_or_else(|| std::io::Error::other("countdown has no capture window id"))?;
             #[cfg(target_os = "windows")]
             platform::prepare_countdown_panel(&native, interactive)?;
+            if !platform::set_window_click_through(&native, true) {
+                tracing::warn!("countdown stays in the way of clicks");
+            }
             #[cfg(target_os = "macos")]
             if platform::set_window_capture_hidden(&native, true) != 0 {
                 return Err(std::io::Error::other(
