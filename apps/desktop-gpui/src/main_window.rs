@@ -425,15 +425,33 @@ pub enum TargetType {
 pub(crate) enum ScreenshotButton {
     Capture,
     Pick,
-    Unavailable,
 }
 
 impl ScreenshotButton {
     pub(crate) fn for_target(target: TargetType) -> Self {
         match target {
             TargetType::Display => Self::Capture,
-            TargetType::Window | TargetType::Area => Self::Pick,
-            TargetType::CameraOnly | TargetType::AudioOnly => Self::Unavailable,
+            TargetType::Window
+            | TargetType::Area
+            | TargetType::CameraOnly
+            | TargetType::AudioOnly => Self::Pick,
+        }
+    }
+
+    pub(crate) fn picker_target(target: TargetType) -> TargetType {
+        match target {
+            TargetType::Window => TargetType::Window,
+            TargetType::Display
+            | TargetType::Area
+            | TargetType::CameraOnly
+            | TargetType::AudioOnly => TargetType::Area,
+        }
+    }
+
+    pub(crate) fn title(target: TargetType) -> &'static str {
+        match target {
+            TargetType::Display | TargetType::Window | TargetType::Area => Self::tooltip(target),
+            TargetType::CameraOnly | TargetType::AudioOnly => t!("Take screenshot"),
         }
     }
 
@@ -5812,10 +5830,6 @@ mod recording_start_permit_tests {
             recording_mode_for_target(Mode::Instant, &ScreenCaptureTarget::CameraOnly),
             Mode::Instant
         );
-        assert_eq!(
-            ScreenshotButton::for_target(TargetType::AudioOnly),
-            ScreenshotButton::Unavailable
-        );
     }
 
     #[test]
@@ -5834,7 +5848,39 @@ mod recording_start_permit_tests {
         );
         assert_eq!(
             ScreenshotButton::for_target(TargetType::CameraOnly),
-            ScreenshotButton::Unavailable
+            ScreenshotButton::Pick
+        );
+        assert_eq!(
+            ScreenshotButton::for_target(TargetType::AudioOnly),
+            ScreenshotButton::Pick
+        );
+        assert_eq!(
+            ScreenshotButton::picker_target(TargetType::Window),
+            TargetType::Window
+        );
+        assert_eq!(
+            ScreenshotButton::picker_target(TargetType::Area),
+            TargetType::Area
+        );
+        assert_eq!(
+            ScreenshotButton::picker_target(TargetType::CameraOnly),
+            TargetType::Area
+        );
+        assert_eq!(
+            ScreenshotButton::picker_target(TargetType::AudioOnly),
+            TargetType::Area
+        );
+        assert_eq!(
+            ScreenshotButton::title(TargetType::Display),
+            "Screenshot this display"
+        );
+        assert_eq!(
+            ScreenshotButton::title(TargetType::CameraOnly),
+            "Take screenshot"
+        );
+        assert_eq!(
+            ScreenshotButton::title(TargetType::AudioOnly),
+            "Take screenshot"
         );
         assert_eq!(
             ScreenshotButton::tooltip(TargetType::Display),

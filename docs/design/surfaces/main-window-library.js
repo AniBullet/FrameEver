@@ -538,8 +538,13 @@ class MainWindow {
 
 	titlebar() {
 		const { expanded } = this.s;
+		const shotTitle = {
+			display: ["Screenshot this display", "截取这个显示器"],
+			window: ["Screenshot this window", "截取这个窗口"],
+			area: ["Screenshot an area", "截取区域"],
+		}[this.s.target] ?? ["Take a screenshot", "截图"];
 		return `<div class="titlebar"><span class="mark"></span><span>${expanded ? L("Library", "资源库") : "FrameEver"}</span><span class="spacer"></span>
-			${expanded ? "" : `<button class="tb-icon" title="${pick("Teleprompter", "提词器")}">${icon("scan-text", "sm")}</button><button class="tb-icon" title="${pick("Help & Tour", "帮助和引导")}">${icon("circle-question-mark", "sm")}</button>`}
+			${expanded ? "" : `<button class="tb-icon" data-a="shot" title="${pick(...shotTitle)}" aria-label="${pick(...shotTitle)}">${icon("image", "sm")}</button><button class="tb-icon" title="${pick("Teleprompter", "提词器")}">${icon("scan-text", "sm")}</button><button class="tb-icon" title="${pick("Help & Tour", "帮助和引导")}">${icon("circle-question-mark", "sm")}</button>`}
 			${expanded ? `<button class="tb-icon" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings", "sm")}</button>` : ""}
 			<button class="caption" title="${pick("Minimize", "最小化")}">${captionGlyph.minimize}</button>
 			${expanded ? `<button class="caption" title="${pick("Maximize", "最大化")}">${captionGlyph.maximize}</button>` : ""}
@@ -549,26 +554,21 @@ class MainWindow {
 	recording() {
 		const { mode, target, items, unseen, firstRun } = this.s;
 		const startLabel = L("Start recording", "开始录制");
-		const shotTitle = {
-			display: ["Screenshot this display", "截取这个显示器"],
-			window: ["Screenshot this window", "截取这个窗口"],
-			area: ["Screenshot an area", "截取区域"],
-			camera: [
-				"Screenshots need a display, window or area",
-				"截图需要选显示器、窗口或区域",
-			],
-			audio: [
-				"Screenshots need a display, window or area",
-				"截图需要选显示器、窗口或区域",
-			],
-		}[target];
 		const targets = [
 			["display", "monitor", "Display", "显示器"],
 			["window", "app-window", "Window", "窗口"],
 			["area", "scan", "Area", "区域"],
-			["camera", "webcam", "Camera", "摄像头"],
-			["audio", "mic", "Audio", "音频"],
 		];
+		const screenless = {
+			camera: ["webcam", "Camera", "摄像头", "Camera only", "仅摄像头"],
+			audio: ["mic", "Audio", "音频", "Audio only", "仅音频"],
+		};
+		const screenlessTiles = Object.entries(screenless)
+			.map(
+				([id, [ic, en, zh, tipEn, tipZh]]) =>
+					`<button class="${target === id ? "on" : ""}" data-a="target" data-v="${id}" title="${pick(tipEn, tipZh)}">${icon(ic, "sm")}${L(en, zh)}</button>`,
+			)
+			.join("");
 		const foot = `<button class="btn ghost icon" data-a="settings" title="${pick("Settings", "设置")}">${icon("settings")}</button>${firstRun ? `<span class="grow first-hint">${L("Your recordings are here", "录好的内容都在这里")}<span class="hint-arrow">${this.doodle("UP_ARROW", 26)}</span></span>` : `<button class="sum" title="${pick("Recording options", "录制选项")}">${icon("sliders-horizontal", "sm")}<span class="tnum">${mode === "instant" ? "1080p" : L("Balanced", "均衡")} · ${L("60 FPS", "60 帧/秒")} · ${L("3 s", "3 秒")}</span></button>`}<button class="btn ghost" data-a="expand">${L("Library", "资源库")}${unseen ? `<span class="badge klein">${unseen}</span>` : ""}${icon("chevron-right")}</button>`;
 		return `<div class="rec"><div class="rec-main">
 			<div class="mode-row"><div class="seg block">${Object.entries(KIND)
@@ -580,11 +580,11 @@ class MainWindow {
 				.join(
 					"",
 				)}</div><button class="btn ghost icon" title="${pick("Recording mode info", "录制模式说明")}">${icon("info", "sm")}</button></div>
-			<div class="targets">${targets.map(([id, ic, en, zh]) => `<button class="${target === id ? "on" : ""}" data-a="target" data-v="${id}">${id === "display" || id === "window" ? `<span class="choose">${icon("chevron-down", "sm")}</span>` : ""}${icon(ic, "lg")}${L(en, zh)}</button>`).join("")}</div>
+			<div class="targets">${targets.map(([id, ic, en, zh]) => `<button class="${target === id ? "on" : ""}" data-a="target" data-v="${id}">${id === "display" || id === "window" ? `<span class="choose">${icon("chevron-down", "sm")}</span>` : ""}${icon(ic, "lg")}${L(en, zh)}</button>`).join("")}<div class="stack">${screenlessTiles}</div></div>
 			<div class="device ${target === "audio" ? "off" : ""}">${icon("webcam")}<span class="grow">${L("Camera", "摄像头")}</span><em>${target === "audio" ? L("Not recorded", "不录制") : L("No camera", "无摄像头")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("mic")}<span class="grow">${L("Microphone", "麦克风")}</span><em>${L("Default", "默认")}</em>${icon("chevron-down", "sm")}</div>
 			<div class="device">${icon("volume-2")}<span class="grow">${L("System audio", "系统声音")}</span><button class="switch on" data-a="toggle"></button></div>
-			<div class="start-row"><button class="btn primary tall" data-a="start">${FE.recordGlyph()}${startLabel}</button><button class="btn tall shot" data-a="shot" ${target === "camera" || target === "audio" ? "disabled" : ""} title="${pick(...shotTitle)}" aria-label="${pick(...shotTitle)}">${icon("image")}</button></div>
+			<div class="start-row"><button class="btn primary tall" data-a="start">${FE.recordGlyph()}${startLabel}</button></div>
 		</div><div class="rec-foot">${foot}</div></div>`;
 	}
 
@@ -1995,10 +1995,10 @@ showHand("hint");
 
 document.getElementById("windows-steps").innerHTML = [
 	[
-		"Audio only",
-		"仅音频",
-		"Audio is the fifth target: it records the microphone and system audio with no screen and no camera, in Studio or Instant. The camera row reads Not recorded and the screenshot button is off. It needs a microphone or system audio; with neither, Start recording is off and its tooltip says so. The recording opens in the editor’s Audio only view.",
-		"音频是第五个录制目标：只录麦克风和系统声音，不录屏幕和摄像头，工作室和即时模式都可用。摄像头一行显示“不录制”，截图按钮不可用。需要有麦克风或系统声音；两者都没有时“开始录制”不可用，悬停提示说明原因。录完在编辑器的“仅音频”视图里打开。",
+		"What to record",
+		"录什么",
+		"Four columns of one width: display, window and area record the screen and each fill a column; camera and audio record without it and share the fourth column as two half-height tiles in the same card style. Each is one click. The screenshot button is in the title bar: it captures the chosen display at once, opens the picker for a window or an area, and with Camera only or Audio only chosen opens the picker to choose what to capture, so it is never off. Start recording spans the full width. Audio only records the microphone and system audio with no screen and no camera, in Studio or Instant. The camera row reads Not recorded. It needs a microphone or system audio; with neither, Start recording is off and its tooltip says so. The recording opens in the editor’s Audio only view.",
+		"四列一样宽：显示器、窗口、区域录屏幕，各占一列；摄像头、音频不录屏幕，在第四列叠成两个半高的磁贴，卡片样式相同。每个都是点一下。截图按钮在标题栏：选了显示器就直接截取，选了窗口或区域就打开选择器，选了“仅摄像头”或“仅音频”则打开选择器让你选截哪里，所以它不会不可用。“开始录制”占满整行。“仅音频”只录麦克风和系统声音，不录屏幕和摄像头，工作室和即时模式都可用。摄像头一行显示“不录制”。需要有麦克风或系统声音；两者都没有时“开始录制”不可用，悬停提示说明原因。录完在编辑器的“仅音频”视图里打开。",
 	],
 	[
 		"Opening the library",

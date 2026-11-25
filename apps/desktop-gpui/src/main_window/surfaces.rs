@@ -14,6 +14,7 @@ const CONTENT_GAP: f32 = 10.;
 const CONTENT_PADDING: f32 = 12.;
 const SEGMENT_HEIGHT: f32 = 28.;
 const TARGET_HEIGHT: f32 = 58.;
+const TARGET_GAP: f32 = 6.;
 const START_HEIGHT: f32 = 40.;
 const FOOTER_HEIGHT: f32 = 44.;
 pub(super) const ABOVE_START: f32 = FOOTER_HEIGHT + CONTENT_PADDING + START_HEIGHT + CONTENT_GAP;
@@ -97,6 +98,15 @@ impl MainWindow {
                     .child("FrameEver"),
             )
             .child(div().flex_1().min_w_0())
+            .child(
+                title_icon(
+                    theme,
+                    "screenshot",
+                    "icons/image.svg",
+                    ScreenshotButton::title(self.chosen_target()),
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.screenshot_chosen_target(cx))),
+            )
             .child(
                 title_icon(
                     theme,
@@ -261,14 +271,23 @@ impl MainWindow {
         div()
             .flex()
             .flex_row()
-            .gap(px(6.))
+            .gap(px(TARGET_GAP))
             .w_full()
             .flex_shrink_0()
             .child(self.render_target_tile(TargetType::Display, cx))
             .child(self.render_target_tile(TargetType::Window, cx))
             .child(self.render_target_tile(TargetType::Area, cx))
-            .child(self.render_target_tile(TargetType::CameraOnly, cx))
-            .child(self.render_target_tile(TargetType::AudioOnly, cx))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(TARGET_HEIGHT))
+                    .gap(px(TARGET_GAP))
+                    .child(self.render_target_tile(TargetType::CameraOnly, cx))
+                    .child(self.render_target_tile(TargetType::AudioOnly, cx)),
+            )
     }
 
     fn render_target_tile(&self, target: TargetType, cx: &mut Context<Self>) -> impl IntoElement {
@@ -280,19 +299,27 @@ impl MainWindow {
             theme.muted_foreground
         };
         let chooser = matches!(target, TargetType::Display | TargetType::Window);
+        let stacked = matches!(target, TargetType::CameraOnly | TargetType::AudioOnly);
 
         div()
             .id(target.tile_id())
             .tab_index(0)
             .relative()
             .flex()
-            .flex_col()
             .flex_1()
             .min_w_0()
-            .h(px(TARGET_HEIGHT))
+            .min_h_0()
+            .map(|tile| {
+                if stacked {
+                    tile.gap(px(5.))
+                        .tooltip(move |_, cx| ui::Tooltip::new(&theme, target.label()).view(cx))
+                        .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
+                } else {
+                    tile.flex_col().h(px(TARGET_HEIGHT)).gap(px(4.))
+                }
+            })
             .items_center()
             .justify_center()
-            .gap(px(4.))
             .rounded(px(6.))
             .border_1()
             .border_color(if selected {
@@ -315,11 +342,18 @@ impl MainWindow {
                 }
             })
             .focus_visible(move |style| style.border_color(theme.ring))
-            .child(svg().path(target.icon()).size(px(20.)).text_color(color))
+            .child(
+                svg()
+                    .path(target.icon())
+                    .size(px(if stacked { 14. } else { 20. }))
+                    .flex_shrink_0()
+                    .text_color(color),
+            )
             .child(
                 div()
+                    .min_w_0()
                     .max_w_full()
-                    .px(px(2.))
+                    .when(!stacked, |label| label.px(px(2.)))
                     .truncate()
                     .child(target.tile_label()),
             )
@@ -423,53 +457,7 @@ impl MainWindow {
                     .on_click(cx.listener(|this, _, _, cx| this.start_from_chosen_target(cx)))
             }
         });
-        div()
-            .flex()
-            .gap(px(6.))
-            .w_full()
-            .flex_shrink_0()
-            .child(start)
-            .child(self.render_screenshot_button(cx))
-    }
-
-    fn render_screenshot_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let target = self.chosen_target();
-        let enabled = ScreenshotButton::for_target(target) != ScreenshotButton::Unavailable;
-        let button = div()
-            .id("screenshot")
-            .flex()
-            .flex_shrink_0()
-            .items_center()
-            .justify_center()
-            .size(px(START_HEIGHT))
-            .rounded(px(6.))
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.secondary)
-            .tooltip(move |_, cx| {
-                ui::Tooltip::new(&theme, ScreenshotButton::tooltip(target)).view(cx)
-            })
-            .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
-            .child(
-                svg()
-                    .path("icons/image.svg")
-                    .size(px(16.))
-                    .text_color(if enabled {
-                        theme.secondary_foreground
-                    } else {
-                        theme.faint_foreground
-                    }),
-            );
-        if !enabled {
-            return button.into_any_element();
-        }
-        button
-            .tab_index(0)
-            .hover(move |style| style.bg(theme.secondary_hover))
-            .focus_visible(move |style| style.border_color(theme.ring))
-            .on_click(cx.listener(|this, _, _, cx| this.screenshot_chosen_target(cx)))
-            .into_any_element()
+        div().flex().w_full().flex_shrink_0().child(start)
     }
 
     fn chosen_target(&self) -> TargetType {
@@ -492,7 +480,6 @@ impl MainWindow {
     pub(super) fn screenshot_chosen_target(&mut self, cx: &mut Context<Self>) {
         let target = self.chosen_target();
         match ScreenshotButton::for_target(target) {
-            ScreenshotButton::Unavailable => {}
             ScreenshotButton::Capture => {
                 let id = self
                     .selected_display
@@ -512,7 +499,7 @@ impl MainWindow {
                     return;
                 }
                 self.purpose = PickerPurpose::Screenshot;
-                self.target = Some(target);
+                self.target = Some(ScreenshotButton::picker_target(target));
                 self.sync_overlays(cx);
                 cx.notify();
             }
