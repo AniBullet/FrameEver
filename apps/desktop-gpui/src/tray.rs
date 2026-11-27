@@ -131,6 +131,7 @@ pub enum TrayItem {
     RestartRecording,
     ToggleControls,
     ShowExport,
+    ShowCompressions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -576,6 +577,10 @@ pub fn handle_item(item: TrayItem, cx: &mut App) {
         TrayItem::RestartRecording => app_windows::tray_restart_recording(cx),
         TrayItem::ToggleControls => app_windows::tray_toggle_controls(cx),
         TrayItem::ShowExport => app_windows::tray_show_export(cx),
+        TrayItem::ShowCompressions => {
+            app_windows::show_library(cx);
+            cx.activate(true);
+        }
     }
 }
 
@@ -1953,6 +1958,11 @@ pub enum SurfaceState {
         title: String,
         percent: u8,
     },
+    Compressing {
+        position: usize,
+        total: usize,
+        percent: u8,
+    },
     Setup,
 }
 
@@ -2027,7 +2037,7 @@ pub fn build_state_menu(
             ));
             entries
         }
-        SurfaceState::Idle | SurfaceState::Exporting { .. } => {
+        SurfaceState::Idle | SurfaceState::Exporting { .. } | SurfaceState::Compressing { .. } => {
             let mut entries = build_surface_menu(mode, previous);
             if last_area.screenshot
                 && let Some(Entry::Submenu { items, .. }) =
@@ -2052,6 +2062,30 @@ pub fn build_state_menu(
                 entries.insert(
                     index + 1,
                     Entry::item(t!("Record last area"), TrayItem::RecordLastArea),
+                );
+            }
+            if let SurfaceState::Compressing {
+                position,
+                total,
+                percent,
+            } = state
+            {
+                entries.insert(0, Entry::Separator);
+                entries.insert(
+                    0,
+                    Entry::item(
+                        if *total > 1 {
+                            t!(
+                                "Compressing {position} of {total} · {percent}%",
+                                position = position,
+                                total = total,
+                                percent = percent
+                            )
+                        } else {
+                            t!("Compressing {percent}%", percent = percent)
+                        },
+                        TrayItem::ShowCompressions,
+                    ),
                 );
             }
             if let SurfaceState::Exporting { title, percent } = state {
@@ -2313,6 +2347,19 @@ mod redesigned_surface_regressions {
         );
         assert!(
             matches!(&menu[0], Entry::Item { title, item: Some(TrayItem::ShowExport), .. } if title == "Exporting Demo · 42%")
+        );
+        let menu = build_state_menu(
+            Mode::Studio,
+            &[],
+            &SurfaceState::Compressing {
+                position: 1,
+                total: 2,
+                percent: 42,
+            },
+            LastArea::default(),
+        );
+        assert!(
+            matches!(&menu[0], Entry::Item { title, item: Some(TrayItem::ShowCompressions), .. } if title == "Compressing 1 of 2 · 42%")
         );
         let actions = actions(&menu);
         assert!(actions.contains(&TrayItem::OpenLibrary));

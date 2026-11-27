@@ -857,7 +857,13 @@ fn compress_after_instant_recording(project_path: PathBuf) {
     let keep_only_compressed = settings.auto_compress_delete_original;
     tokio::spawn(async move {
         crate::automation::instant_rules_finished(&project_path).await;
-        crate::library::compress_queue::compress([project_path], keep_only_compressed);
+        crate::library::compress_queue::compress(
+            [project_path],
+            crate::library::compress_queue::Request {
+                drop_original: keep_only_compressed,
+                automatic: true,
+            },
+        );
     });
 }
 

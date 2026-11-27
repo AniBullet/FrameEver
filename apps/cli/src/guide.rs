@@ -178,6 +178,12 @@ fn build() -> Guide {
                 )
             },
             cmd(
+                "compress",
+                "Make a smaller HEVC copy of each Instant recording given, beside its original, as the library's Compress does. --keep-only-compressed removes the original afterwards. JSON streams progress, then compressed {project, savedBytes, savedPercent, keptOriginal} or skipped {project, reason} per recording.",
+                OutputMode::Ndjson,
+                &["progress", "compressed", "skipped"],
+            ),
+            cmd(
                 "screenshot",
                 "Capture a still of a screen/window. JSON emits {path,width,height}.",
                 OutputMode::SingleJson,

@@ -60,6 +60,7 @@ pub enum Command {
     GridView,
     ListView,
     RefreshLibrary,
+    CompressSelection,
     PlayPause,
     ExportProject,
     CopyScreenshot,
@@ -75,7 +76,7 @@ pub enum Command {
 }
 
 impl Command {
-    pub const ALL: [Command; 20] = [
+    pub const ALL: [Command; 21] = [
         Command::StartRecording,
         Command::TakeScreenshot,
         Command::ShowLibrary,
@@ -84,6 +85,7 @@ impl Command {
         Command::GridView,
         Command::ListView,
         Command::RefreshLibrary,
+        Command::CompressSelection,
         Command::PlayPause,
         Command::ExportProject,
         Command::CopyScreenshot,
@@ -114,6 +116,7 @@ impl Command {
             Command::GridView => n!("Grid view"),
             Command::ListView => n!("List view"),
             Command::RefreshLibrary => n!("Refresh library"),
+            Command::CompressSelection => n!("Compress selected"),
             Command::PlayPause => n!("Play or pause"),
             Command::CopyScreenshot => n!("Copy to clipboard"),
             Command::SaveScreenshot => n!("Save"),
@@ -138,6 +141,7 @@ impl Command {
             Command::GridView => "icons/layout-grid.svg",
             Command::ListView => "icons/list.svg",
             Command::RefreshLibrary => "icons/refresh-cw.svg",
+            Command::CompressSelection => "icons/minimize.svg",
             Command::PlayPause => "icons/play.svg",
             Command::CopyScreenshot => "icons/copy.svg",
             Command::SaveScreenshot => "icons/save.svg",
@@ -179,7 +183,8 @@ impl Command {
             | Command::ExportSelection
             | Command::GridView
             | Command::ListView
-            | Command::RefreshLibrary => surface == Library,
+            | Command::RefreshLibrary
+            | Command::CompressSelection => surface == Library,
             Command::PlayPause | Command::ExportProject => surface == Editor,
             Command::CopyScreenshot | Command::SaveScreenshot => surface == ScreenshotEditor,
             Command::Undo | Command::Redo => matches!(surface, Editor | ScreenshotEditor),

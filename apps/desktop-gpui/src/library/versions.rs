@@ -1,87 +1,15 @@
 use std::path::{Path, PathBuf};
 
-const OUTPUT: &str = "content/output.mp4";
-const COMPRESSED: &str = "content/output_compressed.mp4";
-const ORIGINAL: &str = "content/output_original.mp4";
-const COMPRESSING: &str = "content/output_compressing.mp4";
-const ORIGINAL_DELETED: &str = "content/original_deleted";
-
-static ONE_COMPRESSION_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VideoVersions {
-    Single { size: u64 },
-    CompressedCopy { original: u64, compressed: u64 },
-    UsingCompressed { original: u64, compressed: u64 },
-}
-
-impl VideoVersions {
-    fn sizes(self) -> Option<(u64, u64)> {
-        match self {
-            Self::Single { .. } => None,
-            Self::CompressedCopy {
-                original,
-                compressed,
-            }
-            | Self::UsingCompressed {
-                original,
-                compressed,
-            } => Some((original, compressed)),
-        }
-    }
-
-    pub fn saving_percent(self) -> Option<u64> {
-        let (original, compressed) = self.sizes()?;
-        (original > 0).then(|| original.saturating_sub(compressed) * 100 / original)
-    }
-
-    pub fn saved(self) -> u64 {
-        self.sizes().map_or(0, |(original, compressed)| {
-            original.saturating_sub(compressed)
-        })
-    }
-}
-
-fn size_of(path: &Path) -> Option<u64> {
-    std::fs::metadata(path)
-        .ok()
-        .filter(|metadata| metadata.is_file())
-        .map(|metadata| metadata.len())
-}
-
-pub fn video_versions(bundle: &Path) -> Option<VideoVersions> {
-    let output = size_of(&bundle.join(OUTPUT))?;
-    if let Some(original) = size_of(&bundle.join(ORIGINAL)) {
-        return Some(VideoVersions::UsingCompressed {
-            original,
-            compressed: output,
-        });
-    }
-    if let Some(compressed) = size_of(&bundle.join(COMPRESSED)) {
-        return Some(VideoVersions::CompressedCopy {
-            original: output,
-            compressed,
-        });
-    }
-    Some(VideoVersions::Single { size: output })
-}
+use frameever_export::versions::{COMPRESSED, CompressError, ORIGINAL, ORIGINAL_DELETED, OUTPUT};
+pub use frameever_export::versions::{VideoVersions, compressed_only, video_versions};
 
 pub fn compress(bundle: &Path, progress: impl FnMut(u64, u64) -> bool) -> Result<PathBuf, String> {
-    let _turn = ONE_COMPRESSION_AT_A_TIME
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    if !matches!(video_versions(bundle), Some(VideoVersions::Single { .. })) {
-        return Err(crate::i18n::t!("This recording already has a compressed version").to_string());
-    }
-    let staging = bundle.join(COMPRESSING);
-    let target = bundle.join(COMPRESSED);
-    let result =
-        frameever_export::compress::compress_to_hevc(&bundle.join(OUTPUT), &staging, progress)
-            .and_then(|()| std::fs::rename(&staging, &target).map_err(|error| error.to_string()));
-    if result.is_err() {
-        let _ = std::fs::remove_file(&staging);
-    }
-    result.map(|()| target)
+    frameever_export::versions::compress(bundle, progress).map_err(|error| match error {
+        CompressError::AlreadyCompressed => {
+            crate::i18n::t!("This recording already has a compressed version").to_string()
+        }
+        CompressError::Failed(error) => error,
+    })
 }
 
 fn swap(bundle: &Path, current_to: &str, next_from: &str) -> std::io::Result<()> {
@@ -124,18 +52,7 @@ pub fn delete_compressed(bundle: &Path) -> std::io::Result<()> {
 
 pub fn delete_original(bundle: &Path) -> std::io::Result<()> {
     super::player::release(bundle);
-    if matches!(
-        video_versions(bundle),
-        Some(VideoVersions::CompressedCopy { .. })
-    ) {
-        use_compressed(bundle)?;
-    }
-    std::fs::remove_file(bundle.join(ORIGINAL))?;
-    std::fs::write(bundle.join(ORIGINAL_DELETED), b"")
-}
-
-pub fn compressed_only(bundle: &Path) -> bool {
-    bundle.join(ORIGINAL_DELETED).is_file()
+    frameever_export::versions::keep_only_compressed(bundle)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

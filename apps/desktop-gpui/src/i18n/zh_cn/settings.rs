@@ -2,7 +2,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Couldn't compress the recording", "无法压缩这个录制文件"),
     ("Compression finished", "压缩完成"),
     ("Couldn't change the video version", "无法切换视频版本"),
-    ("Compressing…", "正在压缩…"),
     ("Follow system", "跟随系统"),
     ("Language", "语言"),
     ("General", "通用"),

@@ -367,6 +367,11 @@ fn main() {
         platform::follow_system_reduce_motion(cx);
 
         let session = RecordingSession::init(cx);
+        cx.observe(&session, |session, cx| {
+            crate::library::compress_queue::compressions()
+                .set_paused(session.read(cx).phase != crate::session::Phase::Idle);
+        })
+        .detach();
         crate::feeds::Feeds::init(cx);
         crate::screen_ink::ScreenInk::init(cx);
         crate::media_access::MediaAccess::init(cx);

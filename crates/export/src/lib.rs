@@ -10,6 +10,7 @@ pub mod preview;
 pub mod range;
 pub mod settings;
 pub mod tracks;
+pub mod versions;
 
 pub use range::ExportRange;
 

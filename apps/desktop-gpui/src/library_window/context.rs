@@ -43,6 +43,7 @@ pub(super) enum Command {
     NewFolder,
     RenameFolder,
     EditRules,
+    CompressAll,
     DeleteFolder,
 }
 
@@ -121,7 +122,11 @@ pub(super) fn commands(target: Target) -> Vec<Option<Command>> {
             if smart {
                 rows.push(Some(Command::EditRules));
             }
-            rows.extend([None, Some(Command::DeleteFolder)]);
+            rows.extend([
+                Some(Command::CompressAll),
+                None,
+                Some(Command::DeleteFolder),
+            ]);
             rows
         }
         Target::Many {
@@ -443,6 +448,7 @@ impl LibraryWindow {
                     self.open_smart_dialog(Some(id), window, cx);
                 }
             }
+            Command::CompressAll => self.compress_library_place(cx),
             Command::DeleteFolder => self.delete_focused_folder(window, cx),
             Command::SortBy | Command::View | Command::AddToFolder => {}
         }
@@ -455,6 +461,7 @@ impl LibraryWindow {
             Command::OpenExternally => t!("Open in default app").into(),
             Command::Export => t!("Export…").into(),
             Command::Compress => t!("Compress").into(),
+            Command::CompressAll => t!("Compress all").into(),
             Command::SaveAsGif => t!("Save as GIF…").into(),
             Command::Rename => t!("Rename").into(),
             Command::CopyFile => t!("Copy file").into(),
@@ -859,12 +866,17 @@ mod tests {
             [
                 Command::RenameFolder,
                 Command::EditRules,
+                Command::CompressAll,
                 Command::DeleteFolder
             ]
         );
         assert_eq!(
             listed(Target::Folder { smart: false }),
-            [Command::RenameFolder, Command::DeleteFolder]
+            [
+                Command::RenameFolder,
+                Command::CompressAll,
+                Command::DeleteFolder
+            ]
         );
     }
 

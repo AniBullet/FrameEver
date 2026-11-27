@@ -1,6 +1,7 @@
 mod agents;
 mod atomic;
 mod automation;
+mod compress;
 mod doctor;
 mod export;
 mod file_identity;
@@ -168,6 +169,10 @@ enum Commands {
     ExportPreview(ExportPreview),
     /// Inspect or validate a '.ever' project
     Project(ProjectArgs),
+    #[command(
+        about = "Make a smaller HEVC copy of Instant recordings, as the library's Compress does"
+    )]
+    Compress(compress::Compress),
     /// Start a recording or list available capture targets and devices
     Record(RecordArgs),
     /// Capture a still screenshot of a screen or window
@@ -533,6 +538,7 @@ async fn run(cli: Cli) -> Result<(), String> {
         Commands::ExportPreview(e) => e.run().await,
         Commands::Selftest(args) => args.run(json).await,
         Commands::Project(args) => args.run(json),
+        Commands::Compress(args) => args.run(json),
         Commands::Record(RecordArgs { command, args }) => match command {
             Some(RecordCommands::Start(args)) => args.run(json).await,
             Some(RecordCommands::Stop(args)) => args.run(json).await,

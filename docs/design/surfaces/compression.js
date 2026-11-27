@@ -195,7 +195,7 @@ const copy = () => {
 				["New", "新增"],
 			],
 			[
-				["Library smart folder · Compress all", "资源库智能文件夹 · 全部压缩"],
+				["Library folder or smart folder, right-click · Compress all", "资源库文件夹或智能文件夹右键 · 全部压缩"],
 				[
 					"Every recording in the folder, such as Instant recordings over 100 MB",
 					"文件夹里的全部录制，例如大于 100 MB 的 Instant 录制",

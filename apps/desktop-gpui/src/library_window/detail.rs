@@ -356,12 +356,26 @@ impl LibraryWindow {
         .detach();
     }
 
+    pub(super) fn compress_library_place(&mut self, cx: &mut Context<Self>) {
+        let projects: Vec<PathBuf> = self
+            .library
+            .order
+            .iter()
+            .filter_map(|path| self.library.entry(path))
+            .filter(|entry| entry.compressible)
+            .filter(|entry| compress_queue::compressions().state(&entry.path).is_none())
+            .map(|entry| entry.path.clone())
+            .collect();
+        compress_queue::compress(projects, compress_queue::Request::MANUAL);
+        cx.notify();
+    }
+
     pub(super) fn compress_library_selection(
         &mut self,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        compress_queue::compress(self.library_compressible(), false);
+        compress_queue::compress(self.library_compressible(), compress_queue::Request::MANUAL);
         cx.notify();
     }
 
@@ -601,41 +615,69 @@ impl LibraryWindow {
         if !entry.compressible && job.is_none() {
             return None;
         }
-        let label: SharedString = match job {
-            Some(JobState::Running { percent }) => {
-                t!("Compressing… {percent}%", percent = percent).into()
-            }
-            Some(JobState::Waiting) => t!("Waiting").into(),
-            None => t!("Compress").into(),
+        let (status, percent): (SharedString, Option<u64>) = match job {
+            Some(JobState::Running { percent, left }) => (
+                match left {
+                    Some(left) => format!(
+                        "{} · {}",
+                        super::job_label(JobState::Running {
+                            percent,
+                            left: None
+                        }),
+                        super::time_left_label(left)
+                    )
+                    .into(),
+                    None => super::job_label(JobState::Running { percent, left }).into(),
+                },
+                Some(percent),
+            ),
+            Some(JobState::Waiting) => (t!("Queued").into(), Some(0)),
+            None => (t!("Not made yet").into(), None),
         };
         let idle = job.is_none();
+        let button: SharedString = if idle {
+            t!("Compress").into()
+        } else {
+            t!("Cancel").into()
+        };
+        let project = entry.path.clone();
         Some(
             div()
                 .flex()
-                .items_center()
-                .gap(px(8.))
+                .flex_col()
+                .gap(px(6.))
                 .child(
                     div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(div().text_size(px(13.)).child(t!("Compressed copy")))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
                         .child(
                             div()
-                                .text_size(px(12.))
-                                .text_color(theme.muted_foreground)
-                                .child(t!("Not made yet")),
+                                .flex_1()
+                                .min_w_0()
+                                .child(div().text_size(px(13.)).child(t!("Compressed copy")))
+                                .child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(theme.muted_foreground)
+                                        .child(status),
+                                ),
+                        )
+                        .child(
+                            self.detail_button("library-detail-compress", button, false, false)
+                                .flex_none()
+                                .px(px(12.))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    if idle {
+                                        this.compress_library_selection(window, cx);
+                                    } else {
+                                        compress_queue::compressions().cancel(&project);
+                                        cx.notify();
+                                    }
+                                })),
                         ),
                 )
-                .child(
-                    self.detail_button("library-detail-compress", label, false, !idle)
-                        .flex_none()
-                        .px(px(12.))
-                        .when(idle, |this| {
-                            this.on_click(cx.listener(|this, _, window, cx| {
-                                this.compress_library_selection(window, cx);
-                            }))
-                        }),
-                ),
+                .children(percent.map(|percent| super::progress_bar(&theme, percent))),
         )
     }
 

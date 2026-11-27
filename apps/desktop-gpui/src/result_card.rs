@@ -22,7 +22,11 @@ use gpui::{
 use crate::{
     app_windows, editor_export, editor_window,
     i18n::{t, tc},
-    library::{self, Deleted, MediaKind, view::Entry},
+    library::{
+        self, Deleted, MediaKind,
+        compress_queue::{self, JobState, compressions},
+        view::Entry,
+    },
     platform, store,
     theme::{CONTROL_HEIGHT, Theme},
     ui,
@@ -172,6 +176,7 @@ struct Item {
     meta: SharedString,
     chip: Option<SharedString>,
     thumbnail: Option<PathBuf>,
+    compressible: bool,
 }
 
 impl Item {
@@ -200,6 +205,12 @@ impl Item {
                 .filter(|_| kind != CardKind::Screenshot)
                 .map(|seconds| library::view::format_clock(seconds).into()),
             thumbnail: entry.thumbnail.clone(),
+            compressible: kind == CardKind::Instant
+                && matches!(
+                    library::video_versions(&entry.path),
+                    Some(library::VideoVersions::Single { .. })
+                )
+                && !crate::store::GeneralSettings::load().auto_compress_instant,
             file,
         }
     }
@@ -213,9 +224,35 @@ struct Card {
     since: Instant,
     hovered: bool,
     export: ExportRun,
+    compressing: bool,
+    compressed: Option<u64>,
 }
 
 impl Card {
+    fn follow_compression(
+        &mut self,
+        job: Option<JobState>,
+        saved_percent: impl FnOnce(&Path) -> Option<u64>,
+        now: Instant,
+    ) -> bool {
+        match (self.compressing, job.is_some()) {
+            (false, true) => {
+                self.compressing = true;
+                true
+            }
+            (true, false) => {
+                self.compressing = false;
+                self.compressed = saved_percent(&self.item.bundle);
+                if self.compressed.is_some() {
+                    self.item.compressible = false;
+                    self.since = now;
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn holds(&self) -> bool {
         self.hovered || matches!(self.state, CardState::Working(_) | CardState::Failed(_))
     }
@@ -243,6 +280,8 @@ impl Stack {
             since: now,
             hovered: false,
             export: ExportRun::default(),
+            compressing: false,
+            compressed: None,
         });
         if self.cards.len() > MAX_CARDS {
             let oldest_idle = self
@@ -588,6 +627,7 @@ pub struct ResultCardView {
     focus: HashMap<u64, FocusHandle>,
     shown: usize,
     wake: Option<Task<()>>,
+    _compressions: Task<()>,
 }
 
 impl ResultCardView {
@@ -598,11 +638,23 @@ impl ResultCardView {
         cx: &mut Context<Self>,
     ) -> Self {
         crate::theme::bind_window(window, cx);
+        let changes = compressions().subscribe();
+        let follow = cx.spawn_in(window, async move |this, cx| {
+            while changes.recv_async().await.is_ok() {
+                let open = this.update_in(cx, |this, window, cx| {
+                    this.follow_compressions(window, cx);
+                });
+                if open.is_err() {
+                    return;
+                }
+            }
+        });
         let mut view = Self {
             stack: Stack::default(),
             focus: HashMap::new(),
             shown: 1,
             wake: None,
+            _compressions: follow,
         };
         let id = view.stack.push(item, Instant::now());
         if let Some(card) = view.stack.card_mut(id) {
@@ -655,6 +707,33 @@ impl ResultCardView {
                     .ok();
             })
         });
+        cx.notify();
+    }
+
+    fn follow_compressions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        let mut changed = false;
+        for card in &mut self.stack.cards {
+            let job = (card.item.kind == CardKind::Instant)
+                .then(|| compressions().state(&card.item.bundle))
+                .flatten();
+            changed |= card.follow_compression(
+                job,
+                |bundle| library::video_versions(bundle).and_then(|v| v.saving_percent()),
+                now,
+            );
+        }
+        if changed {
+            self.settle(window, cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    fn compress(&mut self, id: u64, cx: &mut Context<Self>) {
+        if let Some(item) = self.item(id) {
+            compress_queue::compress([item.bundle], compress_queue::Request::MANUAL);
+        }
         cx.notify();
     }
 
@@ -1081,7 +1160,14 @@ impl ResultCardView {
         let state = card.state.clone();
         let image = card.image.clone();
         let status = status_text(card);
-        let progress = (state == CardState::Working(Job::Export)).then_some(card.export.fraction);
+        let compressed = card.compressed;
+        let job = (item.kind == CardKind::Instant)
+            .then(|| compressions().state(&item.bundle))
+            .flatten()
+            .filter(|_| state == CardState::Ready);
+        let progress = (state == CardState::Working(Job::Export))
+            .then_some(card.export.fraction)
+            .or_else(|| job.map(|job| crate::library_window::job_percent(job) as f32 / 100.));
         let focus = self
             .focus
             .entry(id)
@@ -1180,8 +1266,65 @@ impl ResultCardView {
                 )
             });
 
-        let row = match &state {
-            CardState::Ready => {
+        let row = match (&state, job, compressed) {
+            (CardState::Ready, Some(job), _) => {
+                let project = item.bundle.clone();
+                let label = match job {
+                    JobState::Running {
+                        percent,
+                        left: Some(left),
+                    } => format!(
+                        "{} · {}",
+                        crate::library_window::job_label(JobState::Running {
+                            percent,
+                            left: None
+                        }),
+                        crate::library_window::time_left_label(left)
+                    ),
+                    job => crate::library_window::job_label(job),
+                };
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .h(px(CONTROL_HEIGHT))
+                    .text_color(theme.muted_foreground)
+                    .child(div().flex_1().min_w_0().child(label))
+                    .child(
+                        text_button(theme, ("status", id), None, t!("Cancel"), false).on_click(
+                            cx.listener(move |_, _, _, cx| {
+                                compressions().cancel(&project);
+                                cx.notify();
+                            }),
+                        ),
+                    )
+                    .into_any_element()
+            }
+            (CardState::Ready, None, Some(percent)) => div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .h(px(CONTROL_HEIGHT))
+                .text_color(theme.success_text)
+                .child(
+                    svg()
+                        .path("icons/circle-check.svg")
+                        .size(px(14.))
+                        .text_color(theme.success_text),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(t!("Compressed · {percent}% smaller", percent = percent)),
+                )
+                .child(
+                    text_button(theme, ("status", id), None, t!("Copy"), false).on_click(
+                        cx.listener(move |this, _, window, cx| this.act(id, Act::Copy, window, cx)),
+                    ),
+                )
+                .into_any_element(),
+            (CardState::Ready, _, _) => {
                 let acts = item.kind.acts().iter().enumerate().map(|(slot, act)| {
                     let (icon, label) = act_icon(item.kind, *act);
                     let act = *act;
@@ -1198,6 +1341,17 @@ impl ResultCardView {
                     .flex()
                     .gap(px(6.))
                     .children(acts)
+                    .when(item.compressible && compressed.is_none(), |this| {
+                        this.child(
+                            icon_button(
+                                theme,
+                                ("compress", id),
+                                "icons/minimize.svg",
+                                t!("Compress"),
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| this.compress(id, cx))),
+                        )
+                    })
                     .child(
                         icon_button(
                             theme,
@@ -1217,7 +1371,7 @@ impl ResultCardView {
                     )
                     .into_any_element()
             }
-            other => {
+            (other, _, _) => {
                 let (color, icon) = match other {
                     CardState::Done(_) => (theme.success_text, Some("icons/circle-check.svg")),
                     CardState::Failed(_) => (theme.danger_text, Some("icons/triangle-alert.svg")),
@@ -1366,7 +1520,38 @@ mod tests {
             meta: SharedString::default(),
             chip: None,
             thumbnail: None,
+            compressible: false,
         }
+    }
+
+    #[test]
+    fn a_card_that_saw_its_recording_compress_says_how_much_smaller_it_got_and_stays_a_while() {
+        let start = Instant::now();
+        let mut stack = Stack::default();
+        let id = stack.push(item(CardKind::Instant, "Bug report"), start);
+        let card = stack.card_mut(id).unwrap();
+        let running = Some(JobState::Running {
+            percent: 40,
+            left: None,
+        });
+        assert!(card.follow_compression(running, |_| unreachable!(), start));
+        assert!(!card.follow_compression(running, |_| unreachable!(), start));
+        let later = start + Duration::from_secs(30);
+        assert!(card.follow_compression(None, |_| Some(64), later));
+        assert_eq!(card.compressed, Some(64));
+        assert_eq!(card.since, later);
+    }
+
+    #[test]
+    fn a_cancelled_compression_leaves_the_card_as_it_was() {
+        let start = Instant::now();
+        let mut stack = Stack::default();
+        let id = stack.push(item(CardKind::Instant, "Bug report"), start);
+        let card = stack.card_mut(id).unwrap();
+        card.follow_compression(Some(JobState::Waiting), |_| None, start);
+        assert!(card.follow_compression(None, |_| None, start + Duration::from_secs(5)));
+        assert_eq!(card.compressed, None);
+        assert_eq!(card.since, start);
     }
 
     fn names(stack: &Stack) -> Vec<&str> {

@@ -74,7 +74,8 @@ impl TrayPopup {
         cx: &mut Context<Self>,
     ) {
         let export_progress = match state {
-            super::SurfaceState::Exporting { percent, .. } => Some(*percent),
+            super::SurfaceState::Exporting { percent, .. }
+            | super::SurfaceState::Compressing { percent, .. } => Some(*percent),
             _ => None,
         };
         self.recording_status = match state {
@@ -594,8 +595,10 @@ impl TrayPopup {
                     );
             }
             pane = pane.child(row);
-            if matches!(item, Some(TrayItem::ShowExport))
-                && let Some(percent) = self.export_progress
+            if matches!(
+                item,
+                Some(TrayItem::ShowExport | TrayItem::ShowCompressions)
+            ) && let Some(percent) = self.export_progress
             {
                 pane = pane.child(
                     div().h(px(12.)).px(px(8.)).pb(px(8.)).child(

@@ -20,7 +20,7 @@ use std::{
 
 use gpui::{
     AnyElement, AppContext as _, Bounds, ClickEvent, Context, Entity, FocusHandle, FontWeight,
-    InteractiveElement, IntoElement, ListAlignment, ListOffset, ListState, MouseButton,
+    Hsla, InteractiveElement, IntoElement, ListAlignment, ListOffset, ListState, MouseButton,
     MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, RenderImage, SharedString,
     StatefulInteractiveElement, Styled, StyledImage as _, Task, Window, deferred, div, img, list,
     prelude::FluentBuilder, px, svg, transparent_black,
@@ -57,7 +57,7 @@ const WATCH_DEBOUNCE: Duration = Duration::from_millis(300);
 const SAVE_DELAY: Duration = Duration::from_millis(400);
 const REOPEN_GUARD: Duration = Duration::from_millis(600);
 const DETAIL_WIDTH: f32 = 340.;
-const JOB_BAR: f32 = 3.;
+const JOB_BAR: f32 = 4.;
 const LIST_ROW: f32 = 34.;
 const VISUALS_BATCH: usize = 4;
 const LIST_GAP: f32 = 8.;
@@ -238,6 +238,11 @@ impl LibraryWindow {
                 let open = this.update_in(cx, |this, window, cx| {
                     if change == Change::Finished && this.shown {
                         this.refresh_library(window, cx);
+                    }
+                    if compressions().overview().is_none()
+                        && this.library.menu == Some(LibraryMenu::Compressions)
+                    {
+                        this.close_library_menu(cx);
                     }
                     cx.notify();
                 });
@@ -486,6 +491,7 @@ impl LibraryWindow {
             Some(Command::GridView) => self.show_library_as(ViewMode::Grid, cx),
             Some(Command::ListView) => self.show_library_as(ViewMode::List, cx),
             Some(Command::RefreshLibrary) => self.refresh_library(window, cx),
+            Some(Command::CompressSelection) => self.compress_library_selection(window, cx),
             _ => {}
         }
     }
@@ -722,6 +728,7 @@ pub(super) enum LibraryMenu {
     Status,
     Sort,
     Import,
+    Compressions,
 }
 
 struct Thumbnail {
@@ -916,10 +923,60 @@ impl LibraryPage {
     }
 }
 
-fn job_label(job: JobState) -> &'static str {
+pub(crate) fn job_label(job: JobState) -> String {
     match job {
-        JobState::Waiting => t!("Waiting"),
-        JobState::Running { .. } => t!("Compressing…"),
+        JobState::Waiting => t!("Queued").to_string(),
+        JobState::Running { percent, .. } => t!("Compressing {percent}%", percent = percent),
+    }
+}
+
+pub(crate) fn time_left_label(left: Duration) -> String {
+    match left.as_secs().div_ceil(60) {
+        0 | 1 => t!("less than a minute left").to_string(),
+        minutes => t!("about {minutes} min left", minutes = minutes),
+    }
+}
+
+pub(crate) fn compression_marker(
+    theme: &Theme,
+    percent: u64,
+    label: impl Into<SharedString>,
+    on_picture: bool,
+) -> gpui::Div {
+    let (background, text) = if on_picture {
+        (Hsla::from(theme.badge), Hsla::from(theme.fixed_white))
+    } else {
+        (Hsla::from(theme.secondary), Hsla::from(theme.foreground))
+    };
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(6.))
+        .h(px(22.))
+        .px(px(8.))
+        .rounded_full()
+        .bg(background)
+        .text_color(text)
+        .text_size(px(12.))
+        .font_weight(FontWeight::MEDIUM)
+        .whitespace_nowrap()
+        .child(
+            ui::CircularProgress::new(
+                px(14.),
+                px(2.5),
+                Hsla::from(theme.muted_foreground),
+                Hsla::from(theme.component.progress_bar),
+            )
+            .progress(percent as f32 / 100.),
+        )
+        .child(label.into())
+}
+
+pub(crate) fn job_percent(job: JobState) -> u64 {
+    match job {
+        JobState::Waiting => 0,
+        JobState::Running { percent, .. } => percent,
     }
 }
 
@@ -1946,6 +2003,7 @@ impl LibraryWindow {
                         &self.search_input,
                     )),
             )
+            .children(self.render_compressions_button(cx))
             .child(
                 div()
                     .relative()
@@ -2255,6 +2313,158 @@ impl LibraryWindow {
                 .children(keys)
                 .child(div().h(px(1.)).my(px(4.)).bg(theme.border))
                 .children(directions),
+        )
+        .with_priority(1)
+    }
+
+    fn render_compressions_button(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let overview = compressions().overview()?;
+        let label = if overview.total > 1 {
+            t!(
+                "Compressing {position} of {total} · {percent}%",
+                position = overview.position,
+                total = overview.total,
+                percent = overview.percent
+            )
+        } else {
+            t!("Compressing {percent}%", percent = overview.percent)
+        };
+        let theme = self.theme;
+        Some(
+            div()
+                .relative()
+                .flex_shrink_0()
+                .child(
+                    focus_ring(
+                        div()
+                            .id("library-compressions")
+                            .tab_index(0)
+                            .flex()
+                            .items_center()
+                            .h(px(crate::theme::CONTROL_HEIGHT))
+                            .rounded(px(6.))
+                            .cursor_pointer()
+                            .child(compression_marker(&theme, overview.percent, label, false)),
+                        theme,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_library_menu(LibraryMenu::Compressions, cx);
+                    })),
+                )
+                .when(
+                    self.library.menu == Some(LibraryMenu::Compressions),
+                    |this| this.child(self.render_compressions_menu(cx)),
+                ),
+        )
+    }
+
+    fn render_compressions_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme;
+        let rows = compressions()
+            .list()
+            .into_iter()
+            .map(|listed| {
+                let name = self
+                    .library
+                    .entry(&listed.project)
+                    .map(|entry| entry.name.to_string())
+                    .unwrap_or_else(|| {
+                        listed
+                            .project
+                            .file_stem()
+                            .map(|stem| stem.to_string_lossy().into_owned())
+                            .unwrap_or_default()
+                    });
+                let state: SharedString = match listed.state {
+                    JobState::Running { percent, .. } => format!("{percent}%").into(),
+                    JobState::Waiting => t!("Queued").into(),
+                };
+                let project = listed.project.clone();
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .px(px(8.))
+                    .py(px(8.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_size(px(13.))
+                                    .child(name),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(theme.muted_foreground)
+                                    .child(state),
+                            )
+                            .child(
+                                focus_ring(
+                                    div()
+                                        .id(library::row_id(&listed.project))
+                                        .tab_index(0)
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .size(px(24.))
+                                        .rounded(px(5.))
+                                        .cursor_pointer()
+                                        .hover(move |style| style.bg(theme.accent))
+                                        .tooltip(move |_, cx| {
+                                            ui::Tooltip::new(&theme, t!("Cancel")).view(cx)
+                                        })
+                                        .child(
+                                            svg()
+                                                .path("icons/x.svg")
+                                                .size(px(14.))
+                                                .text_color(theme.muted_foreground),
+                                        ),
+                                    theme,
+                                )
+                                .on_click(cx.listener(
+                                    move |_, _, _, cx| {
+                                        compressions().cancel(&project);
+                                        cx.notify();
+                                    },
+                                )),
+                            ),
+                    )
+                    .when_some(
+                        match listed.state {
+                            JobState::Running { percent, .. } => Some(percent),
+                            JobState::Waiting => None,
+                        },
+                        |this, percent| this.child(progress_bar(&theme, percent)),
+                    )
+                    .when(listed.automatic, |this| {
+                        this.child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(theme.muted_foreground)
+                                .child(t!("Automatic, after recording")),
+                        )
+                    })
+            })
+            .collect::<Vec<_>>();
+        deferred(
+            self.library_popup(280., true, cx)
+                .children(rows)
+                .child(div().my(px(4.)).h(px(1.)).bg(theme.border))
+                .child(
+                    self.popup_row("library-compressions-cancel-all")
+                        .child(t!("Cancel all"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            compressions().cancel_all();
+                            this.close_library_menu(cx);
+                        })),
+                ),
         )
         .with_priority(1)
     }
@@ -2723,13 +2933,14 @@ impl LibraryWindow {
         let clock = Clock::now();
         let job = compressions().state(&entry.path);
         let cells: [SharedString; 4] = [
-            job.map_or(kind_label(entry.kind), job_label).into(),
+            job.map_or_else(|| kind_label(entry.kind).to_string(), job_label)
+                .into(),
             entry
                 .duration
                 .map_or_else(|| "—".to_string(), view::format_clock)
                 .into(),
             match job {
-                Some(JobState::Running { percent }) => format!("{percent}%"),
+                Some(JobState::Running { percent, .. }) => format!("{percent}%"),
                 _ => view::format_size(entry.size),
             }
             .into(),
@@ -2819,10 +3030,7 @@ impl LibraryWindow {
         let image = scrub_frame.or(image);
         let job = compressions().state(&entry.path);
         if let Some(job) = job {
-            meta = match job {
-                JobState::Waiting => job_label(job).to_string(),
-                JobState::Running { percent } => t!("Compressing… {percent}%", percent = percent),
-            };
+            meta = format!("{} · {}", kind_label(entry.kind), job_label(job));
         }
         let selected = self.library.selection.contains(&entry.path);
         let pinned = entry
@@ -2964,11 +3172,14 @@ impl LibraryWindow {
                         )
                     })
                     .when_some(job, |this, job| {
-                        let percent = match job {
-                            JobState::Waiting => 0,
-                            JobState::Running { percent } => percent,
-                        };
+                        let percent = job_percent(job);
                         this.child(
+                            compression_marker(&theme, percent, job_label(job), true)
+                                .absolute()
+                                .left(px(6.))
+                                .top(px(6.)),
+                        )
+                        .child(
                             div()
                                 .absolute()
                                 .left_0()
@@ -2980,7 +3191,7 @@ impl LibraryWindow {
                                     div()
                                         .h_full()
                                         .w(gpui::relative(percent as f32 / 100.))
-                                        .bg(theme.primary),
+                                        .bg(theme.component.progress_bar),
                                 ),
                         )
                     }),
@@ -3162,4 +3373,19 @@ fn open_entry(entry: &Entry, cx: &mut gpui::App) {
         }
         _ => {}
     }
+}
+
+pub(crate) fn progress_bar(theme: &Theme, percent: u64) -> gpui::Div {
+    div()
+        .h(px(4.))
+        .w_full()
+        .rounded(px(2.))
+        .bg(theme.component.slider_bar)
+        .child(
+            div()
+                .h_full()
+                .w(gpui::relative(percent.min(100) as f32 / 100.))
+                .rounded(px(2.))
+                .bg(theme.component.progress_bar),
+        )
 }

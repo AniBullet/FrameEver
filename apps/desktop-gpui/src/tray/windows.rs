@@ -229,6 +229,15 @@ fn state_snapshot(cx: &App) -> SurfaceState {
         },
         Phase::Idle => app_windows::tray_export_status(cx)
             .map(|(title, percent)| SurfaceState::Exporting { title, percent })
+            .or_else(|| {
+                crate::library::compress_queue::compressions()
+                    .overview()
+                    .map(|overview| SurfaceState::Compressing {
+                        position: overview.position,
+                        total: overview.total,
+                        percent: overview.percent.min(100) as u8,
+                    })
+            })
             .unwrap_or(SurfaceState::Idle),
     }
 }
@@ -259,6 +268,7 @@ fn left_click_item(state: &SurfaceState) -> TrayItem {
         SurfaceState::Starting(_) => TrayItem::CancelCountdown,
         SurfaceState::Recording { .. } => TrayItem::StopRecording,
         SurfaceState::Exporting { .. } => TrayItem::ShowExport,
+        SurfaceState::Compressing { .. } => TrayItem::ShowCompressions,
         SurfaceState::Setup => TrayItem::RequestPermissions,
         SurfaceState::Idle => TrayItem::OpenCap,
     }
@@ -355,7 +365,10 @@ fn prepare_popup(cx: &mut App) -> anyhow::Result<Option<PreparedPopup>> {
         .rect()
         .ok_or_else(|| anyhow::anyhow!("tray icon position unavailable"))?;
     let entries = tray.entries.clone();
-    let export_progress = matches!(tray.state, SurfaceState::Exporting { .. });
+    let export_progress = matches!(
+        tray.state,
+        SurfaceState::Exporting { .. } | SurfaceState::Compressing { .. }
+    );
     let warning = platform::window_capture_exclusion_unavailable_reason()
         .map(|_| t!("This menu may appear in recordings on this desktop.").to_string());
     let height = popup::menu_height(&entries, warning.is_some(), export_progress);
@@ -522,9 +535,11 @@ fn icon_for_state(state: &SurfaceState) -> Option<StateIcon> {
     match state {
         SurfaceState::Recording { paused: true, .. } => Some(StateIcon::Paused),
         SurfaceState::Recording { .. } => Some(StateIcon::Recording),
-        SurfaceState::Exporting { percent, .. } => Some(StateIcon::Export(
-            ((u16::from(*percent) * 8 / 101) as u8).min(7),
-        )),
+        SurfaceState::Exporting { percent, .. } | SurfaceState::Compressing { percent, .. } => {
+            Some(StateIcon::Export(
+                ((u16::from(*percent) * 8 / 101) as u8).min(7),
+            ))
+        }
         _ => None,
     }
 }
@@ -587,6 +602,9 @@ pub fn refresh_menu(cx: &mut App) {
         SurfaceState::Recording { .. } => t!("FrameEver · Recording").into(),
         SurfaceState::Exporting { percent, .. } => {
             t!("FrameEver · Exporting {percent}%", percent = percent)
+        }
+        SurfaceState::Compressing { percent, .. } => {
+            t!("FrameEver · Compressing {percent}%", percent = percent)
         }
     };
     if let Err(error) = tray.icon.set_tooltip(Some(tooltip)) {
@@ -828,16 +846,19 @@ fn permits_action(state: &SurfaceState, item: &TrayItem) -> bool {
             _ => false,
         },
         SurfaceState::Setup => matches!(item, TrayItem::RequestPermissions | TrayItem::Quit),
-        SurfaceState::Idle | SurfaceState::Exporting { .. } => match item {
-            TrayItem::StopRecording
-            | TrayItem::CancelCountdown
-            | TrayItem::PauseRecording
-            | TrayItem::ResumeRecording
-            | TrayItem::RestartRecording
-            | TrayItem::ToggleControls => false,
-            TrayItem::ShowExport => matches!(state, SurfaceState::Exporting { .. }),
-            _ => true,
-        },
+        SurfaceState::Idle | SurfaceState::Exporting { .. } | SurfaceState::Compressing { .. } => {
+            match item {
+                TrayItem::StopRecording
+                | TrayItem::CancelCountdown
+                | TrayItem::PauseRecording
+                | TrayItem::ResumeRecording
+                | TrayItem::RestartRecording
+                | TrayItem::ToggleControls => false,
+                TrayItem::ShowExport => matches!(state, SurfaceState::Exporting { .. }),
+                TrayItem::ShowCompressions => matches!(state, SurfaceState::Compressing { .. }),
+                _ => true,
+            }
+        }
     }
 }
 
