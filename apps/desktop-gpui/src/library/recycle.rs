@@ -1,11 +1,17 @@
 use std::path::{Path, PathBuf};
 
+use frameever_utils::storage::ExportRecord;
+
 use super::versions::{self, DeletedVersion, Version};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Deleted {
     Project(PathBuf),
     Version(DeletedVersion),
+    Export {
+        project: PathBuf,
+        record: ExportRecord,
+    },
 }
 
 impl Deleted {
@@ -13,6 +19,7 @@ impl Deleted {
         match self {
             Self::Project(path) => path.clone(),
             Self::Version(version) => version.file(),
+            Self::Export { record, .. } => record.path.clone(),
         }
     }
 }
@@ -34,7 +41,9 @@ pub fn recycle(path: &Path) -> Result<(), String> {
 
 #[cfg(windows)]
 fn same_path(a: &Path, b: &Path) -> bool {
-    a.as_os_str().eq_ignore_ascii_case(b.as_os_str())
+    dunce::simplified(a)
+        .as_os_str()
+        .eq_ignore_ascii_case(dunce::simplified(b).as_os_str())
 }
 
 #[cfg(windows)]
@@ -75,13 +84,32 @@ pub fn recycle_version(bundle: &Path, version: Version) -> Result<Deleted, Strin
     versions::delete_version_with(bundle, version, recycle).map(Deleted::Version)
 }
 
+pub fn recycle_export(project: &Path, export: &Path) -> Result<Deleted, String> {
+    let record = frameever_utils::storage::export_records(project)
+        .into_iter()
+        .find(|record| record.path == export)
+        .ok_or_else(|| format!("not an export of this project: {}", export.display()))?;
+    recycle(&record.path)?;
+    frameever_utils::storage::remove_export(project, &record.path)
+        .map_err(|error| error.to_string())?;
+    Ok(Deleted::Export {
+        project: project.to_path_buf(),
+        record,
+    })
+}
+
 pub fn undo(deleted: &[Deleted]) -> Result<(), String> {
     let missing = restore(deleted.iter().map(Deleted::path).collect())?;
     for deleted in deleted {
-        if let Deleted::Version(version) = deleted
-            && !missing.contains(&version.file())
-        {
-            versions::settle_restored(version).map_err(|error| error.to_string())?;
+        match deleted {
+            Deleted::Version(version) if !missing.contains(&version.file()) => {
+                versions::settle_restored(version).map_err(|error| error.to_string())?;
+            }
+            Deleted::Export { project, record } if !missing.contains(&record.path) => {
+                frameever_utils::storage::record_export(project, record)
+                    .map_err(|error| error.to_string())?;
+            }
+            _ => {}
         }
     }
     if missing.is_empty() {
@@ -179,6 +207,30 @@ mod tests {
             b"second"
         );
         storage.purge(&[&storage.project]);
+    }
+
+    #[test]
+    fn a_deleted_export_leaves_the_list_and_undo_brings_back_the_file_and_its_row() {
+        let storage = Storage::new();
+        let record = ExportRecord {
+            path: storage.export.clone(),
+            format: "gif".to_string(),
+            codec: None,
+            exported_at: 7,
+        };
+        frameever_utils::storage::record_export(&storage.project, &record).unwrap();
+
+        let deleted = recycle_export(&storage.project, &storage.export).unwrap();
+        assert!(!storage.export.exists());
+        assert!(frameever_utils::storage::export_records(&storage.project).is_empty());
+        assert!(std::fs::read(storage.project.join("content/output.mp4")).is_ok());
+
+        undo(&[deleted]).unwrap();
+        assert_eq!(std::fs::read(&storage.export).unwrap(), EXPORT);
+        assert_eq!(
+            frameever_utils::storage::export_records(&storage.project),
+            vec![record]
+        );
     }
 
     #[test]

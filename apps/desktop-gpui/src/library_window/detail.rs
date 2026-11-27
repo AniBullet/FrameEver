@@ -411,6 +411,46 @@ impl LibraryWindow {
         .detach();
     }
 
+    fn delete_library_export(
+        &mut self,
+        export: PathBuf,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.library.selection.single().map(Path::to_path_buf) else {
+            return;
+        };
+        self.library.detail.preview.stop();
+        cx.spawn_in(window, async move |this, cx| {
+            let deleted = cx
+                .background_executor()
+                .spawn(async move { library::recycle::recycle_export(&project, &export) })
+                .await;
+            let failed = deleted.is_err();
+            this.update_in(cx, |this, window, cx| {
+                match deleted {
+                    Ok(deleted) => this.show_undo_toast(
+                        t!("Deleted “{name}”", name = name).into(),
+                        vec![deleted],
+                        window,
+                        cx,
+                    ),
+                    Err(error) => tracing::error!("deleting the export failed: {error}"),
+                }
+                this.refresh_library(window, cx);
+            })
+            .ok();
+            if failed {
+                crate::platform::alert_dialog(
+                    t!("Couldn't delete the file"),
+                    t!("Its files may be in use. Close what is using them and try again."),
+                );
+            }
+        })
+        .detach();
+    }
+
     fn remove_library_export(
         &mut self,
         export: PathBuf,
@@ -837,8 +877,19 @@ impl LibraryWindow {
             };
             let path = export.path.clone();
             let actions: Vec<gpui::AnyElement> = if size.is_some() {
-                let (reveal, copy) = (path.clone(), path);
+                let (open, reveal, copy, delete) = (path.clone(), path.clone(), path.clone(), path);
+                let name = export.name.clone();
                 vec![
+                    self.export_action(
+                        ("library-export-open", index),
+                        "icons/external-link.svg",
+                        t!("Open in default app"),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.pause_library_preview(cx);
+                        library::open_with_system(&open, cx);
+                    }))
+                    .into_any_element(),
                     self.export_action(
                         ("library-export-reveal", index),
                         "icons/folder-open.svg",
@@ -852,6 +903,15 @@ impl LibraryWindow {
                         t!("Copy"),
                     )
                     .on_click(move |_, _, cx| copy_files(std::slice::from_ref(&copy), cx))
+                    .into_any_element(),
+                    self.export_action(
+                        ("library-export-delete", index),
+                        "icons/trash.svg",
+                        t!("Delete file"),
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.delete_library_export(delete.clone(), name.clone(), window, cx);
+                    }))
                     .into_any_element(),
                 ]
             } else {

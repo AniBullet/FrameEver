@@ -100,6 +100,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Copy image", "复制图片"),
     ("Show in folder", "在文件夹中显示"),
     ("Open in default app", "用默认应用打开"),
+    ("Delete file", "删除文件"),
+    ("Couldn't delete the file", "无法删除文件"),
     ("Compressed copy", "压缩副本"),
     ("Not made yet", "还没有"),
     ("Today", "今天"),

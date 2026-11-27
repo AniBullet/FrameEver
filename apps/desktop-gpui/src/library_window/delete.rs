@@ -372,7 +372,7 @@ impl LibraryWindow {
         .detach();
     }
 
-    fn show_undo_toast(
+    pub(super) fn show_undo_toast(
         &mut self,
         text: SharedString,
         deleted: Vec<Deleted>,
