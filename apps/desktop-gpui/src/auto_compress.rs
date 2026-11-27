@@ -20,50 +20,20 @@ pub struct CompressionNotice {
     pub project_path: PathBuf,
 }
 
-pub fn compress_and_report(
-    project_path: &Path,
-    keep_only_compressed: bool,
-    compress: impl FnOnce(&Path) -> Result<PathBuf, String>,
-    notify: impl FnOnce(CompressionNotice),
-) {
-    if let Err(error) = compress(project_path) {
-        tracing::warn!(path = %project_path.display(), "automatic compression failed: {error}");
-        notify(CompressionNotice {
-            title: t!("Couldn't compress the recording").to_string(),
-            recording: recording_name(project_path),
-            detail: error,
-            actions: vec![NoticeAction::OpenLogs, NoticeAction::RevealRecording],
-            project_path: project_path.to_path_buf(),
-        });
-        return;
+pub fn report(summary: QueueSummary) {
+    for (project_path, error) in &summary.failed {
+        tracing::warn!(path = %project_path.display(), "compressing the recording failed: {error}");
     }
-    tracing::info!(path = %project_path.display(), "compressed the instant recording");
-    let percent = crate::library::video_versions(project_path)
-        .and_then(|versions| versions.saving_percent())
-        .unwrap_or(0);
-    let kept_only_compressed = keep_only_compressed
-        && match crate::library::delete_original(project_path) {
-            Ok(()) => true,
-            Err(error) => {
-                tracing::warn!(path = %project_path.display(), "could not remove the original after compressing: {error}");
-                false
-            }
-        };
-    let summary = if kept_only_compressed {
-        t!("Compressed · {percent}% smaller", percent = percent)
-    } else {
-        t!(
-            "Compressed copy ready · {percent}% smaller",
-            percent = percent
-        )
-    };
-    notify(CompressionNotice {
-        title: t!("Compression finished").to_string(),
-        recording: recording_name(project_path),
-        detail: summary,
-        actions: Vec::new(),
-        project_path: project_path.to_path_buf(),
-    });
+    if crate::store::GeneralSettings::load().enable_notifications {
+        if let Some(notice) = queue_notice(&summary) {
+            show(notice);
+        }
+    } else if !summary.failed.is_empty() {
+        crate::platform::alert_dialog(
+            t!("Couldn't compress the recording"),
+            t!("Check the folder has space and try again."),
+        );
+    }
 }
 
 pub fn queue_notice(summary: &QueueSummary) -> Option<CompressionNotice> {
@@ -190,81 +160,6 @@ pub fn show(notice: CompressionNotice) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn capture(
-        project_path: &Path,
-        keep_only_compressed: bool,
-        compress: impl FnOnce(&Path) -> Result<PathBuf, String>,
-    ) -> Vec<CompressionNotice> {
-        let mut notices = Vec::new();
-        compress_and_report(project_path, keep_only_compressed, compress, |notice| {
-            notices.push(notice)
-        });
-        notices
-    }
-
-    #[test]
-    fn a_failed_compression_says_why_and_offers_the_logs_and_the_recording() {
-        let empty = tempfile::tempdir().unwrap();
-        let notices = capture(empty.path(), false, |path| {
-            crate::library::compress_video(path, |_, _| true)
-        });
-        let [notice] = notices.as_slice() else {
-            panic!("expected one notice, got {notices:?}");
-        };
-        assert_eq!(notice.title, "Couldn't compress the recording");
-        assert_eq!(
-            notice.detail,
-            "This recording already has a compressed version"
-        );
-        assert_eq!(
-            notice.actions,
-            vec![NoticeAction::OpenLogs, NoticeAction::RevealRecording]
-        );
-        assert_eq!(notice.project_path, empty.path());
-    }
-
-    fn recorded_bundle() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("content")).unwrap();
-        std::fs::write(dir.path().join("content/output.mp4"), [0u8; 200]).unwrap();
-        dir
-    }
-
-    fn compress_to_half(bundle: &Path) -> Result<PathBuf, String> {
-        let compressed = bundle.join("content/output_compressed.mp4");
-        std::fs::write(&compressed, [0u8; 100]).unwrap();
-        Ok(compressed)
-    }
-
-    #[test]
-    fn a_finished_compression_says_how_much_smaller_the_copy_is() {
-        let bundle = recorded_bundle();
-        let notices = capture(bundle.path(), false, compress_to_half);
-        let [notice] = notices.as_slice() else {
-            panic!("expected one notice, got {notices:?}");
-        };
-        assert_eq!(notice.title, "Compression finished");
-        assert_eq!(notice.detail, "Compressed copy ready · 50% smaller");
-        assert!(notice.actions.is_empty());
-    }
-
-    #[test]
-    fn keeping_only_the_compressed_version_removes_the_original_and_says_so() {
-        let bundle = recorded_bundle();
-        let notices = capture(bundle.path(), true, compress_to_half);
-        let [notice] = notices.as_slice() else {
-            panic!("expected one notice, got {notices:?}");
-        };
-        assert_eq!(notice.detail, "Compressed · 50% smaller");
-        assert_eq!(
-            std::fs::metadata(bundle.path().join("content/output.mp4"))
-                .unwrap()
-                .len(),
-            100
-        );
-        assert!(!bundle.path().join("content/output_compressed.mp4").exists());
-    }
 
     #[test]
     fn a_queue_that_finished_says_how_much_it_saved_in_one_notice() {

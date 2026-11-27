@@ -97,11 +97,17 @@ fn swap(bundle: &Path, current_to: &str, next_from: &str) -> std::io::Result<()>
 }
 
 pub fn use_compressed(bundle: &Path) -> std::io::Result<()> {
-    swap(bundle, ORIGINAL, COMPRESSED)
+    match video_versions(bundle) {
+        Some(VideoVersions::CompressedCopy { .. }) => swap(bundle, ORIGINAL, COMPRESSED),
+        _ => Ok(()),
+    }
 }
 
 pub fn restore_original(bundle: &Path) -> std::io::Result<()> {
-    swap(bundle, COMPRESSED, ORIGINAL)
+    match video_versions(bundle) {
+        Some(VideoVersions::UsingCompressed { .. }) => swap(bundle, COMPRESSED, ORIGINAL),
+        _ => Ok(()),
+    }
 }
 
 #[cfg(test)]
@@ -267,6 +273,39 @@ mod tests {
     }
 
     #[test]
+    fn asking_for_the_version_already_in_use_keeps_both_files() {
+        let dir = bundle(b"original-video");
+        std::fs::write(dir.path().join(COMPRESSED), b"small").unwrap();
+        use_compressed(dir.path()).unwrap();
+        use_compressed(dir.path()).unwrap();
+        assert_eq!(output(&dir), b"small");
+        assert_eq!(
+            std::fs::read(dir.path().join(ORIGINAL)).unwrap(),
+            b"original-video"
+        );
+
+        restore_original(dir.path()).unwrap();
+        restore_original(dir.path()).unwrap();
+        assert_eq!(output(&dir), b"original-video");
+        assert_eq!(
+            std::fs::read(dir.path().join(COMPRESSED)).unwrap(),
+            b"small"
+        );
+    }
+
+    #[test]
+    fn switching_a_recording_that_has_one_version_changes_nothing() {
+        let dir = bundle(b"original-video");
+        use_compressed(dir.path()).unwrap();
+        restore_original(dir.path()).unwrap();
+        assert_eq!(output(&dir), b"original-video");
+        assert_eq!(
+            video_versions(dir.path()),
+            Some(VideoVersions::Single { size: 14 })
+        );
+    }
+
+    #[test]
     fn deleting_the_original_leaves_a_project_known_as_compressed_only() {
         let dir = bundle(b"original-video");
         std::fs::write(dir.path().join(COMPRESSED), b"small").unwrap();
@@ -353,8 +392,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn a_failed_swap_leaves_the_current_video_in_place() {
+        use std::os::windows::fs::OpenOptionsExt;
         let dir = bundle(b"original-video");
+        std::fs::write(dir.path().join(COMPRESSED), b"small").unwrap();
+        let _held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(dir.path().join(COMPRESSED))
+            .unwrap();
         assert!(use_compressed(dir.path()).is_err());
         assert_eq!(output(&dir), b"original-video");
         assert!(!dir.path().join(ORIGINAL).exists());

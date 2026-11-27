@@ -11,8 +11,7 @@ use super::{
     library, preview, t, ui, view,
 };
 use crate::library::{
-    MediaKind, ProjectDetails, ProjectTracks, VideoVersions, compress_queue::QueueSummary,
-    view::Entry,
+    MediaKind, ProjectDetails, ProjectTracks, VideoVersions, compress_queue, view::Entry,
 };
 
 pub(super) struct DetailState {
@@ -111,19 +110,6 @@ fn alert_copy_failed(error: String, cx: &mut gpui::App) {
 pub(super) fn copy_files(files: &[PathBuf], cx: &mut gpui::App) {
     if let Err(error) = crate::platform::copy_files_to_clipboard(files, cx) {
         alert_copy_failed(error, cx);
-    }
-}
-
-fn report_compression(summary: &QueueSummary) {
-    if crate::store::GeneralSettings::load().enable_notifications {
-        if let Some(notice) = crate::auto_compress::queue_notice(summary) {
-            crate::auto_compress::show(notice);
-        }
-    } else if !summary.failed.is_empty() {
-        crate::platform::alert_dialog(
-            t!("Couldn't compress the recording"),
-            t!("Check the folder has space and try again."),
-        );
     }
 }
 
@@ -312,7 +298,7 @@ impl LibraryWindow {
             .selected_entries()
             .into_iter()
             .filter(|entry| entry.compressible)
-            .filter(|entry| self.library.compress.state(&entry.path).is_none())
+            .filter(|entry| compress_queue::compressions().state(&entry.path).is_none())
             .map(|entry| entry.path.clone())
             .collect()
     }
@@ -372,55 +358,11 @@ impl LibraryWindow {
 
     pub(super) fn compress_library_selection(
         &mut self,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let projects = self.library_compressible();
-        self.library.compress.add(projects);
+        compress_queue::compress(self.library_compressible(), false);
         cx.notify();
-        self.run_library_compression(window, cx);
-    }
-
-    fn run_library_compression(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(path) = self.library.compress.start_next() else {
-            return;
-        };
-        let (progress_tx, progress_rx) = flume::unbounded::<u64>();
-        cx.spawn_in(window, async move |this, cx| {
-            let bundle = path.clone();
-            let job = cx.background_executor().spawn(async move {
-                library::compress_video(&bundle, |done, total| {
-                    progress_tx.send(done * 100 / total.max(1)).is_ok()
-                })
-                .map(|_| library::video_versions(&bundle).map_or(0, VideoVersions::saved))
-            });
-            while let Ok(percent) = progress_rx.recv_async().await {
-                let open = this.update(cx, |this, cx| {
-                    this.library.compress.progress(percent);
-                    cx.notify();
-                });
-                if open.is_err() {
-                    break;
-                }
-            }
-            let result = job.await;
-            if let Err(error) = &result {
-                tracing::error!(path = %path.display(), "compressing the recording failed: {error}");
-            }
-            this.update_in(cx, |this, window, cx| {
-                if let Some(summary) = this.library.compress.finish(result) {
-                    cx.background_executor()
-                        .spawn(async move {
-                            report_compression(&summary);
-                        })
-                        .detach();
-                }
-                this.refresh_library(window, cx);
-                this.run_library_compression(window, cx);
-            })
-            .ok();
-        })
-        .detach();
     }
 
     fn switch_library_version(
@@ -445,8 +387,12 @@ impl LibraryWindow {
                     t!("The file may be in use. Close what is using it and try again."),
                 );
             }
-            this.update_in(cx, |this, window, cx| this.refresh_library(window, cx))
-                .ok();
+            this.update_in(cx, |this, window, cx| {
+                this.library.detail.stale = true;
+                this.sync_library_detail(cx);
+                this.refresh_library(window, cx);
+            })
+            .ok();
         })
         .detach();
     }
@@ -651,7 +597,7 @@ impl LibraryWindow {
             return None;
         }
         let theme = self.theme;
-        let job = self.library.compress.state(&entry.path);
+        let job = compress_queue::compressions().state(&entry.path);
         if !entry.compressible && job.is_none() {
             return None;
         }

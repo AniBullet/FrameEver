@@ -31,7 +31,7 @@ use crate::{
     i18n::t,
     library::{
         self, MediaKind,
-        compress_queue::{CompressQueue, JobState},
+        compress_queue::{Change, JobState, compressions},
         view::{
             self, Clock, DateGroup, DayLabel, Entry, LibraryView, Row, Selection, SortDirection,
             SortKey, StatusFilter, Step, Surface, TILE_GAP, Tab, ViewMode, ViewState,
@@ -169,6 +169,7 @@ pub struct LibraryWindow {
     _name_events: gpui::Subscription,
     _folder_name_events: gpui::Subscription,
     _day_task: Task<()>,
+    _compression_task: Task<()>,
 }
 
 impl LibraryWindow {
@@ -210,6 +211,7 @@ impl LibraryWindow {
         let folder_name_events = cx.subscribe_in(&folder_input, window, Self::on_folder_name_event);
         let organizer = sidebar::Organizer::new(folder_input, cx.focus_handle());
         let day_task = Self::watch_library_day(window, cx);
+        let compression_task = Self::follow_compressions(window, cx);
         Self {
             theme: Theme::for_window(window, cx, false),
             library: LibraryPage::new(name_input, cx.focus_handle(), cx.focus_handle(), organizer),
@@ -225,7 +227,25 @@ impl LibraryWindow {
             _name_events: name_events,
             _folder_name_events: folder_name_events,
             _day_task: day_task,
+            _compression_task: compression_task,
         }
+    }
+
+    fn follow_compressions(window: &mut Window, cx: &mut Context<Self>) -> Task<()> {
+        let changes = compressions().subscribe();
+        cx.spawn_in(window, async move |this, cx| {
+            while let Ok(change) = changes.recv_async().await {
+                let open = this.update_in(cx, |this, window, cx| {
+                    if change == Change::Finished && this.shown {
+                        this.refresh_library(window, cx);
+                    }
+                    cx.notify();
+                });
+                if open.is_err() {
+                    return;
+                }
+            }
+        })
     }
 
     pub(crate) fn is_shown(&self) -> bool {
@@ -786,7 +806,6 @@ pub(super) struct LibraryPage {
     scrub: scrub::ScrubState,
     delete: delete::DeleteState,
     gif: gif::GifState,
-    compress: CompressQueue,
     last_click: Option<PathBuf>,
     organizer: sidebar::Organizer,
     smart: Option<smart::SmartDraft>,
@@ -840,7 +859,6 @@ impl LibraryPage {
             scrub: scrub::ScrubState::default(),
             delete: delete::DeleteState::default(),
             gif: gif::GifState::default(),
-            compress: CompressQueue::default(),
             last_click: None,
             organizer,
             smart: None,
@@ -2703,7 +2721,7 @@ impl LibraryWindow {
         let theme = self.theme;
         let selected = self.library.selection.contains(&entry.path);
         let clock = Clock::now();
-        let job = self.library.compress.state(&entry.path);
+        let job = compressions().state(&entry.path);
         let cells: [SharedString; 4] = [
             job.map_or(kind_label(entry.kind), job_label).into(),
             entry
@@ -2799,7 +2817,7 @@ impl LibraryWindow {
             .library_scrub_of(entry)
             .map_or((None, None), |(frame, line)| (frame, Some(line)));
         let image = scrub_frame.or(image);
-        let job = self.library.compress.state(&entry.path);
+        let job = compressions().state(&entry.path);
         if let Some(job) = job {
             meta = match job {
                 JobState::Waiting => job_label(job).to_string(),

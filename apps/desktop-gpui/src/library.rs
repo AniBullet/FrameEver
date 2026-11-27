@@ -50,8 +50,8 @@ pub mod watch;
 pub use frameever_utils::storage::remove_export;
 pub use recycle::Deleted;
 pub use versions::{
-    Version, VideoVersions, compress as compress_video, compressed_only, delete_original,
-    restore_original, use_compressed, video_versions,
+    Version, VideoVersions, compressed_only, delete_original, restore_original, use_compressed,
+    video_versions,
 };
 
 /// `RECENT_MEDIA_LIMIT` in `new-main/index.tsx:129`.

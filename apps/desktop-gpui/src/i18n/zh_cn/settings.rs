@@ -3,14 +3,6 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Compression finished", "压缩完成"),
     ("Couldn't change the video version", "无法切换视频版本"),
     ("Compressing…", "正在压缩…"),
-    (
-        "Compressed · {percent}% smaller",
-        "已用压缩版 · 小 {percent}%",
-    ),
-    (
-        "Compressed copy ready · {percent}% smaller",
-        "压缩版已就绪 · 小 {percent}%",
-    ),
     ("Follow system", "跟随系统"),
     ("Language", "语言"),
     ("General", "通用"),

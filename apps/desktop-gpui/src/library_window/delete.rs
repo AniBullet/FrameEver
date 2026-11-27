@@ -345,9 +345,9 @@ impl LibraryWindow {
                     refused.push((item, reason));
                 }
             }
-            this.update(cx, |this, cx| {
+            this.update(cx, |_, cx| {
                 let gone: Vec<PathBuf> = deleted.iter().map(|(item, _)| item.path.clone()).collect();
-                this.library.compress.forget_waiting(&gone);
+                crate::library::compress_queue::compressions().forget_waiting(&gone);
                 cx.defer(app_windows::refresh_library_everywhere);
             })
             .ok();

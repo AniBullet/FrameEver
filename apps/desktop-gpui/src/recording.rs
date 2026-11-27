@@ -855,21 +855,9 @@ fn compress_after_instant_recording(project_path: PathBuf) {
         return;
     }
     let keep_only_compressed = settings.auto_compress_delete_original;
-    let notifications = settings.enable_notifications;
     tokio::spawn(async move {
         crate::automation::instant_rules_finished(&project_path).await;
-        tokio::task::spawn_blocking(move || {
-            crate::auto_compress::compress_and_report(
-                &project_path,
-                keep_only_compressed,
-                |path| crate::library::compress_video(path, |_, _| true),
-                |notice| {
-                    if notifications {
-                        crate::auto_compress::show(notice);
-                    }
-                },
-            );
-        });
+        crate::library::compress_queue::compress([project_path], keep_only_compressed);
     });
 }
 
