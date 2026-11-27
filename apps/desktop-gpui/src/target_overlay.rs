@@ -1707,7 +1707,12 @@ impl OverlayWindow {
                         .bg(gpui::black())
                         .text_size(px(14.))
                         .text_color(self.theme.muted_foreground)
-                        .child(svg().path("icons/webcam.svg").size(px(32.)))
+                        .child(
+                            svg()
+                                .path("icons/webcam.svg")
+                                .size(px(32.))
+                                .text_color(self.theme.muted_foreground),
+                        )
                         .child(t!("Please select a camera")),
                 )
                 .into_any_element()

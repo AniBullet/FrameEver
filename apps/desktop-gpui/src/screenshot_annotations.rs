@@ -4111,7 +4111,12 @@ impl ScreenshotEditorWindow {
                     .cursor(CursorStyle::OpenHand)
                     .text_color(theme.muted_foreground)
                     .hover(|style| style.text_color(theme.muted_foreground))
-                    .child(svg().path("icons/grip-vertical.svg").size(px(14.)))
+                    .child(
+                        svg()
+                            .path("icons/grip-vertical.svg")
+                            .size(px(14.))
+                            .text_color(theme.muted_foreground),
+                    )
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _: &MouseDownEvent, _window, cx| {
@@ -4169,10 +4174,19 @@ impl ScreenshotEditorWindow {
                     .cursor_pointer()
                     .tab_index(0)
                     .opacity(0.)
+                    .group("screenshot-layer-delete")
                     .text_color(theme.muted_foreground)
                     .group_hover("screenshot-layer-row", |style| style.opacity(1.))
                     .hover(|style| style.bg(theme.danger_tint).text_color(theme.danger_text))
-                    .child(svg().path("icons/x.svg").size(px(14.)))
+                    .child(
+                        svg()
+                            .path("icons/x.svg")
+                            .size(px(14.))
+                            .text_color(theme.muted_foreground)
+                            .group_hover("screenshot-layer-delete", |style| {
+                                style.text_color(theme.danger_text)
+                            }),
+                    )
                     .on_click(cx.listener(move |this, _, window, cx| {
                         cx.stop_propagation();
                         this.delete_annotation(&delete_id, window, cx);

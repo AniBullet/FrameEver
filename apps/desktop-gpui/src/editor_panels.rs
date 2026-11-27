@@ -9023,7 +9023,12 @@ impl EditorWindow {
                             .gap(px(8.))
                             .text_size(px(12.))
                             .font_weight(FontWeight::MEDIUM)
-                            .child(svg().path("icons/move.svg").size(px(16.)))
+                            .child(
+                                svg()
+                                    .path("icons/move.svg")
+                                    .size(px(16.))
+                                    .text_color(Hsla::from(self.theme.foreground)),
+                            )
                             .child(t!("Arrange on canvas")),
                     )
                     .child(
@@ -9213,7 +9218,12 @@ impl EditorWindow {
                                     .flex_row()
                                     .items_center()
                                     .gap(px(6.))
-                                    .child(svg().path(group.icon()).size(px(14.)))
+                                    .child(
+                                        svg()
+                                            .path(group.icon())
+                                            .size(px(14.))
+                                            .text_color(Hsla::from(self.theme.foreground)),
+                                    )
                                     .child(t!("Edit {group}", group = group.label())),
                             )
                             .on_click(cx.listener(move |this, _, window, cx| {

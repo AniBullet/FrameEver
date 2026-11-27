@@ -635,4 +635,86 @@ mod tests {
         assert_eq!(Assets.list("icons").unwrap().len(), ICONS.len());
         assert_eq!(Assets.list("images").unwrap().len(), IMAGES.len());
     }
+
+    fn uncoloured_icons(source: &str) -> Vec<usize> {
+        let code: String = source
+            .lines()
+            .map(|line| line.split("//").next().unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut found = Vec::new();
+        let mut from = 0;
+        while let Some(offset) = code[from..].find("svg()") {
+            let start = from + offset;
+            let mut depth = 0_i32;
+            let mut end = start + "svg()".len();
+            for (index, character) in code[end..].char_indices() {
+                end = start + "svg()".len() + index;
+                match character {
+                    '(' | '[' | '{' => depth += 1,
+                    ')' | ']' | '}' if depth == 0 => break,
+                    ')' | ']' | '}' => depth -= 1,
+                    ',' | ';' if depth == 0 => break,
+                    _ => {}
+                }
+            }
+            if !code[start..end].contains("text_color") {
+                found.push(code[..start].lines().count());
+            }
+            from = end;
+        }
+        found
+    }
+
+    #[test]
+    fn an_icon_without_its_own_colour_is_found() {
+        assert_eq!(
+            uncoloured_icons(
+                "div()\n    .text_color(red)\n    .child(svg().path(icon).size(px(16.)))"
+            ),
+            vec![3]
+        );
+        assert!(
+            uncoloured_icons("div().child(svg().path(icon).text_color(red)).child(text)")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn every_icon_sets_its_own_colour_because_gpui_svgs_do_not_inherit_one() {
+        fn walk(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).expect("source folder").flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, files);
+                } else if path.extension().is_some_and(|extension| extension == "rs") {
+                    files.push(path);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        walk(&root, &mut files);
+        let mut uncoloured = Vec::new();
+        for file in files
+            .into_iter()
+            .filter(|file| !file.ends_with("assets.rs"))
+        {
+            let source = std::fs::read_to_string(&file).expect("readable source");
+            let name = file
+                .strip_prefix(&root)
+                .expect("under src")
+                .display()
+                .to_string();
+            uncoloured.extend(
+                uncoloured_icons(&source)
+                    .into_iter()
+                    .map(|line| format!("{name}:{line}")),
+            );
+        }
+        assert!(
+            uncoloured.is_empty(),
+            "icons drawn without a colour: {uncoloured:?}"
+        );
+    }
 }

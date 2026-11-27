@@ -983,6 +983,7 @@ impl TeleprompterWindow {
             .items_center()
             .justify_center()
             .rounded_full()
+            .group("teleprompter-tool")
             .text_color(theme.muted_foreground)
             .when(on, |this| {
                 this.bg(theme.selection)
@@ -1001,7 +1002,23 @@ impl TeleprompterWindow {
                 window.prevent_default();
                 cx.stop_propagation();
             })
-            .child(svg().path(icon).size(px(16.)))
+            .child(
+                svg()
+                    .path(icon)
+                    .size(px(16.))
+                    .text_color(if disabled {
+                        theme.faint_foreground
+                    } else if on {
+                        theme.selection_foreground
+                    } else {
+                        theme.muted_foreground
+                    })
+                    .when(!disabled, |this| {
+                        this.group_hover("teleprompter-tool", |style| {
+                            style.text_color(theme.foreground)
+                        })
+                    }),
+            )
     }
 
     fn separator(&self) -> impl IntoElement {
@@ -1042,7 +1059,13 @@ impl TeleprompterWindow {
             .whitespace_nowrap()
             .text_size(px(12.))
             .text_color(color)
-            .child(svg().path(status.icon()).size(px(14.)).flex_none())
+            .child(
+                svg()
+                    .path(status.icon())
+                    .size(px(14.))
+                    .flex_none()
+                    .text_color(color),
+            )
             .child(status_label(status))
     }
 
@@ -1155,7 +1178,12 @@ impl TeleprompterWindow {
                         .flex()
                         .items_center()
                         .text_color(theme.muted_foreground)
-                        .child(svg().path("icons/chevron-right.svg").size(px(14.))),
+                        .child(
+                            svg()
+                                .path("icons/chevron-right.svg")
+                                .size(px(14.))
+                                .text_color(theme.muted_foreground),
+                        ),
                 )
                 .child(
                     div()
@@ -1166,7 +1194,12 @@ impl TeleprompterWindow {
                         .flex()
                         .items_center()
                         .text_color(theme.muted_foreground)
-                        .child(svg().path("icons/chevron-left.svg").size(px(14.))),
+                        .child(
+                            svg()
+                                .path("icons/chevron-left.svg")
+                                .size(px(14.))
+                                .text_color(theme.muted_foreground),
+                        ),
                 )
             })
             .child(
@@ -1368,6 +1401,7 @@ impl TeleprompterWindow {
                 .flex()
                 .items_center()
                 .justify_center()
+                .group("teleprompter-caption")
                 .text_color(theme.muted_foreground)
                 .hover(|style| style.bg(theme.accent).text_color(theme.foreground))
                 .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).view(cx))
@@ -1375,7 +1409,15 @@ impl TeleprompterWindow {
                     window.prevent_default();
                     cx.stop_propagation();
                 })
-                .child(svg().path(icon).size(px(14.)))
+                .child(
+                    svg()
+                        .path(icon)
+                        .size(px(14.))
+                        .text_color(theme.muted_foreground)
+                        .group_hover("teleprompter-caption", |style| {
+                            style.text_color(theme.foreground)
+                        }),
+                )
         };
         div()
             .id("title")

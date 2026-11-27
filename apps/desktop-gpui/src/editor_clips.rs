@@ -1238,13 +1238,22 @@ impl EditorWindow {
                                     .size(px(28.))
                                     .opacity(0.)
                                     .group_hover(group.clone(), |style| style.opacity(1.))
+                                    .group("clip-edit")
                                     .text_color(Hsla::from(theme.muted_foreground))
                                     .hover(move |style| {
                                         style
                                             .bg(Hsla::from(theme.border))
                                             .text_color(Hsla::from(theme.foreground))
                                     })
-                                    .child(svg().path("icons/square-pen.svg").size(px(14.)))
+                                    .child(
+                                        svg()
+                                            .path("icons/square-pen.svg")
+                                            .size(px(14.))
+                                            .text_color(Hsla::from(theme.muted_foreground))
+                                            .group_hover("clip-edit", move |style| {
+                                                style.text_color(Hsla::from(theme.foreground))
+                                            }),
+                                    )
                                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                         cx.stop_propagation();
                                     })
@@ -1265,11 +1274,20 @@ impl EditorWindow {
                                     .size(px(28.))
                                     .opacity(0.)
                                     .group_hover(group.clone(), |style| style.opacity(1.))
+                                    .group("clip-delete")
                                     .text_color(Hsla::from(theme.muted_foreground))
                                     .hover(move |style| {
                                         style.bg(theme.danger_tint).text_color(theme.danger_text)
                                     })
-                                    .child(svg().path("icons/trash.svg").size(px(14.)))
+                                    .child(
+                                        svg()
+                                            .path("icons/trash.svg")
+                                            .size(px(14.))
+                                            .text_color(Hsla::from(theme.muted_foreground))
+                                            .group_hover("clip-delete", move |style| {
+                                                style.text_color(theme.danger_text)
+                                            }),
+                                    )
                                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                         cx.stop_propagation();
                                     })

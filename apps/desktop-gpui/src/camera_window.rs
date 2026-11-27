@@ -2458,6 +2458,7 @@ impl CameraWindow {
             .items_center()
             .justify_center()
             .rounded(px(6.))
+            .group("camera-tool")
             .text_color(theme.muted_foreground)
             .hover(|style| style.bg(theme.accent).text_color(theme.foreground))
             .when(pressed, |this| {
@@ -2473,7 +2474,17 @@ impl CameraWindow {
                 cx.stop_propagation();
                 on_click(this, window, cx);
             }))
-            .child(svg().path(icon).size(px(16.)))
+            .child(
+                svg()
+                    .path(icon)
+                    .size(px(16.))
+                    .text_color(if pressed {
+                        theme.selection_foreground
+                    } else {
+                        theme.muted_foreground
+                    })
+                    .group_hover("camera-tool", |style| style.text_color(theme.foreground)),
+            )
             .when(failed, |this| {
                 this.child(
                     div()

@@ -4865,7 +4865,12 @@ impl EditorWindow {
                             .items_center()
                             .gap(px(8.))
                             .font_weight(gpui::FontWeight::MEDIUM)
-                            .child(svg().path(group.icon()).size(px(16.)))
+                            .child(
+                                svg()
+                                    .path(group.icon())
+                                    .size(px(16.))
+                                    .text_color(Hsla::from(self.theme.foreground)),
+                            )
                             .child(t!(
                                 "Style {number} · {group}",
                                 number = index + 1,
@@ -4887,7 +4892,12 @@ impl EditorWindow {
                                     .flex_row()
                                     .items_center()
                                     .gap(px(4.))
-                                    .child(svg().path("icons/arrow-left.svg").size(px(14.)))
+                                    .child(
+                                        svg()
+                                            .path("icons/arrow-left.svg")
+                                            .size(px(14.))
+                                            .text_color(Hsla::from(self.theme.foreground)),
+                                    )
                                     .child(t!("Back to Style")),
                             )
                             .on_click(cx.listener(|this, _, window, cx| {
