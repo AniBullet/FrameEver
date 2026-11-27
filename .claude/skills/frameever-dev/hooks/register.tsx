@@ -93,6 +93,7 @@ const DESIGN_PAGES = [
   { key: 'design-onboarding', label: '引导', path: 'docs\\design\\surfaces\\onboarding.html' },
   { key: 'design-input-display', label: '操作显示', path: 'docs\\design\\surfaces\\input-display.html' },
   { key: 'design-result-card', label: '结果卡片', path: 'docs\\design\\surfaces\\result-card.html' },
+  { key: 'design-compression', label: '压缩', path: 'docs\\design\\surfaces\\compression.html' },
 ]
 
 const LANGUAGES: { value: AppLanguage; label: string }[] = [
