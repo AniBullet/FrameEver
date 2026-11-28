@@ -382,6 +382,8 @@ impl gpui::RenderOnce for ModeHoverCard {
             .child(
                 div()
                     .id("mode-quality-settings")
+                    .role(gpui::Role::Button)
+                    .aria_label(t!("Quality settings"))
                     .group("mode-quality-settings")
                     .tab_index(0)
                     .flex()
@@ -3002,6 +3004,9 @@ impl MainWindow {
                     .child(
                         div()
                             .id("microphone-warning-dont-show-again")
+                            .role(gpui::Role::CheckBox)
+                            .aria_label(t!("Don't show again"))
+                            .aria_toggled(if checked { gpui::Toggled::True } else { gpui::Toggled::False })
                             .flex()
                             .items_center()
                             .gap(px(8.))
@@ -3126,6 +3131,8 @@ impl MainWindow {
                     .child(
                         div()
                             .id("modal-close")
+                            .role(gpui::Role::Button)
+                            .aria_label(t!("Close"))
                             .absolute()
                             .top(px(10.))
                             .right(px(10.))
@@ -3325,43 +3332,49 @@ impl MainWindow {
         let theme = self.theme;
         let hover = gpui::rgba(if dark { 0xffffff0d } else { 0x0000000d });
         let pressed = gpui::rgba(if dark { 0xe9e9e908 } else { 0x00000008 });
-        let button = |id: &'static str, icon: &'static str, height: f32| {
-            surfaces::focus_ring(div().id(id).group(id).tab_index(0), theme)
-                .w(px(46.))
-                .h_full()
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .cursor_default()
-                .hover(move |style| {
-                    style.bg(if id == "caption-close" {
-                        theme.danger
-                    } else {
-                        hover
-                    })
+        let button = |id: &'static str, name: &'static str, icon: &'static str, height: f32| {
+            surfaces::focus_ring(
+                div()
+                    .id(id)
+                    .role(gpui::Role::Button)
+                    .aria_label(name)
+                    .group(id)
+                    .tab_index(0),
+                theme,
+            )
+            .w(px(46.))
+            .h_full()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_default()
+            .hover(move |style| {
+                style.bg(if id == "caption-close" {
+                    theme.danger
+                } else {
+                    hover
                 })
-                .active(move |style| {
-                    style.bg(if id == "caption-close" {
-                        theme.danger_hover
-                    } else {
-                        pressed
-                    })
+            })
+            .active(move |style| {
+                style.bg(if id == "caption-close" {
+                    theme.danger_hover
+                } else {
+                    pressed
                 })
-                .child(
-                    svg()
-                        .path(icon)
-                        .id("caption-glyph")
-                        .w(px(10.))
-                        .h(px(height))
-                        .text_color(foreground)
-                        .when(id == "caption-close", |icon| {
-                            icon.group_hover("caption-close", |style| {
-                                style.text_color(gpui::white())
-                            })
+            })
+            .child(
+                svg()
+                    .path(icon)
+                    .id("caption-glyph")
+                    .w(px(10.))
+                    .h(px(height))
+                    .text_color(foreground)
+                    .when(id == "caption-close", |icon| {
+                        icon.group_hover("caption-close", |style| style.text_color(gpui::white()))
                             .group_active("caption-close", |style| style.text_color(gpui::white()))
-                        }),
-                )
+                    }),
+            )
         };
 
         div()
@@ -3370,15 +3383,24 @@ impl MainWindow {
             .h_full()
             .flex_shrink_0()
             .child(
-                button("caption-minimize", "icons/caption-minimize-windows.svg", 1.)
-                    .on_click(|_, window, _| window.minimize_window()),
+                button(
+                    "caption-minimize",
+                    t!("Minimize"),
+                    "icons/caption-minimize-windows.svg",
+                    1.,
+                )
+                .on_click(|_, window, _| window.minimize_window()),
             )
             .child(
-                button("caption-close", "icons/caption-close-windows.svg", 10.).on_click(
-                    cx.listener(|_, _, _, cx| {
-                        cx.defer(app_windows::request_close_main);
-                    }),
-                ),
+                button(
+                    "caption-close",
+                    t!("Close"),
+                    "icons/caption-close-windows.svg",
+                    10.,
+                )
+                .on_click(cx.listener(|_, _, _, cx| {
+                    cx.defer(app_windows::request_close_main);
+                })),
             )
     }
 
@@ -3392,6 +3414,8 @@ impl MainWindow {
                      id: &'static str| {
             div()
                 .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(t!("Close"))
                 .size(px(14.))
                 .rounded_full()
                 .flex()
@@ -3589,6 +3613,13 @@ impl MainWindow {
             .child(
                 div()
                     .id("stop-recording")
+                    .role(gpui::Role::Button)
+                    .aria_label(match phase {
+                        Phase::Starting if countdown.is_some() => t!("Cancel Recording"),
+                        Phase::Starting => t!("Starting..."),
+                        Phase::Stopping => t!("Stopping..."),
+                        _ => t!("Stop Recording"),
+                    })
                     .h(px(44.))
                     .w_full()
                     .flex()
@@ -3690,6 +3721,8 @@ impl MainWindow {
                     .child(
                         div()
                             .id("panel-back")
+                            .role(gpui::Role::Button)
+                            .aria_label(t!("Back"))
                             .flex()
                             .flex_row()
                             .items_center()
@@ -4482,6 +4515,8 @@ impl MainWindow {
                 this.child(
                     div()
                         .id("camera-picture-change")
+                        .role(gpui::Role::Button)
+                        .aria_label(t!("Choose another picture"))
                         .flex()
                         .items_center()
                         .justify_center()
@@ -4526,6 +4561,8 @@ impl MainWindow {
         };
         div()
             .id(SharedString::from(name))
+            .role(gpui::Role::Button)
+            .aria_label(t!("Preferred format"))
             .flex()
             .items_center()
             .justify_center()
@@ -4706,6 +4743,13 @@ impl MainWindow {
 
         div()
             .id(id)
+            .role(gpui::Role::RadioButton)
+            .aria_label(label.clone())
+            .aria_toggled(if selected {
+                gpui::Toggled::True
+            } else {
+                gpui::Toggled::False
+            })
             .flex()
             .flex_col()
             .w(px(self.target_card_width()))
@@ -4775,6 +4819,13 @@ impl MainWindow {
 
                 div()
                     .id(SharedString::from(mode.panel_title()))
+                    .role(gpui::Role::RadioButton)
+                    .aria_label(mode.panel_title())
+                    .aria_toggled(if selected {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
                     .when(locked && !selected, |this| this.opacity(0.5))
                     .flex()
                     .flex_row()
@@ -4947,6 +4998,13 @@ impl MainWindow {
 
         div()
             .id(id)
+            .role(gpui::Role::RadioButton)
+            .aria_label(label.clone())
+            .aria_toggled(if selected {
+                gpui::Toggled::True
+            } else {
+                gpui::Toggled::False
+            })
             .relative()
             .flex()
             .flex_row()
@@ -5238,6 +5296,24 @@ impl MainWindow {
 
         div()
             .id(SharedString::from(id))
+            .map(|row| match menu {
+                Some(_) => row
+                    .role(gpui::Role::ComboBox)
+                    .aria_value(if value.is_empty() {
+                        SharedString::from(label)
+                    } else {
+                        SharedString::from(value.clone())
+                    }),
+                None => row
+                    .role(gpui::Role::Switch)
+                    .aria_toggled(if pill == PillState::On {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    }),
+            })
+            .aria_label(label)
+            .accessibility_id(id)
             .tab_index(0)
             .relative()
             .flex()
@@ -5318,6 +5394,13 @@ impl MainWindow {
                 (Some(menu), pill) => this.child(
                     div()
                         .id(SharedString::from(format!("{id}-toggle")))
+                        .role(gpui::Role::Switch)
+                        .aria_label(label)
+                        .aria_toggled(if pill == PillState::On {
+                            gpui::Toggled::True
+                        } else {
+                            gpui::Toggled::False
+                        })
                         .flex_shrink_0()
                         .tab_index(0)
                         .child(pill.render(theme))
@@ -6192,6 +6275,27 @@ mod recovery_dialog_tests {
             RecordingSession::init(cx)
         });
         cx.add_window_view(move |window, cx| MainWindow::new(session, window, cx))
+    }
+
+    #[gpui::test]
+    fn every_main_window_control_has_a_role_and_a_name(cx: &mut gpui::TestAppContext) {
+        let (_main, cx) = open_main(cx);
+        crate::accessibility::assert_every_control_is_named(
+            cx,
+            &[
+                "mode-instant",
+                "mode-studio",
+                "target-display",
+                "target-window",
+                "target-area",
+                "target-camera",
+                "target-audio",
+                "start-recording",
+                "screenshot",
+                "library",
+                "settings",
+            ],
+        );
     }
 
     #[gpui::test]

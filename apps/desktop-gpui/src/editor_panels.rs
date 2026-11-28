@@ -4402,6 +4402,8 @@ impl EditorWindow {
                             .child(
                                 div()
                                     .id(SharedString::from(format!("zoom-multi-remove-{index}")))
+                                    .role(gpui::Role::Button)
+                                    .aria_label(t!("Remove"))
                                     .flex()
                                     .justify_center()
                                     .items_center()
@@ -4517,6 +4519,9 @@ impl EditorWindow {
             .child(
                 div()
                     .id("zoom-mode-helper")
+                    .role(gpui::Role::Button)
+                    .aria_label(t!("How does it work?"))
+                    .aria_expanded(open)
                     .flex()
                     .flex_row()
                     .gap(px(6.))
@@ -4717,6 +4722,8 @@ impl EditorWindow {
         let mut row = div().flex().flex_row().items_center().gap(px(12.)).child(
             div()
                 .id(SharedString::from(format!("swatch-{target:?}")))
+                .role(gpui::Role::Button)
+                .aria_label(t!("Color"))
                 // `size-[2rem] rounded-[0.5rem]` with an inset 1px ring.
                 .size(px(32.))
                 .flex_none()
@@ -4941,6 +4948,9 @@ impl EditorWindow {
                 .id(SharedString::from(format!(
                     "text-style-group-{index}-{slot}"
                 )))
+                .role(gpui::Role::Tab)
+                .aria_label(label)
+                .aria_selected(selected)
                 .flex()
                 .flex_none()
                 .items_center()
@@ -5015,6 +5025,13 @@ impl EditorWindow {
 
             div()
                 .id(SharedString::from(format!("text-preset-{index}-{id}")))
+                .role(gpui::Role::RadioButton)
+                .aria_label(tr(preset.name))
+                .aria_toggled(if selected {
+                    gpui::Toggled::True
+                } else {
+                    gpui::Toggled::False
+                })
                 .w(px(CARD_GRID_WIDTH_2))
                 .flex_none()
                 .h(px(68.))
@@ -5150,6 +5167,13 @@ impl EditorWindow {
         let theme = self.theme;
         div()
             .id(id)
+            .role(gpui::Role::RadioButton)
+            .aria_label(label)
+            .aria_toggled(if selected {
+                gpui::Toggled::True
+            } else {
+                gpui::Toggled::False
+            })
             .flex()
             .flex_none()
             .items_center()
@@ -5206,6 +5230,13 @@ impl EditorWindow {
             };
             div()
                 .id(SharedString::from(format!("text-anim-{index}-{slot}")))
+                .role(gpui::Role::RadioButton)
+                .aria_label(label)
+                .aria_toggled(if selected {
+                    gpui::Toggled::True
+                } else {
+                    gpui::Toggled::False
+                })
                 .w(px(CARD_GRID_WIDTH_3))
                 .flex_none()
                 .h(px(52.))
@@ -5907,6 +5938,8 @@ impl EditorWindow {
                         .child(
                             div()
                                 .id(SharedString::from(format!("audio-replace-{index}")))
+                                .role(gpui::Role::Button)
+                                .aria_label(t!("Tap to change track"))
                                 .flex()
                                 .flex_row()
                                 .gap(px(12.))
@@ -6218,6 +6251,13 @@ impl EditorWindow {
                         let handler = handler.clone();
                         div()
                             .id(SharedString::from(format!("{id}-{index}")))
+                            .role(gpui::Role::RadioButton)
+                            .aria_label(label)
+                            .aria_toggled(if checked {
+                                gpui::Toggled::True
+                            } else {
+                                gpui::Toggled::False
+                            })
                             .flex_1()
                             .rounded(px(8.))
                             .border_1()
@@ -6567,6 +6607,13 @@ impl EditorWindow {
         let pose = look.from;
         div()
             .id(SharedString::from(format!("c3d-look-{index}-{id}")))
+            .role(gpui::Role::RadioButton)
+            .aria_label(name)
+            .aria_toggled(if selected {
+                gpui::Toggled::True
+            } else {
+                gpui::Toggled::False
+            })
             .w(px(CAMERA3D_LOOK_TILE))
             .flex_none()
             .flex()
@@ -6684,6 +6731,8 @@ impl EditorWindow {
                     let shots = scene.shots.len();
                     div()
                         .id(SharedString::from(format!("c3d-seq-{index}-{id}")))
+                        .role(gpui::Role::Button)
+                        .aria_label(tr(scene.name))
                         .w(px(CAMERA3D_SEQUENCE_CARD))
                         .flex_none()
                         .flex()
@@ -6980,6 +7029,13 @@ impl EditorWindow {
                 "c3d-pose-{index}-{}",
                 if end { "end" } else { "start" }
             )))
+            .role(gpui::Role::RadioButton)
+            .aria_label(caption.clone())
+            .aria_toggled(if editing {
+                gpui::Toggled::True
+            } else {
+                gpui::Toggled::False
+            })
             .flex_1()
             .min_w_0()
             .flex()
@@ -7544,6 +7600,9 @@ impl EditorWindow {
             .child(
                 div()
                     .id("camera3d-advanced")
+                    .role(gpui::Role::Button)
+                    .aria_label(t!("Timing & advanced"))
+                    .aria_expanded(advanced.is_open())
                     .flex()
                     .flex_row()
                     .items_center()
@@ -9206,6 +9265,8 @@ impl EditorWindow {
                     .children(active.then(|| {
                         div()
                             .id(SharedString::from(format!("style-edit-{index}-{group:?}")))
+                            .role(gpui::Role::Button)
+                            .aria_label(t!("Edit {group}", group = group.label()))
                             .tab_index(0)
                             .cursor_pointer()
                             .px(px(12.))
@@ -9252,6 +9313,8 @@ impl EditorWindow {
             crop = crop.child(
                 div()
                     .id(SharedString::from(format!("style-crop-reset-{index}")))
+                    .role(gpui::Role::Button)
+                    .aria_label(t!("Reset crop"))
                     .tab_index(0)
                     .cursor_pointer()
                     .child(t!("Reset crop"))

@@ -43,6 +43,7 @@ pub struct Select {
     focus_ring: Option<Hsla>,
     on_click: Option<crate::ui::button::ClickHandler>,
     on_open: Option<OpenHandler>,
+    aria_label: Option<SharedString>,
 }
 
 impl Select {
@@ -75,6 +76,7 @@ impl Select {
             focus_ring: Some(Hsla::from(theme.ring)),
             on_click: None,
             on_open: None,
+            aria_label: None,
         }
     }
 
@@ -103,6 +105,11 @@ impl Select {
 
     /// The label takes the remaining width and the chevron is pushed to the
     /// end -- `EditorButton`'s `rightIconEnd`.
+    pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.aria_label = Some(label.into());
+        self
+    }
+
     pub fn stretch_label(mut self) -> Self {
         self.stretch = true;
         self
@@ -163,6 +170,7 @@ impl RenderOnce for Select {
             focus_ring,
             on_click,
             on_open,
+            aria_label,
         } = self;
         let focus_ring = focus_ring.filter(|_| on_click.is_some() && !disabled);
         let on_click = on_click.filter(|_| !disabled).map(Rc::new);
@@ -170,6 +178,9 @@ impl RenderOnce for Select {
 
         div()
             .id(id)
+            .role(gpui::Role::ComboBox)
+            .aria_label(aria_label.unwrap_or_else(|| label.clone()))
+            .aria_value(label.clone())
             .flex()
             .flex_row()
             .items_center()

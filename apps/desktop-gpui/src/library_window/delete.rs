@@ -487,6 +487,13 @@ impl LibraryWindow {
         let focused = on && dialog.focus == DialogFocus::Choices;
         div()
             .id(("library-delete-choice", index))
+            .role(gpui::Role::RadioButton)
+            .aria_label(title)
+            .aria_toggled(if on {
+                gpui::Toggled::True
+            } else {
+                gpui::Toggled::False
+            })
             .flex()
             .gap(px(10.))
             .p(px(10.))
@@ -713,6 +720,8 @@ impl LibraryWindow {
                         .child(focus_ring(
                             div()
                                 .id("library-undo")
+                                .role(gpui::Role::Button)
+                                .aria_label(t!("Undo"))
                                 .track_focus(&toast.button)
                                 .flex()
                                 .flex_shrink_0()

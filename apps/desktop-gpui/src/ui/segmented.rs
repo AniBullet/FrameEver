@@ -243,6 +243,7 @@ impl RenderOnce for SegmentedControl {
 
         div()
             .id(id)
+            .role(gpui::Role::RadioGroup)
             .flex()
             .flex_row()
             .p(container_padding)
@@ -259,6 +260,13 @@ impl RenderOnce for SegmentedControl {
 
                 div()
                     .id(SharedString::from(format!("{prefix}-{index}")))
+                    .role(gpui::Role::RadioButton)
+                    .when_some(option.label.clone(), |this, name| this.aria_label(name))
+                    .aria_toggled(if selected {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
                     .flex()
                     .flex_row()
                     .items_center()

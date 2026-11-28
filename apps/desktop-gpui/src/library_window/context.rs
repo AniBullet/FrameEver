@@ -551,6 +551,7 @@ impl LibraryWindow {
                 let opens_submenu = command.submenu().is_some();
                 let ticked = self.command_ticked(command);
                 self.popup_row(("library-context-row", index))
+                    .aria_label(self.command_label(command))
                     .when(highlight == Some(index), |this| this.bg(theme.accent))
                     .when(
                         matches!(command, Command::Delete | Command::DeleteFolder),

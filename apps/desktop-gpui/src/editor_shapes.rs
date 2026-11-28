@@ -1638,6 +1638,13 @@ impl EditorWindow {
             let current = kind == self.shapes.last_kind;
             div()
                 .id(SharedString::from(format!("shape-tool-{kind:?}")))
+                .role(gpui::Role::RadioButton)
+                .aria_label(crate::editor_timeline::shape_kind_label(kind))
+                .aria_toggled(if current {
+                    gpui::Toggled::True
+                } else {
+                    gpui::Toggled::False
+                })
                 .flex()
                 .flex_col()
                 .items_center()
@@ -2042,6 +2049,8 @@ impl EditorWindow {
                            cx: &mut Context<Self>| {
                 div()
                     .id(SharedString::from(format!("shape-number-{id}-{index}")))
+                    .role(gpui::Role::Button)
+                    .aria_label(label)
                     .flex()
                     .items_center()
                     .justify_center()

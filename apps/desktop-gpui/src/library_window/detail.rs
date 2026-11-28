@@ -482,9 +482,12 @@ impl LibraryWindow {
         disabled: bool,
     ) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
+        let label: SharedString = label.into();
         focus_ring(
             div()
                 .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(label.clone())
                 .when(!disabled, |this| this.tab_index(0))
                 .flex()
                 .flex_1()
@@ -511,7 +514,7 @@ impl LibraryWindow {
                             this.hover(move |style| style.bg(theme.secondary_hover))
                         })
                 })
-                .child(div().truncate().child(label.into())),
+                .child(div().truncate().child(label)),
             theme,
         )
     }
@@ -744,6 +747,13 @@ impl LibraryWindow {
             focus_ring(
                 div()
                     .id(id)
+                    .role(gpui::Role::RadioButton)
+                    .aria_label(label)
+                    .aria_toggled(if on {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
                     .tab_index(0)
                     .flex()
                     .flex_1()
@@ -843,6 +853,8 @@ impl LibraryWindow {
         focus_ring(
             div()
                 .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(label)
                 .tab_index(0)
                 .flex()
                 .flex_shrink_0()
@@ -1057,6 +1069,8 @@ impl LibraryWindow {
                     focus_ring(
                         div()
                             .id(("library-folder-chip-remove", index))
+                            .role(gpui::Role::Button)
+                            .aria_label(t!("Remove from this folder"))
                             .tab_index(0)
                             .flex()
                             .items_center()
@@ -1085,6 +1099,8 @@ impl LibraryWindow {
         let add = focus_ring(
             div()
                 .id("library-folder-chip-add")
+                .role(gpui::Role::Button)
+                .aria_label(t!("Add to folder"))
                 .tab_index(0)
                 .flex()
                 .items_center()
@@ -1270,9 +1286,12 @@ impl LibraryWindow {
         disabled: bool,
     ) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
+        let label: SharedString = label.into();
         focus_ring(
             div()
                 .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(label.clone())
                 .when(!disabled, |this| {
                     this.tab_index(0)
                         .cursor_pointer()
@@ -1296,7 +1315,7 @@ impl LibraryWindow {
                         .flex_shrink_0()
                         .text_color(theme.muted_foreground),
                 )
-                .child(div().min_w_0().truncate().child(label.into())),
+                .child(div().min_w_0().truncate().child(label)),
             theme,
         )
     }

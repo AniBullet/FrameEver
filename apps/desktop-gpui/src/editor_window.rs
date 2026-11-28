@@ -2104,6 +2104,13 @@ fn clip_menu_toggle_row(
 ) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
+        .role(gpui::Role::Switch)
+        .aria_label(label)
+        .aria_toggled(if checked {
+            gpui::Toggled::True
+        } else {
+            gpui::Toggled::False
+        })
         .h(px(40.))
         .w_full()
         .flex()
@@ -2183,6 +2190,8 @@ fn clip_menu_row(
     };
     let row = div()
         .id(id)
+        .role(gpui::Role::MenuItem)
+        .aria_label(label)
         .h(px(32.))
         .w_full()
         .flex()
@@ -9835,6 +9844,8 @@ impl EditorWindow {
                         "clip-settings".into(),
                         index as u64,
                     ))
+                    .role(gpui::Role::Button)
+                    .aria_label(t!("Clip options"))
                     .absolute()
                     .left(px(button_left))
                     .bottom(px(6.))
@@ -9931,6 +9942,13 @@ impl EditorWindow {
         let chip = |id: SharedString, selected: bool, label: String| {
             div()
                 .id(id)
+                .role(gpui::Role::RadioButton)
+                .aria_label(SharedString::from(label.clone()))
+                .aria_toggled(if selected {
+                    gpui::Toggled::True
+                } else {
+                    gpui::Toggled::False
+                })
                 .flex_1()
                 .rounded(px(6.))
                 .px(px(6.))
@@ -10493,6 +10511,8 @@ impl EditorWindow {
         };
         div()
             .id(SharedString::from(format!("add-track-{kind:?}")))
+            .role(gpui::Role::Button)
+            .aria_label(kind.picker_label())
             .group(group.clone())
             .relative()
             .flex()
@@ -10707,6 +10727,8 @@ impl EditorWindow {
                                 .child(
                                     div()
                                         .id("preset-create")
+                                        .role(gpui::Role::MenuItem)
+                                        .aria_label(t!("Create new preset"))
                                         .flex()
                                         .flex_row()
                                         .items_center()
@@ -10758,6 +10780,8 @@ impl EditorWindow {
         };
         div()
             .id(SharedString::from(format!("preset-{key}")))
+            .role(gpui::Role::MenuItem)
+            .aria_label(name.clone())
             .flex()
             .flex_row()
             .items_center()
@@ -10794,6 +10818,8 @@ impl EditorWindow {
             .child(
                 div()
                     .id(SharedString::from(format!("preset-gear-{key}")))
+                    .role(gpui::Role::Button)
+                    .aria_label(t!("Preset options"))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -10850,6 +10876,8 @@ impl EditorWindow {
         let menu_row = |id: SharedString, label: &'static str, danger: bool| {
             div()
                 .id(id)
+                .role(gpui::Role::MenuItem)
+                .aria_label(label)
                 .flex()
                 .flex_row()
                 .items_center()
@@ -11298,6 +11326,7 @@ impl EditorWindow {
             t!("Export"),
             self.project_ready(),
         )
+        .accessibility_id("export")
         .when(self.project_ready(), |button| {
             button.on_click(cx.listener(|this, _, window, cx| {
                 if this.project_ready() {
@@ -11653,6 +11682,13 @@ impl EditorWindow {
                         "preview-quality-item".into(),
                         index as u64,
                     ))
+                    .role(gpui::Role::RadioButton)
+                    .aria_label(quality.label())
+                    .aria_toggled(if selected {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
                     .flex()
                     .items_center()
                     .justify_center()
@@ -11800,6 +11836,8 @@ impl EditorWindow {
         };
         div()
             .id(id)
+            .role(gpui::Role::Button)
+            .aria_label(label)
             .group(SharedString::from(format!("{id}-group")))
             .flex()
             .items_center()
@@ -11876,9 +11914,15 @@ impl EditorWindow {
             "icons/pause.svg"
         };
 
-        let skip = |id: &'static str, glyph: &'static str, handler: ui::ClickHandler| {
+        let skip = |id: &'static str,
+                    name: &'static str,
+                    glyph: &'static str,
+                    handler: ui::ClickHandler| {
             div()
                 .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(name)
+                .accessibility_id(id)
                 .tab_index(0)
                 .flex()
                 .items_center()
@@ -11955,6 +11999,7 @@ impl EditorWindow {
                             .when(!live, |this| this.opacity(0.5))
                             .child(skip(
                                 "transport-prev",
+                                t!("Go to start"),
                                 "icons/skip-back.svg",
                                 Box::new(
                                     cx.listener(|this, _, _window, cx| this.jump_to_start(cx)),
@@ -11971,24 +12016,36 @@ impl EditorWindow {
                                             .view(cx)
                                     })
                                     .child(
-                                        ui::IconButton::new("transport-play", icon)
-                                            .size(px(32.))
-                                            .icon_size(px(14.))
-                                            .color(Hsla::from(editor.card))
-                                            .filled(Hsla::from(editor.text_1), None)
-                                            .disabled(!live)
-                                            .hover_bg(Hsla::from(crate::theme::mix(
-                                                editor.text_1,
-                                                editor.card,
-                                                0.15,
-                                            )))
-                                            .on_click(cx.listener(|this, _, window, cx| {
+                                        ui::IconButton::new(
+                                            "transport-play",
+                                            icon,
+                                            if icon == "icons/play.svg" {
+                                                t!("Play")
+                                            } else {
+                                                t!("Pause")
+                                            },
+                                        )
+                                        .accessibility_id("play")
+                                        .size(px(32.))
+                                        .icon_size(px(14.))
+                                        .color(Hsla::from(editor.card))
+                                        .filled(Hsla::from(editor.text_1), None)
+                                        .disabled(!live)
+                                        .hover_bg(Hsla::from(crate::theme::mix(
+                                            editor.text_1,
+                                            editor.card,
+                                            0.15,
+                                        )))
+                                        .on_click(
+                                            cx.listener(|this, _, window, cx| {
                                                 this.toggle_play(window, cx);
-                                            })),
+                                            }),
+                                        ),
                                     ),
                             )
                             .child(skip(
                                 "transport-next",
+                                t!("Go to end"),
                                 "icons/skip-forward.svg",
                                 Box::new(cx.listener(|this, _, _window, cx| this.jump_to_end(cx))),
                             )),
@@ -12066,14 +12123,18 @@ impl EditorWindow {
                                     .view(cx)
                             })
                             .child(
-                                ui::IconButton::new("timeline-delete", "icons/trash.svg")
-                                    .size(px(28.))
-                                    .icon_size(px(16.))
-                                    .color(theme.muted_foreground.into())
-                                    .disabled(self.selection().is_none())
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.delete_selection(window, cx)
-                                    })),
+                                ui::IconButton::new(
+                                    "timeline-delete",
+                                    "icons/trash.svg",
+                                    t!("Delete"),
+                                )
+                                .size(px(28.))
+                                .icon_size(px(16.))
+                                .color(theme.muted_foreground.into())
+                                .disabled(self.selection().is_none())
+                                .on_click(cx.listener(
+                                    |this, _, window, cx| this.delete_selection(window, cx),
+                                )),
                             ),
                     )
                     .child(self.header_divider())
@@ -12169,6 +12230,9 @@ impl EditorWindow {
         let on = open || !self.preview_speed.is_normal();
         let trigger = div()
             .id("transport-speed")
+            .role(gpui::Role::ComboBox)
+            .aria_label(t!("Preview speed"))
+            .aria_value(SharedString::from(self.preview_speed.label()))
             .flex()
             .flex_none()
             .items_center()
@@ -12848,17 +12912,23 @@ impl EditorWindow {
                                     .top(px((kind.row_height() - 20.) / 2.))
                                     .right(px(6.))
                                     .child(
-                                        ui::IconButton::new("zoom-generate-dismiss", "icons/x.svg")
-                                            .size(px(20.))
-                                            .icon_size(px(14.))
-                                            .color(Hsla::from(theme.editor.text_3))
-                                            .hover_bg(Hsla::from(theme.editor.ctl_hover))
-                                            .disabled(generating)
-                                            .on_click(cx.listener(|this, _, _, cx| {
+                                        ui::IconButton::new(
+                                            "zoom-generate-dismiss",
+                                            "icons/x.svg",
+                                            t!("Dismiss"),
+                                        )
+                                        .size(px(20.))
+                                        .icon_size(px(14.))
+                                        .color(Hsla::from(theme.editor.text_3))
+                                        .hover_bg(Hsla::from(theme.editor.ctl_hover))
+                                        .disabled(generating)
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| {
                                                 this.zoom_prompt_dismissed = true;
                                                 this.hovering_generate_zoom = false;
                                                 cx.notify();
-                                            })),
+                                            }),
+                                        ),
                                     ),
                             )
                     }))
@@ -12928,14 +12998,20 @@ impl EditorWindow {
                                 )
                                 .child(self.render_camera3d_count_pills("lane", 0, maximum, cx))
                                 .child(
-                                    ui::IconButton::new("camera3d-picker-close", "icons/x.svg")
-                                        .size(px(22.))
-                                        .icon_size(px(14.))
-                                        .color(Hsla::from(theme.editor.text_3))
-                                        .hover_bg(Hsla::from(theme.editor.ctl_hover))
-                                        .on_click(cx.listener(|this, _, _, cx| {
+                                    ui::IconButton::new(
+                                        "camera3d-picker-close",
+                                        "icons/x.svg",
+                                        t!("Close"),
+                                    )
+                                    .size(px(22.))
+                                    .icon_size(px(14.))
+                                    .color(Hsla::from(theme.editor.text_3))
+                                    .hover_bg(Hsla::from(theme.editor.ctl_hover))
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
                                             this.close_camera3d_picker(cx);
-                                        })),
+                                        },
+                                    )),
                                 )
                             })
                             .child(
@@ -12986,6 +13062,8 @@ impl EditorWindow {
                             }))
                             .when(row_hovered || hovered, |this| {
                                 this.tab_index(0)
+                                    .role(gpui::Role::Button)
+                                    .aria_label(t!("Delete track"))
                                     .cursor_pointer()
                                     .tab_index(0)
                                     .flex()
@@ -15943,6 +16021,15 @@ mod tests {
             }
             assert_eq!(serde_json::to_value(&editor.project).unwrap(), before);
         });
+    }
+
+    #[gpui::test]
+    fn every_editor_control_has_a_role_and_a_name(cx: &mut gpui::TestAppContext) {
+        let project = tempfile::tempdir().unwrap();
+        let path = project.path().to_path_buf();
+        let (_editor, cx) =
+            cx.add_window_view(move |window, cx| EditorWindow::new(path.clone(), window, cx));
+        crate::accessibility::assert_every_control_is_named(cx, &["export"]);
     }
 
     #[gpui::test]

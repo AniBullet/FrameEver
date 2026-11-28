@@ -321,6 +321,7 @@ impl LibraryWindow {
                 let ticked = choice == *rule;
                 let text = label(&choice, part);
                 self.popup_row(("smart-rule-choice", index * 16 + row))
+                    .aria_label(text.clone())
                     .child(div().flex_1().min_w_0().truncate().child(text))
                     .child(self.popup_tick(ticked))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -337,6 +338,8 @@ impl LibraryWindow {
                 focus_ring(
                     div()
                         .id(id)
+                        .role(gpui::Role::ComboBox)
+                        .aria_label(label(rule, part))
                         .tab_index(0)
                         .flex()
                         .items_center()
@@ -426,6 +429,8 @@ impl LibraryWindow {
                 focus_ring(
                     div()
                         .id(("smart-rule-remove", index))
+                        .role(gpui::Role::Button)
+                        .aria_label(t!("Remove rule"))
                         .tab_index(0)
                         .flex()
                         .flex_shrink_0()
@@ -479,6 +484,13 @@ impl LibraryWindow {
                         focus_ring(
                             div()
                                 .id(("smart-matching", index))
+                                .role(gpui::Role::RadioButton)
+                                .aria_label(text)
+                                .aria_toggled(if on {
+                                    gpui::Toggled::True
+                                } else {
+                                    gpui::Toggled::False
+                                })
                                 .tab_index(0)
                                 .flex()
                                 .items_center()

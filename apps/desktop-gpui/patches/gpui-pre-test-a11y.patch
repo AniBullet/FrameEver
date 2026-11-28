@@ -1,0 +1,133 @@
+diff --git a/crates/gpui/src/window.rs b/crates/gpui/src/window.rs
+--- a/crates/gpui/src/window.rs
++++ b/crates/gpui/src/window.rs
+@@ -7192,6 +7192,27 @@
+         self.a11y.debug_tree_json()
+     }
+ 
++    #[cfg(any(test, feature = "test-support"))]
++    #[allow(missing_docs)]
++    pub fn activate_a11y_for_test(&mut self) {
++        self.a11y.activate_for_test();
++        self.refresh();
++    }
++
++    #[cfg(any(test, feature = "test-support"))]
++    #[allow(missing_docs)]
++    pub fn last_a11y_tree_update(&self) -> Option<&accesskit::TreeUpdate> {
++        self.a11y.last_tree_update()
++    }
++
++    #[cfg(any(test, feature = "test-support"))]
++    #[allow(missing_docs)]
++    pub fn last_a11y_unexposed_clicks(
++        &self,
++    ) -> &[Option<&'static std::panic::Location<'static>>] {
++        self.a11y.last_unexposed_clicks()
++    }
++
+     /// Register a listener for an accessibility action on a specific node.
+     /// The listener will be called when a screen reader requests the given
+     /// action on the node identified by `node_id`.
+diff --git a/crates/gpui/src/window/a11y.rs b/crates/gpui/src/window/a11y.rs
+--- a/crates/gpui/src/window/a11y.rs
++++ b/crates/gpui/src/window/a11y.rs
+@@ -161,6 +161,10 @@
+     /// Maps a view's [`EntityId`] to its `Render` type name
+     #[cfg(debug_assertions)]
+     pub(crate) view_type_names: FxHashMap<EntityId, &'static str>,
++    #[cfg(any(test, feature = "test-support"))]
++    unexposed_clicks: Vec<Option<&'static std::panic::Location<'static>>>,
++    #[cfg(any(test, feature = "test-support"))]
++    last_unexposed_clicks: Vec<Option<&'static std::panic::Location<'static>>>,
+ }
+ 
+ impl A11y {
+@@ -182,6 +186,10 @@
+             debug: debug::A11yDebug::default(),
+             #[cfg(debug_assertions)]
+             view_type_names: FxHashMap::default(),
++            #[cfg(any(test, feature = "test-support"))]
++            unexposed_clicks: Vec::new(),
++            #[cfg(any(test, feature = "test-support"))]
++            last_unexposed_clicks: Vec::new(),
+         }
+     }
+ 
+@@ -291,12 +299,40 @@
+         );
+         #[cfg(debug_assertions)]
+         self.debug.capture_node_info(&self.nodes.node_info);
++        #[cfg(any(test, feature = "test-support"))]
++        {
++            self.last_unexposed_clicks = std::mem::take(&mut self.unexposed_clicks);
++        }
+         update
+     }
+ 
+     pub(crate) fn debug_tree_json(&self) -> Option<String> {
+         self.debug.to_json()
+     }
++
++    #[cfg(any(test, feature = "test-support"))]
++    pub(crate) fn activate_for_test(&mut self) {
++        self.active_flag.store(true, Ordering::SeqCst);
++        self.sync_active_flag();
++    }
++
++    #[cfg(any(test, feature = "test-support"))]
++    pub(crate) fn last_tree_update(&self) -> Option<&TreeUpdate> {
++        self.debug.last_tree_update()
++    }
++
++    #[cfg(any(test, feature = "test-support"))]
++    pub(crate) fn record_unexposed_click(
++        &mut self,
++        location: Option<&'static std::panic::Location<'static>>,
++    ) {
++        self.unexposed_clicks.push(location);
++    }
++
++    #[cfg(any(test, feature = "test-support"))]
++    pub(crate) fn last_unexposed_clicks(&self) -> &[Option<&'static std::panic::Location<'static>>] {
++        &self.last_unexposed_clicks
++    }
+ }
+ 
+ /// Builder API for synthetic children. See the docs for
+diff --git a/crates/gpui/src/window/a11y/debug.rs b/crates/gpui/src/window/a11y/debug.rs
+--- a/crates/gpui/src/window/a11y/debug.rs
++++ b/crates/gpui/src/window/a11y/debug.rs
+@@ -91,6 +91,11 @@
+         });
+     }
+ 
++    #[cfg(any(test, feature = "test-support"))]
++    pub(crate) fn last_tree_update(&self) -> Option<&TreeUpdate> {
++        self.last_tree_update.as_ref()
++    }
++
+     #[cfg(debug_assertions)]
+     pub(crate) fn capture_node_info(&mut self, node_info: &FxHashMap<NodeId, NodeDebugInfo>) {
+         self.last_node_info = node_info.clone();
+diff --git a/crates/gpui/src/elements/div.rs b/crates/gpui/src/elements/div.rs
+--- a/crates/gpui/src/elements/div.rs
++++ b/crates/gpui/src/elements/div.rs
+@@ -2362,6 +2362,17 @@
+     ) -> R {
+         self.content_size = content_size;
+ 
++        #[cfg(any(test, feature = "test-support"))]
++        if window.a11y.is_active()
++            && !self.click_listeners.is_empty()
++            && (global_id.is_none()
++                || self
++                    .override_role
++                    .is_none_or(|role| role == accesskit::Role::GenericContainer))
++        {
++            window.a11y.record_unexposed_click(self.source_location());
++        }
++
+         #[cfg(any(feature = "inspector", debug_assertions))]
+         window.with_inspector_state(
+             _inspector_id,

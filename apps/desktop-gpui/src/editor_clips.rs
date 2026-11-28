@@ -1228,6 +1228,8 @@ impl EditorWindow {
                             .child(
                                 div()
                                     .id(SharedString::from(format!("clip-edit-{index}")))
+                                    .role(gpui::Role::Button)
+                                    .aria_label(t!("Rename"))
                                     .tab_index(0)
                                     .focus_visible(|style| style.opacity(1.))
                                     .flex()
@@ -1264,6 +1266,8 @@ impl EditorWindow {
                             .children((count > 1).then(|| {
                                 div()
                                     .id(SharedString::from(format!("clip-delete-{index}")))
+                                    .role(gpui::Role::Button)
+                                    .aria_label(t!("Delete"))
                                     .tab_index(0)
                                     .focus_visible(|style| style.opacity(1.))
                                     .flex()
@@ -1447,6 +1451,8 @@ impl EditorWindow {
         let row = |id: &str, label: &'static str| {
             div()
                 .id(SharedString::from(id.to_string()))
+                .role(gpui::Role::MenuItem)
+                .aria_label(label)
                 .flex()
                 .flex_row()
                 .items_center()

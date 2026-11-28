@@ -798,6 +798,8 @@ impl EditorWindow {
 
         let shuffle = div()
             .id("animated-gradient-randomize")
+            .role(gpui::Role::Button)
+            .aria_label(t!("Randomize"))
             .flex()
             .items_center()
             .justify_center()
@@ -943,6 +945,13 @@ impl EditorWindow {
         let id = preset.id.clone();
         let swatch = div()
             .id(SharedString::from(format!("animated-gradient-preset-{id}")))
+            .role(gpui::Role::RadioButton)
+            .aria_label(name.clone())
+            .aria_toggled(if selected {
+                gpui::Toggled::True
+            } else {
+                gpui::Toggled::False
+            })
             .size_full()
             .rounded(px(8.))
             .border_1()
@@ -965,6 +974,8 @@ impl EditorWindow {
                 this.child(
                     div()
                         .id(SharedString::from(format!("animated-gradient-delete-{id}")))
+                        .role(gpui::Role::Button)
+                        .aria_label(t!("Delete"))
                         .absolute()
                         .top(px(-6.))
                         .right(px(-6.))

@@ -710,6 +710,13 @@ impl EditorWindow {
             let on = selected == Some(tile);
             div()
                 .id(SharedString::from(format!("voice-eq-preset-{tile:?}")))
+                .role(gpui::Role::RadioButton)
+                .aria_label(tile.label())
+                .aria_toggled(if on {
+                    gpui::Toggled::True
+                } else {
+                    gpui::Toggled::False
+                })
                 .flex()
                 .items_center()
                 .justify_center()

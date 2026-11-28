@@ -44,6 +44,9 @@ pub(crate) fn title_icon(
     focus_ring(
         div()
             .id(id)
+            .role(gpui::Role::Button)
+            .aria_label(label)
+            .accessibility_id(id)
             .group(id)
             .when(cfg!(target_os = "windows"), |this| this.occlude())
             .tab_index(0)
@@ -204,6 +207,10 @@ impl MainWindow {
             focus_ring(
                 div()
                     .id(SharedString::from(id))
+                    .role(gpui::Role::Tab)
+                    .aria_label(mode.panel_title())
+                    .aria_selected(selected)
+                    .accessibility_id(id)
                     .tab_index(0)
                     .relative()
                     .flex()
@@ -243,6 +250,9 @@ impl MainWindow {
             .flex_shrink_0()
             .child(
                 div()
+                    .id("modes")
+                    .role(gpui::Role::TabList)
+                    .aria_label(t!("Recording mode"))
                     .flex()
                     .flex_1()
                     .min_w_0()
@@ -270,6 +280,9 @@ impl MainWindow {
 
     fn render_targets(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
+            .id("targets")
+            .role(gpui::Role::TabList)
+            .aria_label(t!("Target"))
             .flex()
             .flex_row()
             .gap(px(TARGET_GAP))
@@ -304,6 +317,10 @@ impl MainWindow {
 
         div()
             .id(target.tile_id())
+            .role(gpui::Role::Tab)
+            .aria_label(target.label())
+            .aria_selected(selected)
+            .accessibility_id(target.tile_id())
             .tab_index(0)
             .relative()
             .flex()
@@ -362,6 +379,12 @@ impl MainWindow {
                 tile.child(
                     div()
                         .id(SharedString::from(format!("{}-choose", target.tile_id())))
+                        .role(gpui::Role::Button)
+                        .aria_label(match target {
+                            TargetType::Display => t!("Choose a display"),
+                            _ => t!("Choose a window"),
+                        })
+                        .accessibility_id(format!("{}-choose", target.tile_id()))
                         .tab_index(0)
                         .absolute()
                         .top(px(1.))
@@ -426,6 +449,9 @@ impl MainWindow {
         let start = focus_ring(
             div()
                 .id("start")
+                .role(gpui::Role::Button)
+                .aria_label(t!("Start recording"))
+                .accessibility_id("start-recording")
                 .when(!blocked, |start| start.tab_index(0))
                 .flex()
                 .flex_1()
@@ -512,6 +538,9 @@ impl MainWindow {
         let library = focus_ring(
             div()
                 .id("library")
+                .role(gpui::Role::Button)
+                .aria_label(t!("Library"))
+                .accessibility_id("library")
                 .tab_index(0)
                 .flex()
                 .flex_shrink_0()

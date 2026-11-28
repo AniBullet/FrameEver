@@ -387,6 +387,13 @@ impl EditorWindow {
                                                             "frame-theme",
                                                             usize::from(value == FrameTheme::Dark),
                                                         ))
+                                                        .role(gpui::Role::RadioButton)
+                                                        .aria_label(label)
+                                                        .aria_toggled(if value == frame_theme {
+                                                            gpui::Toggled::True
+                                                        } else {
+                                                            gpui::Toggled::False
+                                                        })
                                                         .tab_index(0)
                                                         .flex()
                                                         .flex_1()

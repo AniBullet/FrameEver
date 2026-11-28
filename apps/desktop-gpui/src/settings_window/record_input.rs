@@ -40,16 +40,20 @@ impl SettingsWindow {
                 },
             ))
             .child(div().flex_1())
-            .child(self.toggle(
-                "capture-keyboard",
-                self.settings.capture_keyboard_events,
-                cx,
-                |this, cx| {
-                    this.settings.capture_keyboard_events = !this.settings.capture_keyboard_events;
-                    let value = this.settings.capture_keyboard_events;
-                    this.write_bool("captureKeyboardEvents", value, cx);
-                },
-            ));
+            .child(
+                self.toggle(
+                    "capture-keyboard",
+                    self.settings.capture_keyboard_events,
+                    cx,
+                    |this, cx| {
+                        this.settings.capture_keyboard_events =
+                            !this.settings.capture_keyboard_events;
+                        let value = this.settings.capture_keyboard_events;
+                        this.write_bool("captureKeyboardEvents", value, cx);
+                    },
+                )
+                .aria_label(t!("Record input")),
+            );
         let notice = open.then(|| {
             let url = learn_more_url(crate::i18n::current());
             self.note_box()
@@ -70,6 +74,8 @@ impl SettingsWindow {
                 .child(
                     div()
                         .id("record-input-learn-more")
+                        .role(gpui::Role::Link)
+                        .aria_label(t!("Learn more"))
                         .tab_index(0)
                         .mt(px(2.))
                         .font_weight(FontWeight::MEDIUM)

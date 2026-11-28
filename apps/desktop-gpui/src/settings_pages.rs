@@ -1242,6 +1242,8 @@ impl SettingsWindow {
         });
         let clear = div()
             .id(SharedString::from(format!("shortcut-clear-{action}")))
+            .role(gpui::Role::Button)
+            .aria_label(t!("Clear"))
             .flex()
             .items_center()
             .justify_center()
@@ -1351,6 +1353,8 @@ impl SettingsWindow {
 
         let base = div()
             .id(SharedString::from(format!("shortcut-field-{action}")))
+            .role(gpui::Role::Button)
+            .aria_label(shortcut_label(action))
             .flex()
             .flex_row()
             .items_center()
@@ -1894,6 +1898,7 @@ impl SettingsWindow {
                 let remove = hint.clone();
                 div()
                     .id(("hint-chip", index))
+                    .role(gpui::Role::Button)
                     .tab_index(0)
                     .aria_label(t!("Remove"))
                     .flex()
@@ -2320,6 +2325,7 @@ impl SettingsWindow {
                         cx.notify();
                     },
                 )
+                .aria_label(t!("Test microphone"))
                 .into_any_element(),
             ),
         ]);
@@ -3767,6 +3773,8 @@ impl SettingsWindow {
         let theme = self.theme;
         div()
             .id("automations-add")
+            .role(gpui::Role::Button)
+            .aria_label(t!("New automation"))
             .tab_index(0)
             .focus_visible(move |style| style.border_color(theme.ring))
             .flex()
@@ -3811,6 +3819,9 @@ impl SettingsWindow {
         let name = template.name;
         div()
             .id(SharedString::from(format!("template-{}", template.id)))
+            .role(gpui::Role::Button)
+            .aria_label(tr(name))
+            .aria_description(tr(template.description))
             .tab_index(0)
             .focus_visible(move |style| style.border_color(theme.ring))
             .flex()
@@ -3908,6 +3919,9 @@ impl SettingsWindow {
             .child(
                 div()
                     .id(("rule-expand-label", index))
+                    .role(gpui::Role::Button)
+                    .aria_label(rule_display_name(rule))
+                    .aria_expanded(expanded)
                     .flex()
                     .flex_col()
                     .flex_1()
@@ -3968,6 +3982,9 @@ impl SettingsWindow {
             .child(
                 div()
                     .id(("rule-expand", index))
+                    .role(gpui::Role::Button)
+                    .aria_label(rule_display_name(rule))
+                    .aria_expanded(expanded)
                     .tab_index(0)
                     .focus_visible(move |style| style.bg(theme.settings_fill()))
                     .flex()
@@ -4239,6 +4256,8 @@ impl SettingsWindow {
             .child(
                 div()
                     .id(("rule-delete", index))
+                    .role(gpui::Role::Button)
+                    .aria_label(t!("Delete"))
                     .tab_index(0)
                     .focus_visible(move |style| style.bg(theme.settings_fill()))
                     .flex()
@@ -4452,6 +4471,12 @@ impl SettingsWindow {
         let theme = self.theme;
         div()
             .id(id)
+            .role(gpui::Role::Button)
+            .aria_label(match icon {
+                "icons/chevron-up.svg" => t!("Move up"),
+                "icons/chevron-down.svg" => t!("Move down"),
+                _ => t!("Remove"),
+            })
             .flex()
             .items_center()
             .justify_center()

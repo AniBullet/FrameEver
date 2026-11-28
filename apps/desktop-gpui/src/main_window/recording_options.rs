@@ -332,6 +332,8 @@ impl MainWindow {
         let button = focus_ring(
             div()
                 .id("recording-options-summary")
+                .role(gpui::Role::Button)
+                .accessibility_id("recording-options")
                 .track_focus(&self.recording_options_trigger)
                 .tab_index(0)
                 .flex()
@@ -495,6 +497,7 @@ impl MainWindow {
                             focus_ring(
                                 div()
                                     .id("recording-options-close")
+                                    .role(gpui::Role::Button)
                                     .tab_index(0)
                                     .size(px(24.))
                                     .rounded(px(8.))
@@ -531,6 +534,8 @@ impl MainWindow {
                     focus_ring(
                         div()
                             .id("recording-options-settings")
+                            .role(gpui::Role::Button)
+                            .aria_label(t!("All recording settings"))
                             .tab_index(0)
                             .h(px(34.))
                             .px(px(8.))

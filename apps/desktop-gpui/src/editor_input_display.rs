@@ -704,6 +704,17 @@ impl EditorWindow {
                                         .id(SharedString::from(format!(
                                             "input-display-anchor-{column}-{row}"
                                         )))
+                                        .role(gpui::Role::RadioButton)
+                                        .aria_label(t!(
+                                            "Row {row}, column {column}",
+                                            row = row + 1,
+                                            column = column + 1
+                                        ))
+                                        .aria_toggled(if chosen {
+                                            gpui::Toggled::True
+                                        } else {
+                                            gpui::Toggled::False
+                                        })
                                         .w(px(18.))
                                         .h(px(12.))
                                         .rounded(px(2.))
@@ -740,6 +751,9 @@ impl EditorWindow {
             .child(
                 div()
                     .id("input-display-exact")
+                    .role(gpui::Role::Button)
+                    .aria_label(t!("Position"))
+                    .aria_expanded(exact)
                     .size(px(22.))
                     .flex()
                     .items_center()
@@ -995,12 +1009,15 @@ impl EditorWindow {
         &self,
         id: String,
         icon: &'static str,
+        label: SharedString,
         cx: &mut Context<Self>,
         act: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) -> impl IntoElement {
         let theme = self.theme;
         div()
             .id(SharedString::from(id))
+            .role(gpui::Role::Button)
+            .aria_label(label)
             .size(px(20.))
             .flex()
             .items_center()
@@ -1100,6 +1117,7 @@ impl EditorWindow {
                     actions = actions.child(self.render_input_tile_action(
                         format!("input-preset-edit-{preset}"),
                         "icons/pencil.svg",
+                        SharedString::from(t!("Edit")),
                         cx,
                         move |this, window, cx| {
                             this.open_input_preset_maker(Some(edited.clone()), window, cx);
@@ -1110,6 +1128,7 @@ impl EditorWindow {
                 actions = actions.child(self.render_input_tile_action(
                     format!("input-preset-remove-{preset}"),
                     "icons/trash.svg",
+                    SharedString::from(t!("Remove")),
                     cx,
                     move |this, window, cx| {
                         this.remove_input_preset(removed.clone(), window, cx);

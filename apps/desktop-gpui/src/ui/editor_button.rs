@@ -206,6 +206,9 @@ impl RenderOnce for EditorButton {
             on_click,
             on_open,
         } = self;
+        let name = label
+            .clone()
+            .or_else(|| tooltip.as_ref().map(|(_, tooltip)| tooltip.clone()));
 
         let foreground = if disabled {
             disabled_text
@@ -224,6 +227,9 @@ impl RenderOnce for EditorButton {
 
         div()
             .id(id)
+            .role(gpui::Role::Button)
+            .when_some(name, |this, name| this.aria_label(name))
+            .when(pressed, |this| this.aria_toggled(gpui::Toggled::True))
             .group(group.clone())
             .tab_index(0)
             .flex()

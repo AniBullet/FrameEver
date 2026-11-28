@@ -3033,6 +3033,13 @@ impl EditorWindow {
                     .child(
                         div()
                             .id("desktop-preview")
+                            .role(gpui::Role::RadioButton)
+                            .aria_label(t!("Desktop"))
+                            .aria_toggled(if selected {
+                                gpui::Toggled::True
+                            } else {
+                                gpui::Toggled::False
+                            })
                             .relative()
                             .overflow_hidden()
                             .w_full()
@@ -3131,6 +3138,9 @@ impl EditorWindow {
                                 let selected = index == selected_theme;
                                 div()
                                     .id(SharedString::from(format!("wallpaper-theme-{index}")))
+                                    .role(gpui::Role::Tab)
+                                    .aria_label(tr(label))
+                                    .aria_selected(selected)
                                     .flex()
                                     .flex_1()
                                     .justify_center()
@@ -3169,6 +3179,13 @@ impl EditorWindow {
                         let image = self.sidebar.wallpapers.get(id).cloned();
                         div()
                             .id(SharedString::from(format!("wallpaper-{id}")))
+                            .role(gpui::Role::RadioButton)
+                            .aria_label(SharedString::from(id.to_string()))
+                            .aria_toggled(if selected {
+                                gpui::Toggled::True
+                            } else {
+                                gpui::Toggled::False
+                            })
                             .w(px(cell))
                             .h(px(WALLPAPER_TILE_HEIGHT + 2. * (RING_WIDTH + RING_GAP)))
                             .rounded(px(8.))
@@ -3221,6 +3238,8 @@ impl EditorWindow {
         match path {
             None => div()
                 .id("pick-background-image")
+                .role(gpui::Role::Button)
+                .aria_label(t!("Click to select or drag and drop image"))
                 .flex()
                 .flex_col()
                 .items_center()
@@ -3266,26 +3285,30 @@ impl EditorWindow {
                 }))
                 .child(
                     div().absolute().top(px(8.)).right(px(8.)).child(
-                        ui::IconButton::new("clear-background-image", "icons/circle-x.svg")
-                            .size(px(32.))
-                            .icon_size(px(16.))
-                            .rounded(px(16.))
-                            .color(gpui::white())
-                            .filled(with_alpha(gpui::black(), 0.5), None)
-                            .hover_bg(with_alpha(gpui::black(), 0.7))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.edit_background(
-                                    "image",
-                                    |project| {
-                                        project.background.source =
-                                            BackgroundSource::Image { path: None };
-                                        true
-                                    },
-                                    window,
-                                    cx,
-                                );
-                                this.ensure_preview(window, cx);
-                            })),
+                        ui::IconButton::new(
+                            "clear-background-image",
+                            "icons/circle-x.svg",
+                            t!("Remove image"),
+                        )
+                        .size(px(32.))
+                        .icon_size(px(16.))
+                        .rounded(px(16.))
+                        .color(gpui::white())
+                        .filled(with_alpha(gpui::black(), 0.5), None)
+                        .hover_bg(with_alpha(gpui::black(), 0.7))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.edit_background(
+                                "image",
+                                |project| {
+                                    project.background.source =
+                                        BackgroundSource::Image { path: None };
+                                    true
+                                },
+                                window,
+                                cx,
+                            );
+                            this.ensure_preview(window, cx);
+                        })),
                     ),
                 )
                 .into_any_element(),
@@ -3326,6 +3349,13 @@ impl EditorWindow {
                         let selected = !transparent && value == color;
                         div()
                             .id(SharedString::from(format!("bg-color-{index}")))
+                            .role(gpui::Role::RadioButton)
+                            .aria_label(SharedString::from(hex.to_string()))
+                            .aria_toggled(if selected {
+                                gpui::Toggled::True
+                            } else {
+                                gpui::Toggled::False
+                            })
                             .size(px(32.))
                             .rounded(px(8.))
                             .tab_index(0)
@@ -3391,6 +3421,8 @@ impl EditorWindow {
             .child(
                 div()
                     .id(SharedString::from(format!("{id}-swatch")))
+                    .role(gpui::Role::Button)
+                    .aria_label(t!("Color"))
                     .size(px(32.))
                     .rounded(px(8.))
                     .bg(color_to_hsla(value))
@@ -3544,6 +3576,8 @@ impl EditorWindow {
                     .child(
                         div()
                             .id("gradient-randomize")
+                            .role(gpui::Role::Button)
+                            .aria_label(t!("Randomize"))
                             .flex()
                             .items_center()
                             .justify_center()
@@ -3602,6 +3636,13 @@ impl EditorWindow {
                             let (preset_from, preset_to) = (*preset_from, *preset_to);
                             div()
                                 .id(SharedString::from(format!("gradient-preset-{index}")))
+                                .role(gpui::Role::RadioButton)
+                                .aria_label(t!("Gradient {number}", number = index + 1))
+                                .aria_toggled(if preset == Some(index) {
+                                    gpui::Toggled::True
+                                } else {
+                                    gpui::Toggled::False
+                                })
                                 .size(px(32.))
                                 .rounded(px(8.))
                                 .tab_index(0)
@@ -4101,6 +4142,7 @@ pub(crate) fn disclosure_row(
     open: bool,
     handler: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
 ) -> AnyElement {
+    let label: SharedString = label.into();
     let id = id.into();
     let group: SharedString = SharedString::from(format!("dr-{id:?}"));
     let rest = Hsla::from(theme.editor.text_2);
@@ -4108,6 +4150,9 @@ pub(crate) fn disclosure_row(
 
     div()
         .id(id)
+        .role(gpui::Role::Button)
+        .aria_label(label.clone())
+        .aria_expanded(open)
         .tab_index(0)
         .group(group.clone())
         .flex()
@@ -4121,7 +4166,7 @@ pub(crate) fn disclosure_row(
         .tab_index(0)
         .cursor_pointer()
         .hover(move |this| this.text_color(hover))
-        .child(label.into())
+        .child(label.clone())
         .child(
             // `rotate-180` when open. There is no rotation in this gpui rev,
             // so the glyph swaps rather than turns.
@@ -4151,6 +4196,7 @@ pub(crate) fn section_action(
     active: bool,
     handler: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
 ) -> AnyElement {
+    let label: SharedString = label.into();
     let id = id.into();
     let group: SharedString = SharedString::from(format!("sa-{id:?}"));
     let rest = Hsla::from(theme.editor.text_2);
@@ -4159,6 +4205,8 @@ pub(crate) fn section_action(
 
     div()
         .id(id)
+        .role(gpui::Role::Button)
+        .aria_label(label.clone())
         .tab_index(0)
         .group(group.clone())
         .flex()
@@ -4188,7 +4236,7 @@ pub(crate) fn section_action(
                 .text_color(foreground)
                 .group_hover(group, move |style| style.text_color(hover))
         }))
-        .child(label.into())
+        .child(label.clone())
         .on_click(handler)
         .into_any_element()
 }
@@ -4883,6 +4931,8 @@ impl EditorWindow {
                     .child(
                         div()
                             .id("style-back")
+                            .role(gpui::Role::Button)
+                            .aria_label(t!("Back to Style"))
                             .tab_index(0)
                             .cursor_pointer()
                             .text_size(px(12.))

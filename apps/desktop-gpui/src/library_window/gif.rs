@@ -629,6 +629,13 @@ impl LibraryWindow {
             .children(labels.into_iter().enumerate().map(|(index, (label, on))| {
                 div()
                     .id((id, index))
+                    .role(gpui::Role::RadioButton)
+                    .aria_label(label)
+                    .aria_toggled(if on {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
                     .flex()
                     .flex_1()
                     .min_w_0()
@@ -870,6 +877,8 @@ impl LibraryWindow {
         focus_ring(
             div()
                 .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(label)
                 .tab_index(0)
                 .flex()
                 .flex_shrink_0()

@@ -1721,6 +1721,8 @@ impl EditorWindow {
                 div().flex_1().flex().flex_row().items_center().child(
                     div()
                         .id("export-back")
+                        .role(gpui::Role::Button)
+                        .aria_label(t!("Back to editor"))
                         .tab_index(0)
                         .when(cfg!(target_os = "windows"), |button| button.occlude())
                         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -2151,6 +2153,8 @@ impl EditorWindow {
 
         div()
             .id("export-cta")
+            .role(gpui::Role::Button)
+            .aria_label(label)
             .tab_index(0)
             .w_full()
             .h(px(40.))
@@ -2724,6 +2728,9 @@ impl EditorWindow {
             .child(
                 div()
                     .id("export-advanced-toggle").tab_index(0)
+                    .role(gpui::Role::Button)
+                    .aria_label(t!("Advanced"))
+                    .aria_expanded(ui.advanced_open)
                     .flex()
                     .flex_row()
                     .items_center()

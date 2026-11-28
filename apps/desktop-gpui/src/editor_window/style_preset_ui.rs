@@ -128,6 +128,8 @@ fn menu_row(
     let label: SharedString = label.into();
     div()
         .id(id)
+        .role(gpui::Role::MenuItem)
+        .aria_label(label.clone())
         .h(px(ROW_HEIGHT))
         .w_full()
         .flex()
@@ -232,6 +234,9 @@ impl EditorWindow {
         ui::Menu::trigger(
             div()
                 .id(SharedString::from(format!("style-presets-{}", kind.key())))
+                .role(gpui::Role::ComboBox)
+                .aria_label(t!("Style presets"))
+                .aria_value(label.clone())
                 .h(px(32.))
                 .w_full()
                 .flex()
@@ -415,6 +420,8 @@ impl EditorWindow {
                         .is_some_and(|(open, _)| *open == preset.id);
                     div()
                         .id(SharedString::from(format!("style-preset-{}", preset.id)))
+                        .role(gpui::Role::MenuItem)
+                        .aria_label(SharedString::from(preset.name.clone()))
                         .h(px(ROW_HEIGHT))
                         .flex()
                         .flex_none()
@@ -478,6 +485,8 @@ impl EditorWindow {
                                     "style-preset-more-{}",
                                     preset.id
                                 )))
+                                .role(gpui::Role::Button)
+                                .aria_label(t!("More"))
                                 .flex()
                                 .flex_none()
                                 .items_center()

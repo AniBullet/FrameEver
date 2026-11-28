@@ -107,8 +107,11 @@ pub(crate) fn primary_button(
     enabled: bool,
 ) -> Stateful<Div> {
     let editor = theme.editor;
+    let label = label.into();
     div()
         .id(id.into())
+        .role(gpui::Role::Button)
+        .aria_label(label.clone())
         .relative()
         .flex()
         .flex_row()
@@ -149,7 +152,7 @@ pub(crate) fn primary_button(
                 .flex_shrink_0()
                 .text_color(gpui::white())
         }))
-        .child(label.into())
+        .child(label)
 }
 
 pub(crate) fn rail_item(
@@ -162,6 +165,7 @@ pub(crate) fn rail_item(
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let theme = *theme;
+    let name = label.clone();
     div()
         .id(ElementId::NamedInteger(
             SharedString::from(format!("{id}-tooltip")),
@@ -171,7 +175,7 @@ pub(crate) fn rail_item(
         .tooltip_show_delay(ui::TOOLTIP_SHOW_DELAY)
         .tooltip(move |_, cx| ui::Tooltip::new(&theme, label.clone()).view(cx))
         .child(
-            ui::IconButton::new((id, index), icon)
+            ui::IconButton::new((id, index), icon, name)
                 .size(px(32.))
                 .icon_size(px(16.))
                 .color(theme.muted_foreground.into())

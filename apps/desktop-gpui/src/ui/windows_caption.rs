@@ -15,53 +15,58 @@ pub fn windows_caption_controls(
     let dark = theme.is_dark();
     let hover = rgba(if dark { 0xffffff0d } else { 0x0000000d });
     let pressed = rgba(if dark { 0xe9e9e908 } else { 0x00000008 });
-    let button = |id: &'static str, icon: &'static str, height: f32, enabled: bool| {
-        let foreground =
-            Theme::with_alpha(theme.foreground, if active && enabled { 0.8 } else { 0.4 });
+    let button =
+        |id: &'static str, name: &'static str, icon: &'static str, height: f32, enabled: bool| {
+            let foreground =
+                Theme::with_alpha(theme.foreground, if active && enabled { 0.8 } else { 0.4 });
 
-        div()
-            .id(id)
-            .group(id)
-            .when(enabled, |button| button.tab_index(0))
-            .w(px(46.))
-            .h_full()
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .cursor_default()
-            .occlude()
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .when(enabled, |button| {
-                button
-                    .hover(move |style| {
-                        style.bg(if id == "caption-close" {
-                            theme.danger
-                        } else {
-                            hover
+            div()
+                .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(name)
+                .group(id)
+                .when(enabled, |button| button.tab_index(0))
+                .w(px(46.))
+                .h_full()
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_default()
+                .occlude()
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .when(enabled, |button| {
+                    button
+                        .hover(move |style| {
+                            style.bg(if id == "caption-close" {
+                                theme.danger
+                            } else {
+                                hover
+                            })
                         })
-                    })
-                    .active(move |style| {
-                        style.bg(if id == "caption-close" {
-                            theme.danger_hover
-                        } else {
-                            pressed
+                        .active(move |style| {
+                            style.bg(if id == "caption-close" {
+                                theme.danger_hover
+                            } else {
+                                pressed
+                            })
                         })
-                    })
-            })
-            .child(
-                svg()
-                    .path(icon)
-                    .id("caption-glyph")
-                    .w(px(10.))
-                    .h(px(height))
-                    .text_color(foreground)
-                    .when(id == "caption-close", |icon| {
-                        icon.group_hover("caption-close", |style| style.text_color(gpui::white()))
+                })
+                .child(
+                    svg()
+                        .path(icon)
+                        .id("caption-glyph")
+                        .w(px(10.))
+                        .h(px(height))
+                        .text_color(foreground)
+                        .when(id == "caption-close", |icon| {
+                            icon.group_hover("caption-close", |style| {
+                                style.text_color(gpui::white())
+                            })
                             .group_active("caption-close", |style| style.text_color(gpui::white()))
-                    }),
-            )
-    };
+                        }),
+                )
+        };
 
     div()
         .flex()
@@ -71,6 +76,7 @@ pub fn windows_caption_controls(
         .child(
             button(
                 "caption-minimize",
+                crate::i18n::t!("Minimize"),
                 "icons/caption-minimize-windows.svg",
                 1.,
                 minimizable,
@@ -83,6 +89,11 @@ pub fn windows_caption_controls(
             row.child(
                 button(
                     "caption-maximize",
+                    if maximized {
+                        crate::i18n::t!("Restore down")
+                    } else {
+                        crate::i18n::t!("Maximize")
+                    },
                     if maximized {
                         "icons/caption-restore-windows.svg"
                     } else {
@@ -101,6 +112,7 @@ pub fn windows_caption_controls(
         .child(
             button(
                 "caption-close",
+                crate::i18n::t!("Close"),
                 "icons/caption-close-windows.svg",
                 10.,
                 true,

@@ -385,6 +385,8 @@ impl RenderOnce for Button {
 
         div()
             .id(id)
+            .role(gpui::Role::Button)
+            .when_some(label.clone(), |this, name| this.aria_label(name))
             .tab_index(0)
             .flex()
             .flex_row()
@@ -464,10 +466,16 @@ pub struct IconButton {
     occlude: bool,
     rounded: Option<Pixels>,
     on_click: Option<ClickHandler>,
+    name: SharedString,
+    accessibility_id: Option<SharedString>,
 }
 
 impl IconButton {
-    pub fn new(id: impl Into<ElementId>, icon: impl Into<SharedString>) -> Self {
+    pub fn new(
+        id: impl Into<ElementId>,
+        icon: impl Into<SharedString>,
+        name: impl Into<SharedString>,
+    ) -> Self {
         Self {
             id: id.into(),
             icon: icon.into(),
@@ -485,7 +493,14 @@ impl IconButton {
             occlude: false,
             rounded: None,
             on_click: None,
+            name: name.into(),
+            accessibility_id: None,
         }
+    }
+
+    pub fn accessibility_id(mut self, id: impl Into<SharedString>) -> Self {
+        self.accessibility_id = Some(id.into());
+        self
     }
 
     pub fn size(mut self, size: Pixels) -> Self {
@@ -555,10 +570,15 @@ impl RenderOnce for IconButton {
             occlude,
             rounded,
             on_click,
+            name,
+            accessibility_id,
         } = self;
 
         div()
             .id(id)
+            .role(gpui::Role::Button)
+            .aria_label(name)
+            .when_some(accessibility_id, |this, id| this.accessibility_id(id))
             .when(occlude, |this| this.occlude())
             .tab_index(0)
             .flex()

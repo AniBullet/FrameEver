@@ -527,6 +527,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("View", "显示"),
     ("Enter Full Screen", "进入全屏"),
     ("Minimize", "最小化"),
+    ("Maximize", "最大化"),
+    ("Restore down", "向下还原"),
     ("Zoom", "缩放"),
     ("Help", "帮助"),
     ("FrameEver is still open", "帧刻仍在运行"),

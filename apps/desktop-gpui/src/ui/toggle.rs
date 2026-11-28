@@ -1,6 +1,6 @@
 use gpui::{
     App, ClickEvent, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
 
 use crate::theme::Theme;
@@ -13,6 +13,7 @@ pub struct Toggle {
     on_fill: Hsla,
     thumb: Hsla,
     on_click: Option<crate::ui::button::ClickHandler>,
+    aria_label: Option<SharedString>,
 }
 
 impl Toggle {
@@ -24,7 +25,13 @@ impl Toggle {
             on_fill: Hsla::from(theme.editor.accent),
             thumb: gpui::white(),
             on_click: None,
+            aria_label: None,
         }
+    }
+
+    pub fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.aria_label = Some(label.into());
+        self
     }
 
     pub fn settings(theme: &Theme, id: impl Into<ElementId>, checked: bool) -> Self {
@@ -52,6 +59,7 @@ impl RenderOnce for Toggle {
             on_fill,
             thumb,
             on_click,
+            aria_label,
         } = self;
 
         div()
@@ -68,7 +76,14 @@ impl RenderOnce for Toggle {
             .bg(if checked { on_fill } else { off_fill })
             .child(div().size(px(16.)).rounded_full().bg(thumb))
             .when_some(on_click, |this, handler| {
-                this.tab_index(0)
+                this.role(gpui::Role::Switch)
+                    .when_some(aria_label, |this, name| this.aria_label(name))
+                    .aria_toggled(if checked {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
+                    .tab_index(0)
                     .on_click(move |event, window, cx| handler(event, window, cx))
             })
     }

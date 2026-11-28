@@ -174,6 +174,8 @@ pub static ENTRIES: &[(&str, &str)] = &[
     ("Zoom out", "缩小"),
     ("Zoom in", "放大"),
     ("Play/Pause video", "播放/暂停视频"),
+    ("Go to start", "跳到开头"),
+    ("Go to end", "跳到结尾"),
     ("Preview speed", "预览速度"),
     (
         "Click a segment to split. Esc to finish.",

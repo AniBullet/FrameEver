@@ -21,6 +21,17 @@ The skill installs as `frameever` (plus the `frameever-demo` companion skill), a
 registered as `frameever` running `frameever mcp serve`. Unrelated agent configuration is left alone.
 Restart the agent afterwards. The full machine-readable contract is always `frameever guide --json`.
 
+Desktop agents that read Windows UI Automation can also drive the app's windows directly. Every
+button, tab, switch and dropdown has a role and a name in the interface language; the controls below
+also have a fixed `AutomationId` that stays the same in every language:
+
+| Window | AutomationId |
+|---|---|
+| Main window | `mode-instant`, `mode-studio` (tabs), `target-display`, `target-window`, `target-area`, `target-camera`, `target-audio` (tabs), `target-display-choose`, `target-window-choose`, `start-recording`, `recording-options`, `screenshot`, `library`, `settings` |
+| Recording bar | `stop-recording`, `pause-recording`, `restart-recording`, `delete-recording`, `chapter-mark`, `draw` |
+| Editor | `export`, `play`, `transport-prev`, `transport-next` |
+| Settings | `settings-<page>` (tabs: `settings-general`, `settings-recording`, …) |
+
 ## Output conventions
 
 - Pass `--json` for JSON on stdout; stderr stays human-readable.

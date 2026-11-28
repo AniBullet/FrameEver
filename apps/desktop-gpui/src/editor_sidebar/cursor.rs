@@ -251,6 +251,13 @@ impl EditorWindow {
 
         div()
             .id(SharedString::from(format!("cursor-card-{}", card.key())))
+            .role(gpui::Role::RadioButton)
+            .aria_label(card.label())
+            .aria_toggled(if selected {
+                gpui::Toggled::True
+            } else {
+                gpui::Toggled::False
+            })
             .group(CARD_GROUP)
             .flex_1()
             .min_w_0()

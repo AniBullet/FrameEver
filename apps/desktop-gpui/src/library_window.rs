@@ -1904,6 +1904,9 @@ impl LibraryWindow {
         focus_ring(
             div()
                 .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(label)
+                .accessibility_id(id)
                 .tab_index(0)
                 .flex()
                 .flex_shrink_0()
@@ -2043,6 +2046,9 @@ impl LibraryWindow {
         focus_ring(
             div()
                 .id("library-detail-toggle")
+                .role(gpui::Role::Button)
+                .aria_label(label)
+                .accessibility_id("library-detail-toggle")
                 .tab_index(0)
                 .flex()
                 .flex_shrink_0()
@@ -2097,6 +2103,13 @@ impl LibraryWindow {
                         focus_ring(
                             div()
                                 .id(("library-view", index))
+                                .role(gpui::Role::RadioButton)
+                                .aria_label(label)
+                                .aria_toggled(if selected {
+                                    gpui::Toggled::True
+                                } else {
+                                    gpui::Toggled::False
+                                })
                                 .tab_index(0)
                                 .flex()
                                 .items_center()
@@ -2142,6 +2155,9 @@ impl LibraryWindow {
                 focus_ring(
                     div()
                         .id(("library-tab", index))
+                        .role(gpui::Role::Tab)
+                        .aria_label(tab_label(tab))
+                        .aria_selected(selected)
                         .tab_index(0)
                         .flex()
                         .items_center()
@@ -2195,6 +2211,7 @@ impl LibraryWindow {
         focus_ring(
             div()
                 .id(id.into())
+                .role(gpui::Role::MenuItem)
                 .tab_index(0)
                 .flex()
                 .items_center()
@@ -2228,6 +2245,12 @@ impl LibraryWindow {
             .map(|(index, status)| {
                 let on = held.contains(&status);
                 self.popup_row(("library-status-row", index))
+                    .aria_label(status_label(status))
+                    .aria_toggled(if on {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
                     .child(
                         div()
                             .flex()
@@ -2282,6 +2305,7 @@ impl LibraryWindow {
             .enumerate()
             .map(|(index, sort)| {
                 self.popup_row(("library-sort-key", index))
+                    .aria_label(sort_label(sort))
                     .child(div().flex_1().min_w_0().truncate().child(sort_label(sort)))
                     .child(self.popup_tick(sort == current))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -2295,6 +2319,7 @@ impl LibraryWindow {
             .enumerate()
             .map(|(index, choice)| {
                 self.popup_row(("library-sort-direction", index))
+                    .aria_label(direction_label(current, choice))
                     .child(
                         div()
                             .flex_1()
@@ -2339,6 +2364,8 @@ impl LibraryWindow {
                     focus_ring(
                         div()
                             .id("library-compressions")
+                            .role(gpui::Role::Button)
+                            .aria_label(label.clone())
                             .tab_index(0)
                             .flex()
                             .items_center()
@@ -2410,6 +2437,8 @@ impl LibraryWindow {
                                 focus_ring(
                                     div()
                                         .id(library::row_id(&listed.project))
+                                        .role(gpui::Role::Button)
+                                        .aria_label(t!("Cancel"))
                                         .tab_index(0)
                                         .flex()
                                         .items_center()
@@ -2460,6 +2489,7 @@ impl LibraryWindow {
                 .child(div().my(px(4.)).h(px(1.)).bg(theme.border))
                 .child(
                     self.popup_row("library-compressions-cancel-all")
+                        .aria_label(t!("Cancel all"))
                         .child(t!("Cancel all"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             compressions().cancel_all();
@@ -2475,6 +2505,7 @@ impl LibraryWindow {
             self.library_popup(180., true, cx)
                 .child(
                     self.popup_row("library-import-video")
+                        .aria_label(t!("Import video"))
                         .child(t!("Import video"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.close_library_menu(cx);
@@ -2483,6 +2514,7 @@ impl LibraryWindow {
                 )
                 .child(
                     self.popup_row("library-import-audio")
+                        .aria_label(t!("Import audio"))
                         .child(t!("Import audio"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.close_library_menu(cx);
@@ -2491,6 +2523,7 @@ impl LibraryWindow {
                 )
                 .child(
                     self.popup_row("library-import-image")
+                        .aria_label(t!("Import image"))
                         .child(t!("Import image"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.close_library_menu(cx);
@@ -2522,6 +2555,8 @@ impl LibraryWindow {
                     focus_ring(
                         div()
                             .id(("library-filter-tag", index))
+                            .role(gpui::Role::Button)
+                            .aria_label(status_label(status))
                             .tab_index(0)
                             .flex()
                             .items_center()
@@ -2548,6 +2583,8 @@ impl LibraryWindow {
                     focus_ring(
                         div()
                             .id("library-clear-filters")
+                            .role(gpui::Role::Button)
+                            .aria_label(t!("Clear filters"))
                             .tab_index(0)
                             .px(px(8.))
                             .rounded(px(4.))
@@ -2586,6 +2623,8 @@ impl LibraryWindow {
             focus_ring(
                 div()
                     .id(("library-column", key as usize))
+                    .role(gpui::Role::Button)
+                    .aria_label(column_label(Some(key)))
                     .tab_index(0)
                     .flex()
                     .items_center()
@@ -2751,6 +2790,8 @@ impl LibraryWindow {
         focus_ring(
             div()
                 .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(label)
                 .tab_index(0)
                 .flex()
                 .items_center()

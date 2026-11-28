@@ -497,6 +497,7 @@ fn filler_row(
     editor: WeakEntity<EditorWindow>,
 ) -> AnyElement {
     let (snippet, highlight) = snippet_around(doc, words.clone());
+    let name = SharedString::from(snippet.clone());
     let text = StyledText::new(snippet).with_highlights([(
         highlight,
         HighlightStyle {
@@ -537,6 +538,8 @@ fn filler_row(
     };
     div()
         .id(("transcript-filler", start))
+        .role(gpui::Role::Button)
+        .aria_label(name)
         .w_full()
         .flex()
         .flex_row()
@@ -586,8 +589,11 @@ fn pause_row(
     let stamp = crate::editor_timeline::format_time(pause.output.start);
     let before = doc.text_of(word.saturating_sub(2)..word + 1);
     let after = doc.text_of(next..(next + 2).min(doc.words.len()));
+    let excerpt = SharedString::from(format!("{before} … {after}"));
     div()
         .id(("transcript-pause", word))
+        .role(gpui::Role::Button)
+        .aria_label(excerpt.clone())
         .w_full()
         .flex()
         .flex_row()
@@ -615,7 +621,7 @@ fn pause_row(
                 .text_size(px(13.))
                 .text_color(palette.text_2)
                 .truncate()
-                .child(format!("{before} … {after}")),
+                .child(excerpt),
         )
         .child(
             div()

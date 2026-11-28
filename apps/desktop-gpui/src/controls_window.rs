@@ -375,7 +375,7 @@ impl ControlsWindow {
         .into_iter()
         .enumerate()
         .map(|(index, (id, icon, label, key))| {
-            self.action_button(id, icon, false, Control::DrawTool(index))
+            self.action_button(id, label, icon, false, Control::DrawTool(index))
                 .when(tool == DRAW_TOOLS[index], |this| this.bg(theme.selection))
                 .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).keys([key]).view(cx))
                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -389,6 +389,13 @@ impl ControlsWindow {
                 self.ring(
                     div()
                         .id(("draw-colour", index))
+                        .role(gpui::Role::RadioButton)
+                        .aria_label(t!("Colour {number}", number = number))
+                        .aria_toggled(if colour == index {
+                            gpui::Toggled::True
+                        } else {
+                            gpui::Toggled::False
+                        })
                         .size(px(24.))
                         .flex_shrink_0()
                         .flex()
@@ -452,6 +459,7 @@ impl ControlsWindow {
                     .child(
                         self.action_button(
                             "draw-undo",
+                            t!("Undo"),
                             "icons/undo-2.svg",
                             false,
                             Control::DrawUndo,
@@ -468,6 +476,7 @@ impl ControlsWindow {
                     .child(
                         self.action_button(
                             "draw-clear",
+                            t!("Clear"),
                             "icons/eraser.svg",
                             false,
                             Control::DrawClear,
@@ -661,6 +670,7 @@ impl ControlsWindow {
     fn action_button(
         &self,
         id: &'static str,
+        name: &'static str,
         icon: &'static str,
         disabled: bool,
         control: Control,
@@ -669,6 +679,9 @@ impl ControlsWindow {
         self.ring(
             div()
                 .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(name)
+                .accessibility_id(id)
                 .w(px(28.))
                 .h(px(28.))
                 .flex_shrink_0()
@@ -706,6 +719,7 @@ impl ControlsWindow {
             .unwrap_or_default();
         self.action_button(
             "chapter-mark",
+            t!("Add chapter mark"),
             "icons/flag.svg",
             false,
             Control::ChapterMark,
@@ -751,6 +765,13 @@ impl ControlsWindow {
         self.ring(
             div()
                 .id("stop")
+                .role(gpui::Role::Button)
+                .aria_label(if countdown.is_some() {
+                    t!("Cancel")
+                } else {
+                    t!("Stop")
+                })
+                .accessibility_id("stop-recording")
                 .size(px(28.))
                 .flex_shrink_0()
                 .flex()
@@ -850,6 +871,8 @@ impl ControlsWindow {
         self.ring(
             div()
                 .id("microphone")
+                .role(gpui::Role::Button)
+                .aria_label(t!("Microphone"))
                 .w(px(28.))
                 .h(px(28.))
                 .flex_shrink_0()
@@ -884,7 +907,7 @@ impl ControlsWindow {
         control: Control,
     ) -> gpui::Stateful<gpui::Div> {
         let theme = self.theme;
-        self.ring(div().id(id), control)
+        self.ring(div().id(id).role(gpui::Role::Button), control)
             .w_full()
             .h(px(crate::theme::ROW_HEIGHT))
             .flex_shrink_0()
@@ -942,6 +965,8 @@ impl ControlsWindow {
             ),
         };
         self.option_row(id, enabled, control)
+            .aria_label(label)
+            .aria_expanded(open)
             .when(in_take, |this| this.text_color(self.theme.foreground))
             .when(enabled, |this| {
                 this.on_click(cx.listener(move |this, _, window, cx| {
@@ -979,6 +1004,13 @@ impl ControlsWindow {
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         self.option_row(id, enabled, control)
+            .role(gpui::Role::RadioButton)
+            .aria_label(name.clone())
+            .aria_toggled(if checked {
+                gpui::Toggled::True
+            } else {
+                gpui::Toggled::False
+            })
             .pl(px(34.))
             .child(div().flex_1().min_w_0().truncate().child(name))
             .when(checked, |this| {
@@ -1123,6 +1155,7 @@ impl ControlsWindow {
             .children(camera_rows.into_iter().flatten())
             .child(
                 self.option_row("camera-preview", camera.is_some(), Control::CameraPreview)
+                    .aria_label(t!("Show camera preview"))
                     .child(self.row_icon("icons/maximize.svg", camera.is_some()))
                     .child(
                         div()
@@ -1145,6 +1178,7 @@ impl ControlsWindow {
             .child(divider())
             .child(
                 self.option_row("hide-controls", true, Control::HideControls)
+                    .aria_label(t!("Hide controls"))
                     .child(self.row_icon("icons/eye-off.svg", true))
                     .child(
                         div()
@@ -1704,6 +1738,7 @@ impl ControlsWindow {
                     .child(
                         self.action_button(
                             "dismiss-issue",
+                            t!("Dismiss"),
                             "icons/x.svg",
                             false,
                             Control::DismissIssue,
@@ -1841,6 +1876,7 @@ impl ControlsWindow {
             .child(
                 self.action_button(
                     "pause",
+                    pause_tooltip,
                     if paused {
                         "icons/play.svg"
                     } else {
@@ -1849,6 +1885,7 @@ impl ControlsWindow {
                     busy,
                     Control::Pause,
                 )
+                .accessibility_id("pause-recording")
                 .when(pause_pending, |this| this.opacity(0.5))
                 .tooltip(move |_, cx| ui::Tooltip::new(&theme, pause_tooltip).view(cx))
                 .when(!busy, |this| {
@@ -1858,23 +1895,34 @@ impl ControlsWindow {
                 }),
             )
             .child(
-                self.action_button("restart", "icons/rotate-ccw.svg", busy, Control::Restart)
-                    .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Restart")).view(cx))
-                    .when(!busy, |this| {
-                        this.on_click(cx.listener(|this, _, window, cx| {
-                            this.press(Control::Restart, window, cx);
-                        }))
-                    }),
+                self.action_button(
+                    "restart",
+                    t!("Restart"),
+                    "icons/rotate-ccw.svg",
+                    busy,
+                    Control::Restart,
+                )
+                .accessibility_id("restart-recording")
+                .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Restart")).view(cx))
+                .when(!busy, |this| {
+                    this.on_click(cx.listener(|this, _, window, cx| {
+                        this.press(Control::Restart, window, cx);
+                    }))
+                }),
             )
             .when(self.issue(cx).is_some(), |this| {
                 this.child(
-                    self.action_button("issue", "icons/triangle-alert.svg", false, Control::Issue)
-                        .tooltip(move |_, cx| {
-                            ui::Tooltip::new(&theme, t!("Recording issue")).view(cx)
-                        })
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.press(Control::Issue, window, cx)
-                        })),
+                    self.action_button(
+                        "issue",
+                        t!("Recording issue"),
+                        "icons/triangle-alert.svg",
+                        false,
+                        Control::Issue,
+                    )
+                    .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Recording issue")).view(cx))
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.press(Control::Issue, window, cx)),
+                    ),
                 )
             })
             .child(
@@ -1886,13 +1934,20 @@ impl ControlsWindow {
                     .flex_shrink_0(),
             )
             .child(
-                self.action_button("delete", "icons/trash.svg", busy, Control::Delete)
-                    .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Delete")).view(cx))
-                    .when(!busy, |this| {
-                        this.on_click(cx.listener(|this, _, window, cx| {
-                            this.press(Control::Delete, window, cx);
-                        }))
-                    }),
+                self.action_button(
+                    "delete",
+                    t!("Delete"),
+                    "icons/trash.svg",
+                    busy,
+                    Control::Delete,
+                )
+                .accessibility_id("delete-recording")
+                .tooltip(move |_, cx| ui::Tooltip::new(&theme, t!("Delete")).view(cx))
+                .when(!busy, |this| {
+                    this.on_click(cx.listener(|this, _, window, cx| {
+                        this.press(Control::Delete, window, cx);
+                    }))
+                }),
             )
             .when(self.session.read(cx).chapter_marks_available(), |this| {
                 this.child(self.render_chapter_mark(cx))
@@ -1904,19 +1959,28 @@ impl ControlsWindow {
                     t!("Draw on screen")
                 };
                 this.child(
-                    self.action_button("draw", "icons/pencil.svg", !can_draw, Control::Draw)
-                        .when(self.drawing(cx), |this| this.bg(theme.selection))
-                        .tooltip(move |_, cx| ui::Tooltip::new(&theme, tooltip).view(cx))
-                        .when(can_draw, |this| {
-                            this.on_click(cx.listener(|this, _, window, cx| {
+                    self.action_button(
+                        "draw",
+                        t!("Draw on screen"),
+                        "icons/pencil.svg",
+                        !can_draw,
+                        Control::Draw,
+                    )
+                    .when(self.drawing(cx), |this| this.bg(theme.selection))
+                    .tooltip(move |_, cx| ui::Tooltip::new(&theme, tooltip).view(cx))
+                    .when(can_draw, |this| {
+                        this.on_click(
+                            cx.listener(|this, _, window, cx| {
                                 this.press(Control::Draw, window, cx)
-                            }))
-                        }),
+                            }),
+                        )
+                    }),
                 )
             })
             .child(
                 self.action_button(
                     "settings",
+                    t!("Recording options"),
                     "icons/sliders-horizontal.svg",
                     false,
                     Control::Options,
@@ -2076,6 +2140,32 @@ fn until_next_second(elapsed: Duration) -> Duration {
 #[cfg(test)]
 mod repaint_tests {
     use super::*;
+
+    #[gpui::test]
+    fn every_recording_bar_control_has_a_role_and_a_name(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            Feeds::init(cx);
+            RecordingSession::init(cx);
+        });
+        let (controls, cx) = cx.add_window_view(|window, cx| {
+            ControlsWindow::new(RecordingSession::global(cx), true, window, cx)
+        });
+        controls.update(cx, |controls, cx| {
+            controls.session.update(cx, |session, _| {
+                session.record_for_test(Some("Built-in"));
+                session.phase = Phase::Recording { paused: false };
+            });
+        });
+        crate::accessibility::assert_every_control_is_named(
+            cx,
+            &[
+                "stop-recording",
+                "pause-recording",
+                "restart-recording",
+                "delete-recording",
+            ],
+        );
+    }
 
     #[gpui::test]
     fn recording_issues_keep_raw_causes_in_details_and_can_be_reopened(

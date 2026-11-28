@@ -296,13 +296,17 @@ impl EditorWindow {
                             .view(cx)
                     })
                     .child(
-                        ui::IconButton::new("chapter-mark-add", "icons/plus.svg")
-                            .size(px(24.))
-                            .icon_size(px(16.))
-                            .color(Hsla::from(editor.text_2))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.add_chapter_mark_at_playhead(window, cx)
-                            })),
+                        ui::IconButton::new(
+                            "chapter-mark-add",
+                            "icons/plus.svg",
+                            t!("Add chapter mark"),
+                        )
+                        .size(px(24.))
+                        .icon_size(px(16.))
+                        .color(Hsla::from(editor.text_2))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.add_chapter_mark_at_playhead(window, cx)
+                        })),
                     ),
             );
         let footer = div()
@@ -404,19 +408,30 @@ impl EditorWindow {
                 .child(SharedString::from(chapter_mark_name(mark, index)))
                 .into_any_element()
         };
-        let action = |id: &'static str, icon: &'static str, label: &'static str| {
-            div()
-                .id(SharedString::from(format!("{id}-{index}")))
-                .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).view(cx))
-                .child(
-                    ui::IconButton::new(SharedString::from(format!("{id}-icon-{index}")), icon)
+        let action =
+            |id: &'static str,
+             icon: &'static str,
+             label: &'static str,
+             on_click: Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App)>| {
+                div()
+                    .id(SharedString::from(format!("{id}-{index}")))
+                    .tooltip(move |_, cx| ui::Tooltip::new(&theme, label).view(cx))
+                    .child(
+                        ui::IconButton::new(
+                            SharedString::from(format!("{id}-icon-{index}")),
+                            icon,
+                            label,
+                        )
                         .size(px(24.))
                         .icon_size(px(14.))
-                        .color(Hsla::from(editor.text_2)),
-                )
-        };
+                        .color(Hsla::from(editor.text_2))
+                        .on_click(on_click),
+                    )
+            };
         div()
             .id(SharedString::from(format!("chapter-mark-{index}")))
+            .role(gpui::Role::Button)
+            .aria_label(SharedString::from(chapter_mark_name(mark, index)))
             .flex()
             .items_center()
             .gap(px(8.))
@@ -438,33 +453,33 @@ impl EditorWindow {
             )
             .child(name)
             .when(!renaming, |row| {
-                row.child(
-                    action("chapter-mark-rename", "icons/pencil.svg", t!("Rename")).on_click(
-                        cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.start_chapter_mark_rename(index, window, cx);
-                        }),
-                    ),
-                )
-                .child(
-                    action(
-                        "chapter-mark-move",
-                        "icons/arrow-left-right.svg",
-                        t!("Move to playhead"),
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
+                row.child(action(
+                    "chapter-mark-rename",
+                    "icons/pencil.svg",
+                    t!("Rename"),
+                    Box::new(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.start_chapter_mark_rename(index, window, cx);
+                    })),
+                ))
+                .child(action(
+                    "chapter-mark-move",
+                    "icons/arrow-left-right.svg",
+                    t!("Move to playhead"),
+                    Box::new(cx.listener(move |this, _, window, cx| {
                         cx.stop_propagation();
                         this.move_chapter_mark_to_playhead(index, window, cx);
                     })),
-                )
-                .child(
-                    action("chapter-mark-delete", "icons/trash.svg", t!("Delete")).on_click(
-                        cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.delete_chapter_mark(index, cx);
-                        }),
-                    ),
-                )
+                ))
+                .child(action(
+                    "chapter-mark-delete",
+                    "icons/trash.svg",
+                    t!("Delete"),
+                    Box::new(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.delete_chapter_mark(index, cx);
+                    })),
+                ))
             })
             .into_any_element()
     }

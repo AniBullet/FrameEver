@@ -546,6 +546,13 @@ impl EditorWindow {
                             target.key(),
                             preset.id
                         )))
+                        .role(gpui::Role::RadioButton)
+                        .aria_label(tr(preset.label))
+                        .aria_toggled(if selected {
+                            gpui::Toggled::True
+                        } else {
+                            gpui::Toggled::False
+                        })
                         // Three across a 382px column with `gap-2`.
                         .w(px(122.))
                         .flex()

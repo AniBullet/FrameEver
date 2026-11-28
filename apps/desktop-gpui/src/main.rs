@@ -4,6 +4,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 
+mod accessibility;
 mod app_icon;
 mod app_sounds;
 mod app_windows;

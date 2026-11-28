@@ -1110,6 +1110,10 @@ impl SettingsWindow {
             let selected = !searching && page == self.page;
             let item = div()
                 .id(SharedString::from(format!("settings-nav-{}", page.slug())))
+                .role(gpui::Role::Tab)
+                .aria_label(tr(page.label()))
+                .aria_selected(selected)
+                .accessibility_id(format!("settings-{}", page.slug()))
                 .tab_index(0)
                 .flex()
                 .flex_row()
@@ -1218,6 +1222,8 @@ impl SettingsWindow {
             .child(
                 div()
                     .id("settings-sidebar-version")
+                    .role(gpui::Role::Button)
+                    .aria_label(concat!("FrameEver v", env!("CARGO_PKG_VERSION")))
                     .tab_index(0)
                     .flex()
                     .flex_row()
@@ -1360,6 +1366,8 @@ impl SettingsWindow {
                 };
                 div()
                     .id(SharedString::from(format!("settings-result-{}", row.id())))
+                    .role(gpui::Role::Button)
+                    .aria_label(tr(row.label()))
                     .tab_index(0)
                     .flex()
                     .flex_row()
@@ -1548,6 +1556,7 @@ impl SettingsWindow {
                         this.write_bool("enableNotifications", value, cx);
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::RecordingSounds => self
                 .toggle(
@@ -1560,6 +1569,7 @@ impl SettingsWindow {
                         this.write_bool(crate::store::RECORDING_SOUNDS_KEY, value, cx);
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::ChapterMarkSound => self
                 .toggle(
@@ -1572,6 +1582,7 @@ impl SettingsWindow {
                         this.write_bool(crate::store::CHAPTER_MARK_SOUND_KEY, value, cx);
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::DockIcon => self
                 .toggle(
@@ -1585,6 +1596,7 @@ impl SettingsWindow {
                         cx.defer(|cx: &mut gpui::App| crate::menus::schedule_dock_sync(cx));
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::MainWindowStart => self
                 .select(
@@ -1593,6 +1605,7 @@ impl SettingsWindow {
                     MenuKind::MainWindowStart,
                     cx,
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::AfterDelete => self
                 .select(
@@ -1601,6 +1614,7 @@ impl SettingsWindow {
                     MenuKind::PostDeletion,
                     cx,
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::AfterEditorClose => self
                 .select(
@@ -1609,6 +1623,7 @@ impl SettingsWindow {
                     MenuKind::AfterEditorClose,
                     cx,
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::AfterCancel => self
                 .select(
@@ -1617,6 +1632,7 @@ impl SettingsWindow {
                     MenuKind::AfterCancel,
                     cx,
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::StudioQuality => self.render_studio_quality(cx),
             Row::InstantResolution => self.render_instant_resolution(cx),
@@ -1658,6 +1674,7 @@ impl SettingsWindow {
                         cx.notify();
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::AutoStop => {
                 let current = settings.recording_auto_stop_minutes;
@@ -1681,6 +1698,7 @@ impl SettingsWindow {
                         this.write_bool("instantClickHighlight", value, cx);
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::ShowInput => self
                 .toggle(
@@ -1693,6 +1711,7 @@ impl SettingsWindow {
                         this.write_bool("instantShowInput", value, cx);
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::InputPreset => self
                 .select(
@@ -1701,6 +1720,7 @@ impl SettingsWindow {
                     MenuKind::InputPreset,
                     cx,
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::InputGamepadPreset => self
                 .select(
@@ -1709,6 +1729,7 @@ impl SettingsWindow {
                     MenuKind::InputGamepadPreset,
                     cx,
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::InputDevice => div()
                 .flex()
@@ -1796,6 +1817,7 @@ impl SettingsWindow {
                     let value = this.settings.focus_center;
                     this.write_bool("focusCenter", value, cx);
                 })
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::VoiceIsolation => self
                 .segmented_raw(
@@ -1832,6 +1854,7 @@ impl SettingsWindow {
                         this.write_bool("custom_cursor_capture2", value, cx);
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::RecordInput => self.render_record_input_row(cx),
             Row::CrashRecovery => self
@@ -1846,6 +1869,7 @@ impl SettingsWindow {
                         this.write_bool("crashRecoveryRecording", value, cx);
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::KeepDrawings => self
                 .toggle("keep-drawings", settings.keep_drawings, cx, |this, cx| {
@@ -1853,6 +1877,7 @@ impl SettingsWindow {
                     let value = this.settings.keep_drawings;
                     this.write_bool(crate::store::KEEP_DRAWINGS_KEY, value, cx);
                 })
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::NotchOverlay => self
                 .toggle(
@@ -1865,6 +1890,7 @@ impl SettingsWindow {
                         this.write_bool("macbookNotchOverlay", value, cx);
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::ExcludedWindows => self.render_excluded_windows(cx),
             Row::AfterScreenshot => self
@@ -1874,6 +1900,7 @@ impl SettingsWindow {
                     MenuKind::AfterScreenshot,
                     cx,
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::AfterStudio => self
                 .select(
@@ -1882,6 +1909,7 @@ impl SettingsWindow {
                     MenuKind::AfterStudio,
                     cx,
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::AfterInstant => self
                 .select(
@@ -1890,6 +1918,7 @@ impl SettingsWindow {
                     MenuKind::AfterInstant,
                     cx,
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::StudioSound => self
                 .toggle(
@@ -1904,6 +1933,7 @@ impl SettingsWindow {
                         cx.notify();
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::AutoZoom => self
                 .toggle("auto-zoom", settings.auto_zoom_on_clicks, cx, |this, cx| {
@@ -1911,6 +1941,7 @@ impl SettingsWindow {
                     let value = this.settings.auto_zoom_on_clicks;
                     this.write_bool("autoZoomOnClicks", value, cx);
                 })
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::ZoomAmount => {
                 let zoom = settings.new_zoom_amount();
@@ -1965,6 +1996,7 @@ impl SettingsWindow {
                         this.write_bool("autoCompressInstant", value, cx);
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::KeepCompressed => self
                 .toggle(
@@ -1981,6 +2013,7 @@ impl SettingsWindow {
                         this.write_bool("autoCompressDeleteOriginal", value, cx);
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::Shortcut(action) => self.render_shortcut(action, cx),
             Row::Rules => self.render_automations(cx),
@@ -1996,6 +2029,7 @@ impl SettingsWindow {
                         this.write_bool("outOfProcessMuxer", value, cx);
                     },
                 )
+                .aria_label(tr(row.label()))
                 .into_any_element(),
             Row::Diagnostic => self.render_diagnostic(cx),
             Row::Logs => self.render_logs(cx),
@@ -2067,9 +2101,14 @@ impl SettingsWindow {
                 };
                 div()
                     .id(SharedString::from(format!("theme-{}", option.as_json())))
+                    .role(gpui::Role::RadioButton)
                     .tab_index(0)
                     .aria_label(option.label())
-                    .aria_selected(selected)
+                    .aria_toggled(if selected {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
                     .flex()
                     .flex_col()
                     .items_center()
@@ -2228,6 +2267,12 @@ impl SettingsWindow {
                         "studio-quality-{}",
                         quality.as_json()
                     )))
+                    .role(gpui::Role::RadioButton)
+                    .aria_toggled(if selected {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
                     .tab_index(0)
                     .aria_label(label)
                     .aria_description(description)
@@ -2472,6 +2517,7 @@ impl SettingsWindow {
         let theme = self.theme;
         div()
             .id(id)
+            .role(gpui::Role::Button)
             .tab_index(0)
             .aria_label(label)
             .flex()
@@ -2542,6 +2588,8 @@ impl SettingsWindow {
             PROJECT_NAME_TOKENS.iter().copied().map(|token| {
                 div()
                     .id(SharedString::from(format!("project-token-{token}")))
+                    .role(gpui::Role::Button)
+                    .aria_label(token)
                     .tab_index(0)
                     .px(px(8.))
                     .py(px(2.))
@@ -2609,6 +2657,9 @@ impl SettingsWindow {
             .child(
                 div()
                     .id("placeholders-trigger")
+                    .role(gpui::Role::Button)
+                    .aria_label(t!("Available placeholders"))
+                    .aria_expanded(self.placeholders.is_open())
                     .tab_index(0)
                     .flex()
                     .flex_row()
@@ -2924,6 +2975,8 @@ impl SettingsWindow {
             .children(links.map(|(id, label, url)| {
                 div()
                     .id(id)
+                    .role(gpui::Role::Link)
+                    .aria_label(label)
                     .tab_index(0)
                     .text_size(px(12.))
                     .text_color(theme.settings_muted())
@@ -3365,6 +3418,28 @@ fn sidebar_update_label(indicator: Option<&crate::updates::Indicator>) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    fn every_settings_control_has_a_role_and_a_name(cx: &mut gpui::TestAppContext) {
+        let problems: Vec<String> = Page::ALL
+            .into_iter()
+            .flat_map(|page| {
+                let (_settings, cx) =
+                    cx.add_window_view(move |window, cx| SettingsWindow::new(page, window, cx));
+                crate::accessibility::unnamed_controls_after_drawing(cx)
+                    .into_iter()
+                    .map(move |problem| format!("{}: {problem}", page.slug()))
+            })
+            .collect();
+        assert!(
+            problems.is_empty(),
+            "{}",
+            problems.join(
+                "
+"
+            )
+        );
+    }
 
     #[test]
     fn the_sidebar_names_an_update_only_while_one_is_offered_running_or_failed() {

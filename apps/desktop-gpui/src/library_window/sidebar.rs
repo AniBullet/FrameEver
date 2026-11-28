@@ -626,6 +626,9 @@ impl LibraryWindow {
         let clicked = place.clone();
         div()
             .id(id.into())
+            .role(gpui::Role::Button)
+            .aria_label(label.clone())
+            .aria_selected(on)
             .flex()
             .flex_shrink_0()
             .items_center()
@@ -757,6 +760,9 @@ impl LibraryWindow {
         let button = focus_ring(
             div()
                 .id(id)
+                .role(gpui::Role::Button)
+                .aria_label(tooltip)
+                .accessibility_id(id)
                 .tab_index(0)
                 .flex()
                 .items_center()
@@ -942,6 +948,9 @@ impl LibraryWindow {
         focus_ring(
             div()
                 .id("library-sidebar-toggle")
+                .role(gpui::Role::Button)
+                .aria_label(label)
+                .accessibility_id("library-sidebar-toggle")
                 .tab_index(0)
                 .flex()
                 .flex_shrink_0()
@@ -1010,6 +1019,8 @@ impl LibraryWindow {
                         .child(focus_ring(
                             div()
                                 .id("library-folder-undo")
+                                .role(gpui::Role::Button)
+                                .aria_label(t!("Undo"))
                                 .tab_index(0)
                                 .flex()
                                 .flex_shrink_0()
@@ -1120,6 +1131,13 @@ mod tests {
                 .text()
                 .to_owned()
         })
+    }
+
+    #[gpui::test]
+    fn every_library_control_has_a_role_and_a_name(cx: &mut gpui::TestAppContext) {
+        let (_library, cx, _) = library_with_folder(cx);
+        draw_at(NARROW_WIDTH + 400., cx);
+        crate::accessibility::assert_every_control_is_named(cx, &[]);
     }
 
     #[gpui::test]

@@ -1811,6 +1811,20 @@ impl EditorWindow {
                 .id(SharedString::from(format!(
                     "camera-position-{item_x}-{item_y}"
                 )))
+                .role(gpui::Role::RadioButton)
+                .aria_label(match (item_x, item_y) {
+                    (0, 0) => t!("Top left"),
+                    (1, 0) => t!("Top center"),
+                    (2, 0) => t!("Top right"),
+                    (0, _) => t!("Bottom left"),
+                    (1, _) => t!("Bottom center"),
+                    _ => t!("Bottom right"),
+                })
+                .aria_toggled(if checked {
+                    gpui::Toggled::True
+                } else {
+                    gpui::Toggled::False
+                })
                 .tab_index(0)
                 .absolute()
                 .size(px(24.))
@@ -3582,6 +3596,13 @@ impl EditorWindow {
                 let selected = active == preset.id;
                 div()
                     .id(SharedString::from(format!("caption-preset-{}", preset.id)))
+                    .role(gpui::Role::RadioButton)
+                    .aria_label(tr(preset.label))
+                    .aria_toggled(if selected {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
                     // Two across the 382px column with `gap-2`.
                     .w(px(187.))
                     .flex()
@@ -4124,6 +4145,12 @@ impl EditorWindow {
                             div()
                                 .id(SharedString::from(format!(
                                     "offset-{clip}-{kind:?}-{delta}"
+                                )))
+                                .role(gpui::Role::Button)
+                                .aria_label(SharedString::from(format!(
+                                    "{}{}ms",
+                                    if delta > 0 { "+" } else { "-" },
+                                    delta.abs()
                                 )))
                                 .px(px(4.))
                                 .py(px(2.))

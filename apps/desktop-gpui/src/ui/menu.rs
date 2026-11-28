@@ -245,9 +245,20 @@ impl Menu {
     ) -> gpui::Stateful<gpui::Div> {
         let bounds = Rc::new(Cell::new(None));
         let measured_bounds = bounds.clone();
+        let handler = Rc::new(handler);
+        let expand = {
+            let bounds = bounds.clone();
+            let handler = handler.clone();
+            move |_: Option<&gpui::accesskit::ActionData>, window: &mut Window, cx: &mut App| {
+                if let Some(bounds) = bounds.get() {
+                    handler(&bounds, window, cx);
+                }
+            }
+        };
         element
             .tab_index(0)
             .relative()
+            .on_a11y_action(gpui::AccessibleAction::Expand, expand)
             .on_click(move |_, window, cx| {
                 if let Some(bounds) = bounds.get() {
                     handler(&bounds, window, cx);

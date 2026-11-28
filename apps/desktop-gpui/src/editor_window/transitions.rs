@@ -546,6 +546,8 @@ impl EditorWindow {
                                         "clip-transition".into(),
                                         index as u64,
                                     ))
+                                    .role(gpui::Role::Button)
+                                    .aria_label(label)
                                     .size(px(mark_size))
                                     .flex()
                                     .items_center()
@@ -605,6 +607,8 @@ impl EditorWindow {
                                         "clip-transition-add".into(),
                                         index as u64,
                                     ))
+                                    .role(gpui::Role::Button)
+                                    .aria_label(t!("Add transition"))
                                     .size(px(TRANSITION_ADD_SIZE))
                                     .rounded_full()
                                     .flex()
@@ -770,6 +774,13 @@ impl EditorWindow {
                     "transition-kind".into(),
                     kind as u64,
                 ))
+                .role(gpui::Role::RadioButton)
+                .aria_label(transition_label(kind))
+                .aria_toggled(if selected {
+                    gpui::Toggled::True
+                } else {
+                    gpui::Toggled::False
+                })
                 .flex()
                 .flex_col()
                 .items_center()

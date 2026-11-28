@@ -2674,6 +2674,13 @@ impl EditorWindow {
         };
         div()
             .id(("crop-ratio", index))
+            .role(gpui::Role::RadioButton)
+            .aria_label(label.clone())
+            .aria_toggled(if selected {
+                gpui::Toggled::True
+            } else {
+                gpui::Toggled::False
+            })
             .flex()
             .flex_1()
             .items_center()
@@ -2715,6 +2722,8 @@ impl EditorWindow {
         let editor = self.theme.editor;
         div()
             .id(id)
+            .role(gpui::Role::Button)
+            .aria_label(label)
             .flex()
             .flex_1()
             .items_center()
@@ -3063,6 +3072,8 @@ impl EditorWindow {
         let editor = self.theme.editor;
         div()
             .id("crop-save")
+            .role(gpui::Role::Button)
+            .aria_label(t!("Save"))
             .relative()
             .flex()
             .items_center()
