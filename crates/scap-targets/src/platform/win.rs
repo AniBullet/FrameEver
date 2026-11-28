@@ -504,6 +504,15 @@ impl WindowImpl {
     }
 
     pub fn owner_name(&self) -> Option<String> {
+        let path = self.executable_path()?;
+        self.get_file_description(&path).or_else(|| file_stem(&path))
+    }
+
+    pub fn executable_name(&self) -> Option<String> {
+        file_stem(&self.executable_path()?)
+    }
+
+    fn executable_path(&self) -> Option<String> {
         unsafe {
             let mut process_id = 0u32;
             GetWindowThreadProcessId(self.0, Some(&mut process_id));
@@ -527,21 +536,8 @@ impl WindowImpl {
 
             let _ = CloseHandle(process_handle);
 
-            if result.is_ok() && buffer_size > 0 {
-                let path_str = String::from_utf16_lossy(&buffer[..buffer_size as usize]);
-
-                // Try to get the friendly name from version info first
-                if let Some(friendly_name) = self.get_file_description(&path_str) {
-                    return Some(friendly_name);
-                }
-
-                // Fallback to file stem
-                std::path::Path::new(&path_str)
-                    .file_stem()
-                    .map(|stem| stem.to_string_lossy().into_owned())
-            } else {
-                None
-            }
+            (result.is_ok() && buffer_size > 0)
+                .then(|| String::from_utf16_lossy(&buffer[..buffer_size as usize]))
         }
     }
 
@@ -1406,6 +1402,12 @@ unsafe fn pid_to_exe_path(pid: u32) -> Result<PathBuf, windows::core::Error> {
 
     let os_str = &OsString::from_wide(&lpexename[..lpdwsize as usize]);
     Ok(PathBuf::from(os_str))
+}
+
+fn file_stem(path: &str) -> Option<String> {
+    std::path::Path::new(path)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]

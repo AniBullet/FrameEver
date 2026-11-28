@@ -3261,11 +3261,11 @@ mod tests {
         std::fs::create_dir_all(&first).unwrap();
 
         let second = unused_project_path(&dir, "Video 2026-01-01 at 10.00.00").unwrap();
-        assert!(second.ends_with("Video 2026-01-01 at 10.00.00 (1).ever"));
+        assert!(second.ends_with("Video 2026-01-01 at 10.00.00_2.ever"));
         std::fs::create_dir_all(&second).unwrap();
 
         let third = unused_project_path(&dir, "Video 2026-01-01 at 10.00.00").unwrap();
-        assert!(third.ends_with("Video 2026-01-01 at 10.00.00 (2).ever"));
+        assert!(third.ends_with("Video 2026-01-01 at 10.00.00_3.ever"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -3286,7 +3286,7 @@ mod tests {
             assert!(folder.starts_with("aaaa"), "{folder}");
         }
         assert!(first.to_str().unwrap().ends_with(".ever"));
-        assert!(second.to_str().unwrap().ends_with(" (1).ever"));
+        assert!(second.to_str().unwrap().ends_with("_2.ever"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -3312,7 +3312,7 @@ mod tests {
                 assert!(folder.starts_with(&stem.chars().take(3).collect::<String>()));
                 assert!(folder.ends_with(".ever"), "{folder}");
             }
-            assert!(second.to_str().unwrap().ends_with(" (1).ever"));
+            assert!(second.to_str().unwrap().ends_with("_2.ever"));
         }
 
         std::fs::remove_dir_all(&dir).ok();

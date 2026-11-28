@@ -105,18 +105,8 @@ async fn write_capture(
     std::fs::create_dir_all(&base)
         .with_context(|| format!("creating screenshots dir {}", base.display()))?;
 
-    // The same naming chain `create_project_dir` uses for recordings: default
-    // template only (the custom-template deviation recordings already have),
-    // then sanitized and uniqued against the directory.
-    let target_name = target.title().unwrap_or_else(|| "Unknown".into());
-    let now = chrono::Local::now();
-    let pretty_name = format!(
-        "{} ({}) {} {}",
-        target_name,
-        target.kind_str(),
-        now.format("%Y-%m-%d"),
-        now.format("%I.%M %p"),
-    );
+    let pretty_name =
+        crate::recording::capture_name(&target, crate::recording::NamedCapture::Screenshot);
     let bundle = create_screenshot_project(&base, pretty_name)?;
 
     let png = bundle.join("original.png");

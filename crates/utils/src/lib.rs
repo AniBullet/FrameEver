@@ -57,7 +57,7 @@ pub fn ensure_dir(path: &PathBuf) -> Result<PathBuf, std::io::Error> {
 
 /// Generates a unique filename by appending incremental numbers if conflicts exist.
 ///
-/// This function takes a base filename and ensures it's unique by appending `(1)`, `(2)`, etc.
+/// This function takes a base filename and ensures it's unique by appending `_2`, `_3`, etc.
 /// if a file with the same name already exists. It works with any file extension.
 ///
 /// # Arguments
@@ -75,12 +75,12 @@ pub fn ensure_dir(path: &PathBuf) -> Result<PathBuf, std::io::Error> {
 /// use frameever_utils::ensure_unique_filename;
 /// let recordings_dir = std::path::Path::new("recordings");
 /// let unique_name = ensure_unique_filename("My Recording.cap", &recordings_dir,);
-/// // If "My Recording.cap" exists, returns "My Recording (1).cap"
-/// // If that exists too, returns "My Recording (2).cap", etc.
+/// // If "My Recording.cap" exists, returns "My Recording_2.cap"
+/// // If that exists too, returns "My Recording_3.cap", etc.
 ///
 /// let documents_dir = std::path::Path::new("documents");
 /// let unique_name = ensure_unique_filename("document.pdf", &documents_dir);
-/// // If "document.pdf" exists, returns "document (1).pdf"
+/// // If "document.pdf" exists, returns "document_2.pdf"
 /// ```
 #[inline]
 pub fn ensure_unique_filename(
@@ -130,27 +130,17 @@ pub fn ensure_unique_filename_with_attempts(
         return Ok(initial_filename);
     }
 
-    let max_attempts = attempts.get();
-    let mut counter = 1;
-
-    loop {
-        let numbered_filename = filename_with_suffix(&format!(" ({counter})"))?;
-
-        let test_path = parent_dir.join(&numbered_filename);
-
-        if !test_path.exists() {
+    for attempt in 1..=attempts.get().unsigned_abs() {
+        let numbered_filename = filename_with_suffix(&duplicate_suffix(attempt))?;
+        if !parent_dir.join(&numbered_filename).exists() {
             return Ok(numbered_filename);
         }
-
-        counter += 1;
-
-        // prevent infinite loop
-        if counter > max_attempts {
-            return Err(
-                "Too many filename conflicts, unable to create unique filename".to_string(),
-            );
-        }
     }
+    Err("Too many filename conflicts, unable to create unique filename".to_string())
+}
+
+pub fn duplicate_suffix(attempt: u32) -> String {
+    format!("_{}", attempt + 1)
 }
 
 /// Converts moment-style template format strings to chrono format strings.
@@ -347,7 +337,7 @@ mod tests {
         fs::write(temp_dir.path().join("test.cap"), "").unwrap();
 
         let result = ensure_unique_filename("test.cap", temp_dir.path()).unwrap();
-        assert_eq!(result, "test (1).cap");
+        assert_eq!(result, "test_2.cap");
     }
 
     #[test]
@@ -356,11 +346,11 @@ mod tests {
 
         // Create existing files
         fs::write(temp_dir.path().join("test.cap"), "").unwrap();
-        fs::write(temp_dir.path().join("test (1).cap"), "").unwrap();
-        fs::write(temp_dir.path().join("test (2).cap"), "").unwrap();
+        fs::write(temp_dir.path().join("test_2.cap"), "").unwrap();
+        fs::write(temp_dir.path().join("test_3.cap"), "").unwrap();
 
         let result = ensure_unique_filename("test.cap", temp_dir.path()).unwrap();
-        assert_eq!(result, "test (3).cap");
+        assert_eq!(result, "test_4.cap");
     }
 
     #[test]
@@ -370,7 +360,7 @@ mod tests {
         fs::write(temp_dir.path().join("README"), "").unwrap();
 
         let result = ensure_unique_filename("README", temp_dir.path()).unwrap();
-        assert_eq!(result, "README (1)");
+        assert_eq!(result, "README_2");
     }
 
     #[test]
@@ -381,7 +371,7 @@ mod tests {
 
         let result = ensure_unique_filename("archive.tar.gz", temp_dir.path()).unwrap();
         // Only the last extension is considered
-        assert_eq!(result, "archive.tar (1).gz");
+        assert_eq!(result, "archive.tar_2.gz");
     }
 
     #[test]
@@ -400,7 +390,7 @@ mod tests {
                 assert!(filename.len() <= 255, "{} bytes", filename.len());
                 assert!(filename.ends_with(".cap"));
                 if counter > 0 {
-                    assert!(filename.ends_with(&format!(" ({counter}).cap")));
+                    assert!(filename.ends_with(&format!("_{}.cap", counter + 1)));
                 }
                 let bundle = temp_dir.path().join(filename);
                 fs::create_dir(&bundle).unwrap();
@@ -417,7 +407,7 @@ mod tests {
 
         let filename = ensure_unique_filename(&base_filename, temp_dir.path()).unwrap();
         assert!(filename.len() <= 255);
-        assert!(filename.ends_with(" (1)"));
+        assert!(filename.ends_with("_2"));
         fs::create_dir(temp_dir.path().join(filename)).unwrap();
     }
 
@@ -439,9 +429,9 @@ mod tests {
         let attempts = NonZero::new(3).unwrap();
 
         // Create conflicts for attempts 1, 2, 3
-        fs::write(temp_dir.path().join("test (1).cap"), "").unwrap();
-        fs::write(temp_dir.path().join("test (2).cap"), "").unwrap();
-        fs::write(temp_dir.path().join("test (3).cap"), "").unwrap();
+        fs::write(temp_dir.path().join("test_2.cap"), "").unwrap();
+        fs::write(temp_dir.path().join("test_3.cap"), "").unwrap();
+        fs::write(temp_dir.path().join("test_4.cap"), "").unwrap();
 
         let result = ensure_unique_filename_with_attempts("test.cap", temp_dir.path(), attempts);
 
@@ -457,7 +447,7 @@ mod tests {
         fs::create_dir(temp_dir.path().join("test.cap")).unwrap();
 
         let result = ensure_unique_filename("test.cap", temp_dir.path()).unwrap();
-        assert_eq!(result, "test (1).cap");
+        assert_eq!(result, "test_2.cap");
     }
 
     #[test]
@@ -467,7 +457,7 @@ mod tests {
         fs::write(temp_dir.path().join("My Recording (2024).cap"), "").unwrap();
 
         let result = ensure_unique_filename("My Recording (2024).cap", temp_dir.path()).unwrap();
-        assert_eq!(result, "My Recording (2024) (1).cap");
+        assert_eq!(result, "My Recording (2024)_2.cap");
     }
 
     #[test]
@@ -477,7 +467,7 @@ mod tests {
         fs::write(temp_dir.path().join("My Project.cap"), "").unwrap();
 
         let result = ensure_unique_filename("My Project.cap", temp_dir.path()).unwrap();
-        assert_eq!(result, "My Project (1).cap");
+        assert_eq!(result, "My Project_2.cap");
     }
 
     #[test]
@@ -486,13 +476,11 @@ mod tests {
 
         // Create files with a gap in numbering
         fs::write(temp_dir.path().join("test.cap"), "").unwrap();
-        fs::write(temp_dir.path().join("test (1).cap"), "").unwrap();
-        // Gap: test (2).cap doesn't exist
-        fs::write(temp_dir.path().join("test (3).cap"), "").unwrap();
+        fs::write(temp_dir.path().join("test_2.cap"), "").unwrap();
+        fs::write(temp_dir.path().join("test_4.cap"), "").unwrap();
 
         let result = ensure_unique_filename("test.cap", temp_dir.path()).unwrap();
-        // Should find the gap at (2)
-        assert_eq!(result, "test (2).cap");
+        assert_eq!(result, "test_3.cap");
     }
 }
 

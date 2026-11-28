@@ -96,6 +96,10 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "\"Display\", \"Window\", or \"Area\"",
         "\"Display\"、\"Window\" 或 \"Area\"",
     ),
+    (
+        "The recorded app's program name, empty unless a window is recorded.",
+        "录制的应用的程序名，只有录窗口时才有。",
+    ),
     ("Monitor name or window title.", "显示器名称或窗口标题。"),
     ("the recording's date", "录制日期"),
     ("the recording's time", "录制时间"),

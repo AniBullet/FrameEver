@@ -2067,9 +2067,6 @@ pub fn delete_recording_directory(path: &std::path::Path) -> Result<(), String> 
     crate::library::delete_recording_directory_in(&[recordings_dir()], path)
 }
 
-/// `format_project_name` with the default template
-/// (`{target_name} ({target_kind}) {date} {time}`), then the same `:` -> `.`
-/// replacement and uniquing the Tauri app applies.
 fn create_project_dir(
     target: &ScreenCaptureTarget,
     recording_mode: RecordingMode,
@@ -2104,17 +2101,36 @@ fn create_project_dir(
         }
     }
 
+    create_named_project(&base, &capture_name(target, recording_mode.into()))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NamedCapture {
+    Studio,
+    Instant,
+    Screenshot,
+}
+
+impl From<RecordingMode> for NamedCapture {
+    fn from(mode: RecordingMode) -> Self {
+        match mode {
+            RecordingMode::Studio => Self::Studio,
+            RecordingMode::Instant => Self::Instant,
+        }
+    }
+}
+
+pub(crate) fn capture_name(target: &ScreenCaptureTarget, capture: NamedCapture) -> String {
     let target_name = target.title().unwrap_or_else(|| "Unknown".into());
-    let now = chrono::Local::now();
     let settings = crate::store::GeneralSettings::load();
-    let name = format_recording_project_name(
+    format_capture_name(
         settings.default_project_name_template.as_deref(),
         &target_name,
         target.kind_str(),
-        recording_mode,
-        now,
-    );
-    create_named_project(&base, &name)
+        target.app_name().as_deref(),
+        capture,
+        chrono::Local::now(),
+    )
 }
 
 pub(crate) fn create_named_project(base: &std::path::Path, name: &str) -> anyhow::Result<PathBuf> {
@@ -2123,11 +2139,24 @@ pub(crate) fn create_named_project(base: &std::path::Path, name: &str) -> anyhow
         .with_context(|| format!("creating project in {}", base.display()))
 }
 
-fn format_recording_project_name(
+const APP_NAME_MAX_CHARS: usize = 24;
+
+fn filename_app_name(app_name: Option<&str>) -> String {
+    let kept: String = app_name
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    let trimmed = kept.trim_matches('-');
+    trimmed.chars().take(APP_NAME_MAX_CHARS).collect()
+}
+
+pub(crate) fn format_capture_name(
     template: Option<&str>,
     target_name: &str,
     target_kind: &str,
-    mode: RecordingMode,
+    app_name: Option<&str>,
+    capture: NamedCapture,
     datetime: chrono::DateTime<chrono::Local>,
 ) -> String {
     let target_name = if target_name.chars().count() > 180 {
@@ -2135,9 +2164,10 @@ fn format_recording_project_name(
     } else {
         target_name.to_string()
     };
-    let (recording_mode, mode) = match mode {
-        RecordingMode::Studio => ("Studio", "studio"),
-        RecordingMode::Instant => ("Instant", "instant"),
+    let (recording_mode, mode) = match capture {
+        NamedCapture::Studio => ("Studio", "studio"),
+        NamedCapture::Instant => ("Instant", "instant"),
+        NamedCapture::Screenshot => ("Screenshot", "screenshot"),
     };
     let formatted = template
         .unwrap_or(crate::store::DEFAULT_PROJECT_NAME_TEMPLATE)
@@ -2148,7 +2178,18 @@ fn format_recording_project_name(
     let formatted = replace_datetime_template_token(&formatted, "time", "%I:%M %p", datetime);
     let formatted =
         replace_datetime_template_token(&formatted, "moment", "%Y-%m-%d %H:%M", datetime);
-    replace_random_template_tokens(&formatted).replace("{target_name}", &target_name)
+    replace_app_token(&replace_random_template_tokens(&formatted), app_name)
+        .replace("{target_name}", &target_name)
+}
+
+fn replace_app_token(input: &str, app_name: Option<&str>) -> String {
+    let app = filename_app_name(app_name);
+    if !app.is_empty() {
+        return input.replace("{app}", &app);
+    }
+    ["_{app}", "-{app}", " {app}", "{app}"]
+        .iter()
+        .fold(input.to_string(), |name, token| name.replace(token, ""))
 }
 
 fn project_pretty_name(project_path: &std::path::Path) -> String {
@@ -2330,13 +2371,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            format_recording_project_name(
+            format_capture_name(
                 Some(
                     "{recording_mode}-{mode}-{target_kind}-{target_name}-{date:DD/MM/YYYY}-{time:HH.mm}-{moment:YYYYMMDD_HHmmss}"
                 ),
                 "Example Window",
                 "Window",
-                RecordingMode::Instant,
+                None,
+                NamedCapture::Instant,
                 timestamp,
             ),
             "Instant-instant-Window-Example Window-25/08/2026-14.07-20260825_140709"
@@ -2352,11 +2394,12 @@ mod tests {
         let target = "x".repeat(200);
 
         assert_eq!(
-            format_recording_project_name(
+            format_capture_name(
                 Some("{mode}-{target_name}-{unknown}"),
                 &target,
                 "Display",
-                RecordingMode::Studio,
+                None,
+                NamedCapture::Studio,
                 timestamp,
             ),
             format!("studio-{}...-{{unknown}}", "x".repeat(180))
@@ -2371,11 +2414,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            format_recording_project_name(
+            format_capture_name(
                 Some("{date:YYYY 100%}-{moment:YYYY %Q}-{time:HH.mm}"),
                 "Example Window",
                 "Window",
-                RecordingMode::Studio,
+                None,
+                NamedCapture::Studio,
                 timestamp,
             ),
             "{date:YYYY 100%}-{moment:YYYY %Q}-09.15"
@@ -2390,15 +2434,128 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            format_recording_project_name(
+            format_capture_name(
                 Some("{target_name} {date}"),
                 "Notes {date} {time:100%} {random}",
                 "Window",
-                RecordingMode::Studio,
+                None,
+                NamedCapture::Studio,
                 timestamp,
             ),
             "Notes {date} {time:100%} {random} 2026-08-25"
         );
+    }
+
+    #[test]
+    fn the_default_name_is_the_brand_and_a_sortable_timestamp() {
+        let timestamp = chrono::Local
+            .with_ymd_and_hms(2026, 11, 28, 21, 41, 3)
+            .single()
+            .unwrap();
+        let name = |app: Option<&str>, capture| {
+            format_capture_name(None, "DELL U2720Q", "Display", app, capture, timestamp)
+        };
+
+        assert_eq!(
+            name(None, NamedCapture::Studio),
+            "FrameEver_2026-11-28_21-41-03"
+        );
+        assert_eq!(
+            name(None, NamedCapture::Screenshot),
+            "FrameEver_2026-11-28_21-41-03"
+        );
+        assert_eq!(
+            name(Some("chrome"), NamedCapture::Instant),
+            "FrameEver_2026-11-28_21-41-03_chrome"
+        );
+    }
+
+    #[test]
+    fn the_app_name_keeps_only_short_ascii_letters_digits_and_hyphens() {
+        let timestamp = chrono::Local
+            .with_ymd_and_hms(2026, 11, 28, 9, 5, 0)
+            .single()
+            .unwrap();
+        let name = |app: &str| {
+            format_capture_name(
+                None,
+                "",
+                "Window",
+                Some(app),
+                NamedCapture::Studio,
+                timestamp,
+            )
+        };
+
+        assert_eq!(
+            name("Code - Insiders"),
+            "FrameEver_2026-11-28_09-05-00_Code-Insiders"
+        );
+        assert_eq!(name("微信"), "FrameEver_2026-11-28_09-05-00");
+        assert_eq!(
+            format_capture_name(
+                Some("_{date}_{app}_{target_name} -"),
+                "Notes",
+                "Display",
+                None,
+                NamedCapture::Studio,
+                timestamp,
+            ),
+            "_2026-11-28_Notes -"
+        );
+        assert_eq!(
+            name(&"a".repeat(40)),
+            format!("FrameEver_2026-11-28_09-05-00_{}", "a".repeat(24))
+        );
+    }
+
+    #[test]
+    fn screenshots_fill_the_mode_placeholders_with_screenshot() {
+        let timestamp = chrono::Local
+            .with_ymd_and_hms(2026, 11, 28, 9, 5, 0)
+            .single()
+            .unwrap();
+
+        assert_eq!(
+            format_capture_name(
+                Some("{recording_mode}-{mode}-{app}"),
+                "",
+                "Area",
+                None,
+                NamedCapture::Screenshot,
+                timestamp,
+            ),
+            "Screenshot-screenshot"
+        );
+    }
+
+    #[test]
+    fn a_default_named_project_has_no_spaces_and_counts_duplicates_with_underscores() {
+        let base = temp_project("default-name");
+        let timestamp = chrono::Local
+            .with_ymd_and_hms(2026, 11, 28, 21, 41, 3)
+            .single()
+            .unwrap();
+        let name = format_capture_name(
+            None,
+            "Untitled",
+            "Window",
+            Some("chrome"),
+            NamedCapture::Studio,
+            timestamp,
+        );
+        let first = create_named_project(&base, &name).unwrap();
+        let second = create_named_project(&base, &name).unwrap();
+
+        assert_eq!(
+            project_pretty_name(&first),
+            "FrameEver_2026-11-28_21-41-03_chrome"
+        );
+        assert_eq!(
+            project_pretty_name(&second),
+            "FrameEver_2026-11-28_21-41-03_chrome_2"
+        );
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
@@ -2408,11 +2565,12 @@ mod tests {
             .with_ymd_and_hms(2026, 11, 6, 15, 29, 14)
             .single()
             .unwrap();
-        let name = format_recording_project_name(
+        let name = format_capture_name(
             Some("{target_name} ({target_kind}) {date} {time:hh.mm A}"),
             "Untitled",
             "Window",
-            RecordingMode::Studio,
+            None,
+            NamedCapture::Studio,
             timestamp,
         );
         let project = create_named_project(&base, &name).unwrap();

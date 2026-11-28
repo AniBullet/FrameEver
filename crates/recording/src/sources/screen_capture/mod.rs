@@ -221,6 +221,13 @@ impl ScreenCaptureTarget {
         }
     }
 
+    pub fn app_name(&self) -> Option<String> {
+        match self {
+            Self::Window { id } => Window::from_id(id).and_then(|w| w.executable_name()),
+            _ => None,
+        }
+    }
+
     pub fn kind_str(&self) -> &str {
         match self {
             ScreenCaptureTarget::Display { .. } => "Display",

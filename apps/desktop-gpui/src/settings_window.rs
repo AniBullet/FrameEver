@@ -303,6 +303,7 @@ const INSTANT_RESOLUTION_TIERS: &[(u32, &str)] = &[
 
 const PROJECT_NAME_TOKENS: &[&str] = &[
     "{recording_mode}",
+    "{app}",
     "{target_name}",
     "{date}",
     "{time}",
@@ -2485,10 +2486,10 @@ impl SettingsWindow {
     }
 
     fn insert_project_token(&mut self, token: &'static str, cx: &mut Context<Self>) {
-        let next = if self.project_name.ends_with(' ') || self.project_name.is_empty() {
+        let next = if self.project_name.is_empty() || self.project_name.ends_with(['_', '-', ' ']) {
             format!("{}{token}", self.project_name)
         } else {
-            format!("{} {token}", self.project_name)
+            format!("{}_{token}", self.project_name)
         };
         self.project_name = next.clone();
         let input = self.project_name_input.clone();
@@ -2515,6 +2516,10 @@ impl SettingsWindow {
             ),
             ("{mode}", t!("\"studio\", \"instant\", or \"screenshot\"")),
             ("{target_kind}", t!("\"Display\", \"Window\", or \"Area\"")),
+            (
+                "{app}",
+                t!("The recorded app's program name, empty unless a window is recorded."),
+            ),
             ("{target_name}", t!("Monitor name or window title.")),
             (
                 "{random}",
@@ -3275,15 +3280,24 @@ const ZOOM_MIN: f32 = 1.;
 const ZOOM_MAX: f32 = 4.5;
 
 fn format_project_name(template: &str) -> String {
+    use chrono::Timelike as _;
     let now = chrono::Local::now();
-    let date = now.format("%Y-%m-%d").to_string();
-    template
-        .replace("{recording_mode}", "Instant")
-        .replace("{mode}", "instant")
-        .replace("{target_kind}", "Window")
-        .replace("{target_name}", "Safari")
-        .replace("{date}", &date)
-        .replace("{time}", "09:41 AM")
+    let sample = now
+        .with_hour(9)
+        .and_then(|time| time.with_minute(41))
+        .and_then(|time| time.with_second(0))
+        .unwrap_or(now);
+    const RANDOM_TOKEN: &str = "{random";
+    const HELD_RANDOM_TOKEN: &str = "\u{0}random";
+    crate::recording::format_capture_name(
+        Some(&template.replace(RANDOM_TOKEN, HELD_RANDOM_TOKEN)),
+        "Safari",
+        "Window",
+        Some("Safari"),
+        crate::recording::NamedCapture::Instant,
+        sample,
+    )
+    .replace(HELD_RANDOM_TOKEN, RANDOM_TOKEN)
 }
 
 fn sidebar_update_label(status: &crate::updates::UpdateStatus) -> Option<String> {
@@ -3508,8 +3522,17 @@ mod tests {
     #[test]
     fn the_preview_substitutes_the_documented_placeholders() {
         let preview = format_project_name(DEFAULT_PROJECT_NAME_TEMPLATE);
-        assert!(preview.starts_with("Safari (Window) "));
-        assert!(preview.ends_with(" 09:41 AM"));
+        assert!(preview.starts_with("FrameEver_"), "{preview}");
+        assert!(preview.ends_with("_09-41-00_Safari"), "{preview}");
+        assert!(!preview.contains(' '), "{preview}");
+        assert_eq!(
+            format_project_name("{target_name} ({target_kind}) {mode}"),
+            "Safari (Window) instant"
+        );
         assert_eq!(format_project_name("{nope}"), "{nope}");
+        assert_eq!(
+            format_project_name("{random}_{random:4}"),
+            "{random}_{random:4}"
+        );
     }
 }

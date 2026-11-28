@@ -1122,9 +1122,10 @@ pub fn excluded_windows_to_json(windows: &[WindowExclusion]) -> Value {
     Value::Array(windows.iter().map(WindowExclusion::to_json).collect())
 }
 
-/// `DEFAULT_FILENAME_TEMPLATE` in `src-tauri/src/recording.rs`, spelled the
-/// same way `general.tsx` spells it.
-pub const DEFAULT_PROJECT_NAME_TEMPLATE: &str = "{target_name} ({target_kind}) {date} {time}";
+pub const DEFAULT_PROJECT_NAME_TEMPLATE: &str = concat!(
+    frameever_utils::app_name!(),
+    "_{date:YYYY-MM-DD}_{time:HH-mm-ss}_{app}"
+);
 
 /// The `general_settings` section, as the General page reads it.
 ///

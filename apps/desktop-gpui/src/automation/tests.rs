@@ -857,7 +857,7 @@ async fn a_second_save_never_overwrites_the_first() {
     }
     assert_eq!(
         copies,
-        vec![saved.join("original.png"), saved.join("original (1).png")]
+        vec![saved.join("original.png"), saved.join("original_2.png")]
     );
     assert_eq!(std::fs::read(&copies[0]).unwrap(), b"first capture");
     assert_eq!(std::fs::read(&copies[1]).unwrap(), b"second");
@@ -926,23 +926,20 @@ async fn unused_names_count_up_past_files_folders_and_links() {
     let root = tempfile::tempdir().unwrap();
     let wanted = root.path().join("clip.mp4");
     std::fs::write(&wanted, b"earlier export").unwrap();
-    std::fs::create_dir(root.path().join("clip (1).mp4")).unwrap();
+    std::fs::create_dir(root.path().join("clip_2.mp4")).unwrap();
     #[cfg(unix)]
-    std::os::unix::fs::symlink(
-        root.path().join("nowhere"),
-        root.path().join("clip (2).mp4"),
-    )
-    .unwrap();
+    std::os::unix::fs::symlink(root.path().join("nowhere"), root.path().join("clip_3.mp4"))
+        .unwrap();
     let reserved = reserve_unused_path(&wanted).await.unwrap();
     #[cfg(unix)]
-    assert_eq!(reserved, root.path().join("clip (3).mp4"));
+    assert_eq!(reserved, root.path().join("clip_4.mp4"));
     #[cfg(not(unix))]
-    assert_eq!(reserved, root.path().join("clip (2).mp4"));
+    assert_eq!(reserved, root.path().join("clip_3.mp4"));
     assert_eq!(std::fs::read(&wanted).unwrap(), b"earlier export");
     assert_eq!(std::fs::metadata(&reserved).unwrap().len(), 0);
     assert_eq!(
         numbered_path(Path::new("/saved/README"), 2),
-        PathBuf::from("/saved/README (2)")
+        PathBuf::from("/saved/README_3")
     );
 }
 

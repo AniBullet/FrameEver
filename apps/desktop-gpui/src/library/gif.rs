@@ -143,7 +143,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(first, exports.join("Demo.gif"));
-        assert_eq!(second, exports.join("Demo (1).gif"));
+        assert_eq!(second, exports.join("Demo_2.gif"));
         let records = frameever_utils::storage::exports(&project);
         assert_eq!(
             records
@@ -166,7 +166,7 @@ mod tests {
             vec![
                 ("Demo.gif", Some(std::fs::metadata(&first).unwrap().len())),
                 (
-                    "Demo (1).gif",
+                    "Demo_2.gif",
                     Some(std::fs::metadata(&second).unwrap().len())
                 ),
             ]

@@ -1178,9 +1178,10 @@ fn numbered_path(wanted: &Path, attempt: u32) -> PathBuf {
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let suffix = frameever_utils::duplicate_suffix(attempt);
     let name = match wanted.extension() {
-        Some(extension) => format!("{stem} ({attempt}).{}", extension.to_string_lossy()),
-        None => format!("{stem} ({attempt})"),
+        Some(extension) => format!("{stem}{suffix}.{}", extension.to_string_lossy()),
+        None => format!("{stem}{suffix}"),
     };
     wanted.with_file_name(name)
 }

@@ -46,7 +46,7 @@ const v = {
 	zoom: 1.5,
 	compress: false,
 	keepCompressed: false,
-	template: "{recording_mode} {date} {time}",
+	template: "FrameEver_{date:YYYY-MM-DD}_{time:HH-mm-ss}_{app}",
 	downloads: "ask",
 	channel: "stable",
 	muxer: false,
@@ -1221,7 +1221,7 @@ const controls = {
 	folder: (row, broken) =>
 		`<div class="path">${icon("folder")}<span>C:\\Users\\you\\Videos\\FrameEver</span></div>${broken ? `<div class="warn">${icon("triangle-alert")}<span>${L("This folder isn't available. New projects go to the default folder until it's back.", "这个文件夹当前不可用。恢复之前，新项目会保存到默认文件夹。")}</span></div>` : ""}<div class="chips"><button class="btn">${L("Change folder", "更改文件夹")}</button><button class="btn ghost">${icon("folder-open")}${L("Show folder", "显示文件夹")}</button></div><div class="hint">${L("Previous folders. Their projects stay in the library.", "以前用过的文件夹，里面的项目仍在资源库中。")}</div><div class="path"><span>D:\\Old recordings</span><button class="btn ghost icon" title="${pick("Remove", "移除")}">${icon("x")}</button></div>`,
 	template: () =>
-		`<div class="input"><input data-range="template" value="${v.template}"></div><div class="hint">${L("Preview", "预览")}: ${pick("Studio", "工作室")} 2026-10-30 14.05</div><div class="chips">${["{recording_mode}", "{target_name}", "{date}", "{time}", "{random}"].map((token) => `<button class="tag chip-btn" data-token="${token}">${token}</button>`).join("")}</div>`,
+		`<div class="input"><input data-range="template" value="${v.template}"></div><div class="hint">${L("Preview", "预览")}: FrameEver_2026-10-30_14-05-00_Safari</div><div class="chips">${["{recording_mode}", "{app}", "{target_name}", "{date}", "{time}", "{random}"].map((token) => `<button class="tag chip-btn" data-token="${token}">${token}</button>`).join("")}</div>`,
 	rules: () => {
 		const rules = [
 			[
@@ -1373,7 +1373,7 @@ document.addEventListener("click", (event) => {
 	} else if (data.rule) {
 		ui.ruleOpen = ui.ruleOpen === Number(data.rule) ? -1 : Number(data.rule);
 	} else if (data.token) {
-		v.template = `${v.template} ${data.token}`;
+		v.template = `${v.template}_${data.token}`;
 	} else if (ui.popup) {
 		ui.popup = null;
 	} else return;

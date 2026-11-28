@@ -88,6 +88,6 @@ pub use text_input::{
     text_input_has_focus,
 };
 pub use toggle::Toggle;
-pub use tooltip::{TOOLTIP_SHOW_DELAY, Tooltip};
+pub use tooltip::{TOOLTIP_SHOW_DELAY, Tooltip, file_name};
 #[cfg(target_os = "windows")]
 pub use windows_caption::windows_caption_controls;

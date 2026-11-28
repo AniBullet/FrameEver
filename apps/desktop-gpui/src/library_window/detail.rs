@@ -938,15 +938,17 @@ impl LibraryWindow {
                         .flex_1()
                         .min_w_0()
                         .child(
-                            div()
-                                .truncate()
-                                .text_size(px(13.))
-                                .text_color(if size.is_some() {
-                                    theme.foreground
-                                } else {
-                                    theme.muted_foreground
-                                })
-                                .child(export.name.clone()),
+                            ui::file_name(
+                                &theme,
+                                ("library-export-name", index),
+                                export.name.clone(),
+                            )
+                            .text_size(px(13.))
+                            .text_color(if size.is_some() {
+                                theme.foreground
+                            } else {
+                                theme.muted_foreground
+                            }),
                         )
                         .child(
                             div()

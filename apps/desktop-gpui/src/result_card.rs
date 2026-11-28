@@ -1239,16 +1239,11 @@ impl ResultCardView {
             .gap(px(8.))
             .min_w_0()
             .child(
-                div()
+                ui::file_name(&theme, ("result-card-name", id), item.name.clone())
                     .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .whitespace_nowrap()
                     .text_size(px(14.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.foreground)
-                    .child(item.name.clone()),
+                    .text_color(theme.foreground),
             )
             .child(
                 div()

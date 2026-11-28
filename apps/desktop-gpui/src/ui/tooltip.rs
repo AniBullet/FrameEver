@@ -16,8 +16,9 @@
 use std::time::Duration;
 
 use gpui::{
-    App, AppContext, Context, FontWeight, Hsla, IntoElement, ParentElement, Render, SharedString,
-    Styled, Window, div, px,
+    App, AppContext, Context, Div, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
+    ParentElement, Render, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div,
+    px,
 };
 
 use crate::{
@@ -29,6 +30,25 @@ use crate::{
 pub const TOOLTIP_SHOW_DELAY: Duration = Duration::from_millis(200);
 
 const CURSOR_CLEARANCE: (f32, f32) = (4., 20.);
+
+pub fn file_name(
+    theme: &Theme,
+    id: impl Into<ElementId>,
+    name: impl Into<SharedString>,
+) -> Stateful<Div> {
+    let theme = *theme;
+    let name = name.into();
+    let label = name.clone();
+    div()
+        .id(id)
+        .min_w_0()
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_ellipsis_middle()
+        .tooltip(move |_, cx| Tooltip::new(&theme, label.clone()).view(cx))
+        .tooltip_show_delay(TOOLTIP_SHOW_DELAY)
+        .child(name)
+}
 
 /// A tooltip body. Build it with [`Tooltip::view`] and hand that to
 /// `.tooltip(..)`.

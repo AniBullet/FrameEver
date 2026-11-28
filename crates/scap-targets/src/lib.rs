@@ -169,6 +169,10 @@ impl Window {
         self.0.owner_name()
     }
 
+    pub fn executable_name(&self) -> Option<String> {
+        self.0.executable_name()
+    }
+
     pub fn app_icon(&self) -> Option<Vec<u8>> {
         self.0.app_icon()
     }

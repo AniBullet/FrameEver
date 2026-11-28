@@ -2976,7 +2976,11 @@ impl LibraryWindow {
                             .flex_shrink_0()
                             .text_color(theme.muted_foreground),
                     )
-                    .child(div().min_w_0().truncate().child(entry.name.clone()))
+                    .child(ui::file_name(
+                        &theme,
+                        "library-row-name",
+                        entry.name.clone(),
+                    ))
                     .when(entry.exported(), |this| {
                         this.child(
                             svg()
@@ -3197,18 +3201,16 @@ impl LibraryWindow {
                     }),
             )
             .child(
-                div()
+                ui::file_name(&theme, "library-tile-name", entry.name.clone())
                     .mt(px(6.))
                     .w_full()
-                    .truncate()
                     .text_size(px(13.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(if selected {
                         theme.selection_foreground
                     } else {
                         theme.foreground
-                    })
-                    .child(entry.name.clone()),
+                    }),
             )
             .child(
                 div()

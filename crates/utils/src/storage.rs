@@ -971,7 +971,7 @@ mod tests {
         let second = create_project(&recordings, "Display 2026-10-25").unwrap();
 
         assert_eq!(first, tree.path("Recordings/Display 2026-10-25.ever"));
-        assert_eq!(second, tree.path("Recordings/Display 2026-10-25 (1).ever"));
+        assert_eq!(second, tree.path("Recordings/Display 2026-10-25_2.ever"));
         for project in [&first, &second] {
             assert!(is_project(project));
             assert_eq!(format_version(project), Some(FORMAT_VERSION));

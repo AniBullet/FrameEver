@@ -385,6 +385,44 @@ impl WindowImpl {
         }
     }
 
+    pub fn executable_name(&self) -> Option<String> {
+        use cocoa::base::{id, nil};
+        use cocoa::foundation::{NSAutoreleasePool, NSString};
+        use objc::{class, msg_send, sel, sel_impl};
+
+        let pid = self.owner_pid()?;
+
+        unsafe {
+            let pool = NSAutoreleasePool::new(nil);
+            let app: id = msg_send![
+                class!(NSRunningApplication),
+                runningApplicationWithProcessIdentifier: pid
+            ];
+            let url: id = if app.is_null() {
+                nil
+            } else {
+                msg_send![app, executableURL]
+            };
+            let component: id = if url.is_null() {
+                nil
+            } else {
+                msg_send![url, lastPathComponent]
+            };
+            let name = if component.is_null() {
+                None
+            } else {
+                let bytes = NSString::UTF8String(component);
+                (!bytes.is_null()).then(|| {
+                    std::ffi::CStr::from_ptr(bytes)
+                        .to_string_lossy()
+                        .into_owned()
+                })
+            };
+            pool.drain();
+            name
+        }
+    }
+
     pub fn owner_pid(&self) -> Option<i32> {
         let windows =
             core_graphics::window::copy_window_info(kCGWindowListOptionIncludingWindow, self.0)?;
