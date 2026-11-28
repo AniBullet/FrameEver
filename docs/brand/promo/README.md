@@ -26,4 +26,10 @@ When one of those surfaces changes, render the part again from its design page, 
 
 ## Rendering
 
-Capture the `#hero` element, 1280 × 720, at device scale 2 with a transparent page background, once per language. Headless Chrome does this through its DevTools protocol (`Page.captureScreenshot` with a clip); the browser's own "capture node screenshot" in DevTools gives the same result.
+`render.py` does all of it: the parts, the six pictures in the README's highlights table (`.github/images/*.png`, each padded to 8:5 on a transparent background) and the two hero pictures (the `#hero` element, 1280 × 720 at device scale 2). It needs Python with Playwright and Pillow, and Chrome.
+
+```powershell
+python docs/brand/promo/render.py
+```
+
+Pass names to render only some of them, for example `render.py library hero`.

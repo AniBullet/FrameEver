@@ -47,7 +47,7 @@
 <tr>
 <td valign="top">
 <img src=".github/images/library.png" alt="资源库" />
-<p><b>资源库</b><br>录制和截图都在这里。筛选、搜索，按 Space 预览。</p>
+<p><b>资源库</b><br>录制和截图都在这里。文件夹、筛选、搜索，按 Space 预览。</p>
 </td>
 <td valign="top">
 <img src=".github/images/screenshot-editor.png" alt="截图标注" />
@@ -78,8 +78,9 @@
 <td valign="top">
 
 - 显示器、窗口、区域
+- 只录声音，导出 MP3 或 WAV
 - 摄像头叠加、背景虚化
-- 麦克风 + 系统声音
+- 麦克风 + 系统声音，录制中可换设备
 - 记录键盘、鼠标、手柄
 - 屏幕画笔、章节标记
 - 提词器
@@ -96,16 +97,19 @@
 - 按文字剪、清理语气词
 - 箭头、方框、高亮、步骤编号
 - 人声 EQ、去口水音
-- 样式预设
+- 样式预设、增强画质
 - 导出 MP4（H.264 / HEVC / AV1）、GIF
+- 分轨导出屏幕、摄像头和音频
 
 </td>
 <td valign="top">
 
 - 录制、截图、导出放在一起
-- 筛选、搜索、排序
-- Space 预览、悬停拖看
-- 即时录制压缩成 HEVC
+- 文件夹、置顶、智能文件夹
+- 筛选、搜索、排序，Ctrl+K 命令面板
+- Space 预览，逐帧看、拖着看
+- 压缩成 HEVC，进度看得见，可取消
+- 录完弹出结果卡片，直接导出或复制
 - 删除进回收站
 - 文件就在 `视频\FrameEver`
 - 命令行 [`frameever`](apps/cli/README.md)，给脚本和 AI 用

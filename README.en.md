@@ -47,7 +47,7 @@
 <tr>
 <td valign="top">
 <img src=".github/images/library.png" alt="Library" />
-<p><b>Library</b><br>Recordings and screenshots in one place. Filter, search, press Space to preview.</p>
+<p><b>Library</b><br>Recordings and screenshots in one place. Folders, filter, search, press Space to preview.</p>
 </td>
 <td valign="top">
 <img src=".github/images/screenshot-editor.png" alt="Screenshot annotation" />
@@ -78,8 +78,9 @@
 <td valign="top">
 
 - Display, window, area
+- Audio only, exported as MP3 or WAV
 - Camera overlay, background blur
-- Microphone + system audio
+- Microphone + system audio; switch devices while recording
 - Keyboard, mouse and gamepad input
 - On-screen drawing, chapter markers
 - Teleprompter
@@ -96,16 +97,19 @@
 - Edit by text, clear filler words
 - Arrows, boxes, highlights, numbered steps
 - Voice EQ, de-click
-- Style presets
+- Style presets, Enhance quality
 - Export MP4 (H.264 / HEVC / AV1), GIF
+- Export screen, camera and audio as separate tracks
 
 </td>
 <td valign="top">
 
 - Recordings, screenshots and exports together
-- Filter, search, sort
-- Space to preview, hover to scrub
-- Compress Instant recordings to HEVC
+- Folders, pins, smart folders
+- Filter, search, sort; Ctrl+K command palette
+- Space to preview, step by frame, drag to scrub
+- Compress to HEVC with visible progress; cancel any time
+- A result card after each recording to export or copy
 - Delete goes to the Recycle Bin
 - Files sit in `Videos\FrameEver`
 - [`frameever`](apps/cli/README.md) command line for scripts and AI agents
