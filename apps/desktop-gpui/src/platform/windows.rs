@@ -767,8 +767,6 @@ pub fn alert_dialog(title: &str, message: &str) {
         .show();
 }
 
-pub fn activate_app() {}
-
 pub fn focus_capture_target_window(id: &scap_targets::WindowId) -> bool {
     let Some(window) = scap_targets::Window::from_id(id) else {
         return false;

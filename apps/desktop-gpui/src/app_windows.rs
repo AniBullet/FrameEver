@@ -1335,19 +1335,25 @@ pub fn open_quality_settings(mode: Mode, cx: &mut App) {
     }
 }
 
-pub(crate) fn refresh_settings(cx: &mut App) {
-    if !cx.has_global::<AppWindows>() {
-        return;
-    }
-    if let Some(handle) = cx.global::<AppWindows>().settings {
-        handle.update(cx, |_, _, cx| cx.notify()).ok();
-    }
-}
-
 /// Open the settings window on a page. The recording window stays where it
 /// is and only stops being on top until settings closes. Must be reached
 /// through `cx.defer` from anything inside an entity update: opening a window
 /// paints it synchronously and would double-lease the caller.
+pub(crate) fn refresh_update_surfaces(cx: &mut App) {
+    if !cx.has_global::<AppWindows>() {
+        return;
+    }
+    let windows = cx.global::<AppWindows>();
+    let (main, library, settings) = (windows.main, windows.library, windows.settings);
+    main.update(cx, |_, _, cx| cx.notify()).ok();
+    if let Some(library) = library {
+        library.update(cx, |_, _, cx| cx.notify()).ok();
+    }
+    if let Some(settings) = settings {
+        settings.update(cx, |_, _, cx| cx.notify()).ok();
+    }
+}
+
 pub fn open_settings(page: Page, cx: &mut App) {
     if let Some(handle) = cx.global::<AppWindows>().settings {
         // `ShowCapWindow::show` reuses a live window: show, focus, and let

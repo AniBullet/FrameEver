@@ -100,6 +100,18 @@ pub static ENTRIES: &[(&str, &str)] = &[
         "The recorded app's program name, empty unless a window is recorded.",
         "录制的应用的程序名，只有录窗口时才有。",
     ),
+    (
+        "Downloads new versions in the background, then shows Restart to update.",
+        "在后台下载新版本，下载好后提示重启以更新。",
+    ),
+    (
+        "Shows when a new version is out. Nothing downloads until you choose to.",
+        "有新版本时提示你，你选了才下载。",
+    ),
+    (
+        "Doesn't check by itself. Use Check for updates.",
+        "不自动检查，需要时点“检查更新”。",
+    ),
     ("Monitor name or window title.", "显示器名称或窗口标题。"),
     ("the recording's date", "录制日期"),
     ("the recording's time", "录制时间"),

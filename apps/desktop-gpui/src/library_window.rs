@@ -539,6 +539,7 @@ impl LibraryWindow {
                             .child(t!("Library")),
                     )
                     .child(div().flex_1().min_w_0())
+                    .children(crate::update_panel::title_pill(theme, cx))
                     .child(settings),
             );
 

@@ -11,35 +11,17 @@ use crate::{
     store::{GeneralSettings, UpdateChannel, UpdateDownloadPolicy},
 };
 
+mod offer;
+
+pub(crate) use offer::{Indicator, UpdateFailure, UpdateMemory, UpdateStatus};
+use offer::{Notice, indicator, notice, offered};
+
 const STABLE_FIRST_CHECK_DELAY: Duration = Duration::from_secs(10);
 const NIGHTLY_FIRST_CHECK_DELAY: Duration = Duration::from_secs(60);
 const NIGHTLY_CHECK_INTERVAL: Duration = Duration::from_secs(2 * 60 * 60);
 const BUSY_RETRY_DELAY: Duration = Duration::from_secs(5 * 60);
 const BUSY_MESSAGE: &str =
     n!("Finish your recording, export, import, or transcription task before updating.");
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) enum UpdateStatus {
-    #[default]
-    Idle,
-    Checking,
-    Downloading {
-        version: Version,
-        fraction: Option<f32>,
-    },
-    Ready {
-        version: Version,
-    },
-    Installing {
-        version: Version,
-    },
-    /// On disk and waiting only for the restart, which work started while the
-    /// installer waited on an administrator prompt holds back.
-    Installed {
-        version: Version,
-        executable: PathBuf,
-    },
-}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct PendingUpdateRequests {
@@ -73,63 +55,16 @@ struct UpdateScheduler {
     manual_in_flight: bool,
     status: UpdateStatus,
     download_policy: UpdateDownloadPolicy,
+    channel: UpdateChannel,
     staged: Option<StagedUpdate>,
     download: Option<gpui::Task<()>>,
     download_epoch: u64,
-    restart_prompt: RestartPromptState,
+    dismissed: bool,
+    notice_waiting: bool,
+    memory: UpdateMemory,
 }
 
 impl Global for UpdateScheduler {}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum RestartPrompt {
-    #[default]
-    None,
-    Waiting(u64),
-    Showing,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RestartStep {
-    Ignore,
-    Wait(u64),
-    Show,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct RestartPromptState {
-    prompt: RestartPrompt,
-    wait_epoch: u64,
-}
-
-impl RestartPromptState {
-    fn request(&mut self, busy: bool) -> RestartStep {
-        match (self.prompt, busy) {
-            (RestartPrompt::Showing, _) | (RestartPrompt::Waiting(_), true) => RestartStep::Ignore,
-            (RestartPrompt::None, true) => {
-                self.wait_epoch += 1;
-                self.prompt = RestartPrompt::Waiting(self.wait_epoch);
-                RestartStep::Wait(self.wait_epoch)
-            }
-            (RestartPrompt::None | RestartPrompt::Waiting(_), false) => {
-                self.prompt = RestartPrompt::Showing;
-                RestartStep::Show
-            }
-        }
-    }
-
-    fn wait_elapsed(&mut self, epoch: u64) -> bool {
-        if self.prompt != RestartPrompt::Waiting(epoch) {
-            return false;
-        }
-        self.prompt = RestartPrompt::None;
-        true
-    }
-
-    fn dialog_closed(&mut self) {
-        self.prompt = RestartPrompt::None;
-    }
-}
 
 fn qualifies(
     current: &Version,
@@ -177,18 +112,6 @@ fn delay_after_policy_change(
     } else {
         delay
     }
-}
-
-/// A check the user asked for answers now; a scheduled one waits for the
-/// work in flight to finish before showing its modal prompt.
-fn holds_scheduled_prompt(manual: bool, busy: bool) -> bool {
-    !manual && busy
-}
-
-/// A manual check or a channel change queued while an automatic prompt waits
-/// replaces it, so neither has to wait for the work in flight to finish.
-fn supersedes_held_prompt(pending: &PendingUpdateRequests) -> bool {
-    pending.manual || pending.channel.is_some()
 }
 
 fn current_version() -> Result<Version, String> {
@@ -243,6 +166,10 @@ pub(crate) fn work_in_flight(cx: &mut App) -> bool {
     RecordingSession::work_in_flight(cx)
 }
 
+pub(crate) fn busy_message() -> &'static str {
+    tr(BUSY_MESSAGE)
+}
+
 pub(crate) fn status(cx: &App) -> UpdateStatus {
     if cx.has_global::<UpdateScheduler>() {
         cx.global::<UpdateScheduler>().status.clone()
@@ -251,48 +178,184 @@ pub(crate) fn status(cx: &App) -> UpdateStatus {
     }
 }
 
+pub(crate) fn current_indicator(cx: &App) -> Option<Indicator> {
+    let scheduler = cx.try_global::<UpdateScheduler>()?;
+    indicator(&scheduler.status, scheduler.dismissed)
+}
+
+pub(crate) fn channel(cx: &App) -> UpdateChannel {
+    cx.try_global::<UpdateScheduler>().map_or_else(
+        || GeneralSettings::load().update_channel,
+        |scheduler| scheduler.channel,
+    )
+}
+
+pub(crate) fn skipped_version(cx: &App) -> Option<Version> {
+    let scheduler = cx.try_global::<UpdateScheduler>()?;
+    scheduler.memory.skipped(scheduler.channel)
+}
+
+fn remember(cx: &mut App, change: impl Fn(&mut UpdateMemory) + Send + 'static) {
+    change(&mut cx.global_mut::<UpdateScheduler>().memory);
+    cx.background_executor()
+        .spawn(async move { crate::store::update(|state| change(&mut state.updates)) })
+        .detach();
+}
+
+pub(crate) fn current_version_label() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 fn set_status(status: UpdateStatus, cx: &mut App) {
     let scheduler = cx.global_mut::<UpdateScheduler>();
     if scheduler.status == status {
         return;
     }
     scheduler.status = status;
-    crate::app_windows::refresh_settings(cx);
+    refresh_surfaces(cx);
+    maybe_notify(cx);
+}
+
+fn refresh_surfaces(cx: &mut App) {
+    crate::app_windows::refresh_update_surfaces(cx);
+    crate::update_panel::refresh(cx);
+    crate::tray::refresh_menu(cx);
+}
+
+pub(crate) fn open_panel(cx: &mut App) {
+    cx.defer(crate::update_panel::open);
 }
 
 pub(crate) fn check_manually(cx: &mut App) {
     if !cx.has_global::<UpdateScheduler>() {
         return;
     }
-
-    match status(cx) {
-        UpdateStatus::Ready { .. } | UpdateStatus::Installed { .. } => {
-            prompt_restart(cx);
-            return;
-        }
-        UpdateStatus::Downloading { version, .. } | UpdateStatus::Installing { version } => {
-            cx.spawn(async move |_| {
-                crate::platform::activate_app();
-                crate::platform::alert_dialog(
-                    t!("Update FrameEver"),
-                    &t!(
-                        "FrameEver is already getting version {version} ready.",
-                        version = version
-                    ),
-                );
-            })
-            .detach();
-            return;
-        }
-        UpdateStatus::Idle | UpdateStatus::Checking => {}
+    open_panel(cx);
+    if !matches!(
+        status(cx),
+        UpdateStatus::Idle
+            | UpdateStatus::Checking
+            | UpdateStatus::UpToDate
+            | UpdateStatus::Failed(_)
+    ) {
+        return;
     }
 
     let scheduler = cx.global_mut::<UpdateScheduler>();
     if !scheduler.pending.request_manual(scheduler.manual_in_flight) {
         return;
     }
-
     let _ = scheduler.wake.try_send(());
+}
+
+pub(crate) fn download(cx: &mut App) {
+    if let UpdateStatus::Available { release } = status(cx) {
+        cx.global_mut::<UpdateScheduler>().dismissed = false;
+        start_download(release, cx);
+    }
+}
+
+pub(crate) fn cancel_download(cx: &mut App) {
+    let UpdateStatus::Downloading { release, .. } = status(cx) else {
+        return;
+    };
+    let scheduler = cx.global_mut::<UpdateScheduler>();
+    scheduler.download_epoch = scheduler.download_epoch.wrapping_add(1);
+    scheduler.download = None;
+    set_status(UpdateStatus::Available { release }, cx);
+}
+
+pub(crate) fn remind_later(cx: &mut App) {
+    if !cx.has_global::<UpdateScheduler>() {
+        return;
+    }
+    cx.global_mut::<UpdateScheduler>().dismissed = true;
+    refresh_surfaces(cx);
+}
+
+pub(crate) fn skip_version(cx: &mut App) {
+    let UpdateStatus::Available { release } = status(cx) else {
+        return;
+    };
+    let channel = channel(cx);
+    let version = release.version.clone();
+    remember(cx, move |memory| memory.skip(channel, &version));
+    tracing::info!(version = %release.version, ?channel, "update version skipped");
+    cx.global_mut::<UpdateScheduler>().dismissed = false;
+    set_status(UpdateStatus::Idle, cx);
+}
+
+pub(crate) fn retry(cx: &mut App) {
+    match status(cx) {
+        UpdateStatus::Failed(UpdateFailure::Download { release, .. }) => {
+            start_download(release, cx);
+        }
+        UpdateStatus::Failed(UpdateFailure::Check(_)) => check_manually(cx),
+        _ => {}
+    }
+}
+
+fn maybe_notify(cx: &mut App) {
+    let scheduler = cx.global::<UpdateScheduler>();
+    if scheduler.notice_waiting
+        || !matches!(
+            scheduler.status,
+            UpdateStatus::Available { .. } | UpdateStatus::Ready { .. }
+        )
+        || !crate::notifications::enabled()
+    {
+        return;
+    }
+    let Some(notice) = notice(
+        &scheduler.status,
+        scheduler.download_policy,
+        &scheduler.memory,
+    ) else {
+        return;
+    };
+    if work_in_flight(cx) {
+        cx.global_mut::<UpdateScheduler>().notice_waiting = true;
+        cx.spawn(async move |cx| {
+            cx.background_executor().timer(BUSY_RETRY_DELAY).await;
+            cx.update(|cx| {
+                cx.global_mut::<UpdateScheduler>().notice_waiting = false;
+                maybe_notify(cx);
+            });
+        })
+        .detach();
+        return;
+    }
+    send_notice(notice, cx);
+}
+
+fn send_notice(notice: Notice, cx: &mut App) {
+    let version = notice.version().to_string();
+    remember(cx, move |memory| memory.notified = Some(version.clone()));
+    let body = match &notice {
+        Notice::Found(version) => t!("Version {version} is available.", version = version),
+        Notice::Ready(version) => t!(
+            "Version {version} is ready. Restart to update.",
+            version = version
+        ),
+    };
+    let (clicked, clicks) = flume::bounded::<()>(1);
+    cx.spawn(async move |cx| {
+        if clicks.recv_async().await.is_ok() {
+            cx.update(open_panel);
+        }
+    })
+    .detach();
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(error) =
+                crate::notifications::show_with_click("FrameEver", &body, move || {
+                    let _ = clicked.try_send(());
+                })
+            {
+                tracing::warn!("update notification failed: {error}");
+            }
+        })
+        .detach();
 }
 
 pub(crate) fn update_download_policy_changed(policy: UpdateDownloadPolicy, cx: &mut App) {
@@ -310,14 +373,15 @@ pub(crate) fn update_channel_changed(channel: UpdateChannel, cx: &mut App) {
 
     drop_pending_update_from_previous_channel(cx);
     let scheduler = cx.global_mut::<UpdateScheduler>();
+    scheduler.channel = channel;
     scheduler.pending.request_channel(channel);
     let _ = scheduler.wake.try_send(());
 }
 
 fn channel_switch_drops_pending_package(status: &UpdateStatus) -> bool {
-    matches!(
+    !matches!(
         status,
-        UpdateStatus::Checking | UpdateStatus::Downloading { .. } | UpdateStatus::Ready { .. }
+        UpdateStatus::Idle | UpdateStatus::Installing { .. } | UpdateStatus::Installed { .. }
     )
 }
 
@@ -329,6 +393,7 @@ fn drop_pending_update_from_previous_channel(cx: &mut App) {
     scheduler.download_epoch = scheduler.download_epoch.wrapping_add(1);
     scheduler.download = None;
     scheduler.staged = None;
+    scheduler.dismissed = false;
     set_status(UpdateStatus::Idle, cx);
 }
 
@@ -349,36 +414,34 @@ fn finish_manual_check(cx: &mut App, manual: bool) {
     }
 }
 
-fn busy_alert(cx: &mut App) {
-    cx.spawn(async move |_| {
-        crate::platform::activate_app();
-        crate::platform::alert_dialog(t!("FrameEver is busy"), tr(BUSY_MESSAGE));
-    })
-    .detach();
+fn shows_checking(manual: bool, status: &UpdateStatus) -> bool {
+    manual || matches!(status, UpdateStatus::Idle | UpdateStatus::UpToDate)
 }
 
 pub(crate) fn schedule_startup_check(cx: &mut App) {
     let (wake, requests) = flume::bounded(1);
+    let settings = GeneralSettings::load();
     cx.set_global(UpdateScheduler {
         wake,
         pending: PendingUpdateRequests::default(),
         manual_in_flight: false,
         status: UpdateStatus::Idle,
-        download_policy: GeneralSettings::load().update_download_policy,
+        download_policy: settings.update_download_policy,
+        channel: settings.update_channel,
         staged: None,
         download: None,
         download_epoch: 0,
-        restart_prompt: RestartPromptState::default(),
+        dismissed: false,
+        notice_waiting: false,
+        memory: crate::store::load().updates,
     });
+    #[cfg(debug_assertions)]
+    preview_from_env(cx);
 
     cx.spawn(async move |cx| {
-        let mut channel = cx
-            .background_executor()
-            .spawn(async { GeneralSettings::load().update_channel })
-            .await;
+        let mut channel = cx.update(|cx| cx.global::<UpdateScheduler>().channel);
         let mut policy = cx.update(|cx| cx.global::<UpdateScheduler>().download_policy);
         let mut delay = first_scheduled_delay(policy, channel).filter(|_| !cfg!(debug_assertions));
-        let mut ignored_version: Option<Version> = None;
 
         loop {
             let signaled = match delay {
@@ -417,7 +480,6 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
 
             if let Some(next_channel) = request.channel {
                 channel = next_channel;
-                ignored_version = None;
                 cx.update(drop_pending_update_from_previous_channel);
             }
 
@@ -437,12 +499,16 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
 
             delay = next_check_delay(channel);
 
-            if cx.update(|cx| status(cx) != UpdateStatus::Idle) {
+            if cx.update(|cx| !status(cx).accepts_check()) {
                 cx.update(|cx| finish_manual_check(cx, manual));
                 continue;
             }
 
-            cx.update(|cx| set_status(UpdateStatus::Checking, cx));
+            cx.update(|cx| {
+                if shows_checking(manual, &status(cx)) {
+                    set_status(UpdateStatus::Checking, cx);
+                }
+            });
 
             let result = match cx
                 .update(|cx| gpui_tokio::Tokio::spawn(cx, available_release(channel)))
@@ -469,99 +535,93 @@ pub(crate) fn schedule_startup_check(cx: &mut App) {
             let release = match result {
                 Ok(Some(release)) => release,
                 Ok(None) => {
-                    cx.update(|cx| set_status(UpdateStatus::Idle, cx));
-                    if manual {
-                        crate::platform::activate_app();
-                        crate::platform::alert_dialog(
-                            t!("No Update Available"),
-                            t!("You're already using the latest version of FrameEver."),
+                    cx.update(|cx| {
+                        set_status(
+                            if manual {
+                                UpdateStatus::UpToDate
+                            } else {
+                                UpdateStatus::Idle
+                            },
+                            cx,
                         );
-                        cx.update(|cx| finish_manual_check(cx, true));
-                    }
+                        finish_manual_check(cx, manual);
+                    });
                     continue;
                 }
                 Err(error) => {
                     tracing::warn!("update check failed: {error}");
-                    cx.update(|cx| set_status(UpdateStatus::Idle, cx));
-                    if manual {
-                        crate::platform::activate_app();
-                        crate::platform::alert_dialog(
-                            t!("Update FrameEver"),
-                            &t!("Couldn't check for updates: {error}", error = error),
-                        );
-                        cx.update(|cx| finish_manual_check(cx, true));
-                    }
+                    cx.update(|cx| {
+                        if manual {
+                            set_status(
+                                UpdateStatus::Failed(UpdateFailure::Check(t!(
+                                    "Couldn't check for updates: {error}",
+                                    error = error
+                                ))),
+                                cx,
+                            );
+                        } else if status(cx) == UpdateStatus::Checking {
+                            set_status(UpdateStatus::Idle, cx);
+                        }
+                        finish_manual_check(cx, manual);
+                    });
                     continue;
                 }
             };
 
-            if !manual && ignored_version.as_ref() == Some(&release.version) {
+            let skipped = cx.update(|cx| cx.global::<UpdateScheduler>().memory.skipped(channel));
+            if !offered(&release.version, skipped.as_ref(), manual) {
                 cx.update(|cx| set_status(UpdateStatus::Idle, cx));
                 continue;
             }
 
-            // The prompt is modal and brings Cap forward, so an automatic
-            // check holds it until a recording, export, import or
-            // transcription has finished rather than interrupting it.
-            let mut superseded = false;
-            if holds_scheduled_prompt(manual, cx.update(work_in_flight)) {
-                cx.update(|cx| set_status(UpdateStatus::Idle, cx));
-            }
-            while holds_scheduled_prompt(manual, cx.update(work_in_flight)) {
-                let timer = cx.background_executor().timer(BUSY_RETRY_DELAY);
-                let request = requests.recv_async();
-                futures_util::pin_mut!(timer, request);
-                if let Either::Right((Err(_), _)) = select(timer, request).await {
-                    return;
+            cx.update(|cx| {
+                if std::mem::take(&mut cx.global_mut::<UpdateScheduler>().dismissed) {
+                    refresh_surfaces(cx);
                 }
-                superseded =
-                    cx.update(|cx| supersedes_held_prompt(&cx.global::<UpdateScheduler>().pending));
-                if superseded {
-                    break;
+                finish_manual_check(cx, manual);
+                let latest_policy = cx.global::<UpdateScheduler>().download_policy;
+                match release_step(latest_policy, manual) {
+                    ReleaseStep::Skip => set_status(UpdateStatus::Idle, cx),
+                    ReleaseStep::Download => start_download(release, cx),
+                    ReleaseStep::Ask => set_status(UpdateStatus::Available { release }, cx),
                 }
-            }
-            if superseded {
-                // Run the queued manual check or channel change straight away.
-                cx.update(|cx| set_status(UpdateStatus::Idle, cx));
-                delay = Some(Duration::ZERO);
-                continue;
-            }
-
-            let latest_policy = cx.update(|cx| cx.global::<UpdateScheduler>().download_policy);
-            match release_step(latest_policy, manual) {
-                ReleaseStep::Skip => {
-                    cx.update(|cx| set_status(UpdateStatus::Idle, cx));
-                    delay = next_check_delay(channel);
-                    continue;
-                }
-                ReleaseStep::Download => {
-                    cx.update(|cx| finish_manual_check(cx, manual));
-                    cx.update(|cx| start_download(release, cx));
-                    continue;
-                }
-                ReleaseStep::Ask => cx.update(|cx| set_status(UpdateStatus::Idle, cx)),
-            }
-
-            crate::platform::activate_app();
-            let accepted = crate::platform::confirm_dialog(
-                t!("Update FrameEver"),
-                &t!(
-                    "Version {version} of FrameEver is available. FrameEver will download it in the background and let you know when it's ready to install.",
-                    version = release.version
-                ),
-                t!("Download"),
-                t!("Not Now"),
-                false,
-            );
-            cx.update(|cx| finish_manual_check(cx, manual));
-            if accepted {
-                cx.update(|cx| start_download(release, cx));
-            } else {
-                ignored_version = Some(release.version);
-            }
+            });
         }
     })
     .detach();
+}
+
+#[cfg(debug_assertions)]
+fn preview_from_env(cx: &mut App) {
+    let Ok(spec) = std::env::var("FRAMEEVER_GPUI_UPDATE_PREVIEW") else {
+        return;
+    };
+    let release = Release {
+        version: Version::new(9, 9, 9),
+        url: String::new(),
+        signature: String::new(),
+        notes: Some(
+            "- Library: open an export with the default app\n- Compression shows its queue in the library toolbar\n- Fixed: update prompt hidden behind other windows".into(),
+        ),
+    };
+    let status = match spec.as_str() {
+        "available" => UpdateStatus::Available { release },
+        "downloading" => UpdateStatus::Downloading {
+            release,
+            fraction: Some(0.42),
+        },
+        "ready" => UpdateStatus::Ready { release },
+        "installing" => UpdateStatus::Installing {
+            version: release.version,
+        },
+        "failed" => UpdateStatus::Failed(UpdateFailure::Download {
+            release,
+            message: "Couldn't download the update. Check your connection and try again.".into(),
+        }),
+        "current" => UpdateStatus::UpToDate,
+        _ => return,
+    };
+    cx.global_mut::<UpdateScheduler>().status = status;
 }
 
 fn start_download(release: Release, cx: &mut App) {
@@ -570,15 +630,14 @@ fn start_download(release: Release, cx: &mut App) {
     {
         Ok(kind) => kind,
         Err(error) => {
-            update_failed(&error, cx);
+            update_failed(release, error, cx);
             return;
         }
     };
 
-    let version = release.version.clone();
     set_status(
         UpdateStatus::Downloading {
-            version: version.clone(),
+            release: release.clone(),
             fraction: None,
         },
         cx,
@@ -586,9 +645,10 @@ fn start_download(release: Release, cx: &mut App) {
     let download_epoch = cx.global::<UpdateScheduler>().download_epoch;
 
     let (progress_sender, progress) = flume::bounded::<Option<f32>>(1);
+    let download_release = release.clone();
     let download = gpui_tokio::Tokio::spawn(cx, async move {
         let mut reported = None::<u16>;
-        installer::download(kind, &release, move |done, total| {
+        installer::download(kind, &download_release, move |done, total| {
             let fraction = total
                 .filter(|total| *total > 0)
                 .map(|total| (done as f64 / total as f64).clamp(0., 1.) as f32);
@@ -602,7 +662,7 @@ fn start_download(release: Release, cx: &mut App) {
     });
 
     let task = cx.spawn(async move |cx| {
-        let progress_version = version.clone();
+        let progress_release = release.clone();
         let progress_epoch = download_epoch;
         let progress_updates = cx.spawn(async move |cx| {
             while let Ok(fraction) = progress.recv_async().await {
@@ -612,7 +672,7 @@ fn start_download(release: Release, cx: &mut App) {
                     }
                     set_status(
                         UpdateStatus::Downloading {
-                            version: progress_version.clone(),
+                            release: progress_release.clone(),
                             fraction,
                         },
                         cx,
@@ -634,15 +694,19 @@ fn start_download(release: Release, cx: &mut App) {
             cx.global_mut::<UpdateScheduler>().download = None;
             match result {
                 Ok(package) => {
-                    tracing::info!(%version, path = %package.display(), "update downloaded and verified");
+                    tracing::info!(version = %release.version, path = %package.display(), "update downloaded and verified");
                     cx.global_mut::<UpdateScheduler>().staged =
                         Some(StagedUpdate { kind, package });
-                    set_status(UpdateStatus::Ready { version }, cx);
-                    prompt_restart(cx);
+                    set_status(UpdateStatus::Ready { release }, cx);
                 }
                 Err(error) => {
-                    tracing::warn!(%version, "update download failed: {error}");
-                    update_failed(&t!("Couldn't download version {version}: {error}", version = version, error = error), cx);
+                    tracing::warn!(version = %release.version, "update download failed: {error}");
+                    let message = t!(
+                        "Couldn't download version {version}: {error}",
+                        version = release.version,
+                        error = error
+                    );
+                    update_failed(release, message, cx);
                 }
             }
         });
@@ -650,72 +714,11 @@ fn start_download(release: Release, cx: &mut App) {
     cx.global_mut::<UpdateScheduler>().download = Some(task);
 }
 
-fn update_failed(message: &str, cx: &mut App) {
-    set_status(UpdateStatus::Idle, cx);
-    let message = t!(
-        "{message}\n\nYou can always download the latest version from the FrameEver releases page.",
-        message = message
+fn update_failed(release: Release, message: String, cx: &mut App) {
+    set_status(
+        UpdateStatus::Failed(UpdateFailure::Download { release, message }),
+        cx,
     );
-    cx.spawn(async move |_| {
-        crate::platform::activate_app();
-        crate::platform::alert_dialog(t!("Update FrameEver"), &message);
-    })
-    .detach();
-}
-
-fn prompt_restart(cx: &mut App) {
-    let (UpdateStatus::Ready { version } | UpdateStatus::Installed { version, .. }) = status(cx)
-    else {
-        return;
-    };
-    let busy = work_in_flight(cx);
-    match cx
-        .global_mut::<UpdateScheduler>()
-        .restart_prompt
-        .request(busy)
-    {
-        RestartStep::Ignore => {}
-        RestartStep::Wait(epoch) => {
-            tracing::info!(%version, "update ready; waiting for in-flight work before prompting");
-            cx.spawn(async move |cx| {
-                cx.background_executor().timer(BUSY_RETRY_DELAY).await;
-                cx.update(|cx| {
-                    if cx
-                        .global_mut::<UpdateScheduler>()
-                        .restart_prompt
-                        .wait_elapsed(epoch)
-                    {
-                        prompt_restart(cx);
-                    }
-                });
-            })
-            .detach();
-        }
-        RestartStep::Show => {
-            cx.spawn(async move |cx| {
-                crate::platform::activate_app();
-                let accepted = crate::platform::confirm_dialog(
-                    t!("Update FrameEver"),
-                    &t!(
-                        "FrameEver {version} is ready. Restart FrameEver to finish updating.",
-                        version = version
-                    ),
-                    t!("Restart Now"),
-                    t!("Later"),
-                    false,
-                );
-                cx.update(|cx| {
-                    cx.global_mut::<UpdateScheduler>()
-                        .restart_prompt
-                        .dialog_closed();
-                    if accepted {
-                        install_and_relaunch(cx);
-                    }
-                });
-            })
-            .detach();
-        }
-    }
 }
 
 pub(crate) fn install_and_relaunch(cx: &mut App) {
@@ -730,7 +733,7 @@ pub(crate) fn install_and_relaunch(cx: &mut App) {
         return;
     }
     if work_in_flight(cx) {
-        busy_alert(cx);
+        open_panel(cx);
         return;
     }
     if let Err(error) = crate::app_windows::flush_pending_editor_saves(cx) {
@@ -740,7 +743,7 @@ pub(crate) fn install_and_relaunch(cx: &mut App) {
         .detach();
         return;
     }
-    let version = match status {
+    let release = match status {
         UpdateStatus::Installed {
             version,
             executable,
@@ -748,7 +751,7 @@ pub(crate) fn install_and_relaunch(cx: &mut App) {
             relaunch_into(&version, &executable, cx);
             return;
         }
-        UpdateStatus::Ready { version } => version,
+        UpdateStatus::Ready { release } => release,
         _ => return,
     };
     let Some((package, kind)) = cx
@@ -760,6 +763,7 @@ pub(crate) fn install_and_relaunch(cx: &mut App) {
         return;
     };
 
+    let version = release.version.clone();
     set_status(
         UpdateStatus::Installing {
             version: version.clone(),
@@ -780,23 +784,18 @@ pub(crate) fn install_and_relaunch(cx: &mut App) {
             Err(error) => {
                 tracing::error!(%version, "update install failed: {error}");
                 cx.global_mut::<UpdateScheduler>().staged = None;
-                update_failed(
-                    &t!(
-                        "Couldn't install version {version}: {error}",
-                        version = version,
-                        error = error
-                    ),
-                    cx,
+                let message = t!(
+                    "Couldn't install version {version}: {error}",
+                    version = version,
+                    error = error
                 );
+                update_failed(release, message, cx);
             }
         });
     })
     .detach();
 }
 
-/// The install can sit behind an administrator prompt for as long as the user
-/// leaves it, so anything started meanwhile defers the restart to a prompt
-/// that waits for Cap to be idle.
 fn restart_after_install(version: Version, executable: PathBuf, cx: &mut App) {
     let deferred = if work_in_flight(cx) {
         tracing::info!(%version, "update installed; waiting for in-flight work before restarting");
@@ -815,7 +814,6 @@ fn restart_after_install(version: Version, executable: PathBuf, cx: &mut App) {
             },
             cx,
         );
-        prompt_restart(cx);
         return;
     }
     relaunch_into(&version, &executable, cx);
@@ -874,44 +872,6 @@ mod tests {
             signature: "c2ln".to_string(),
             notes: None,
         }
-    }
-
-    #[test]
-    fn restart_requests_share_one_wait_and_one_dialog() {
-        let mut state = RestartPromptState::default();
-        assert_eq!(state.request(true), RestartStep::Wait(1));
-        assert_eq!(state.request(true), RestartStep::Ignore);
-        assert_eq!(state.request(false), RestartStep::Show);
-        assert_eq!(state.request(false), RestartStep::Ignore);
-        assert_eq!(state.request(true), RestartStep::Ignore);
-        state.dialog_closed();
-        assert!(!state.wait_elapsed(1));
-        assert_eq!(state.request(true), RestartStep::Wait(2));
-        assert!(!state.wait_elapsed(1));
-        assert!(state.wait_elapsed(2));
-        assert!(!state.wait_elapsed(2));
-        assert_eq!(state.request(false), RestartStep::Show);
-    }
-
-    #[test]
-    fn only_scheduled_checks_wait_for_work_in_flight() {
-        assert!(holds_scheduled_prompt(false, true));
-        assert!(!holds_scheduled_prompt(false, false));
-        assert!(!holds_scheduled_prompt(true, true));
-        assert!(!holds_scheduled_prompt(true, false));
-    }
-
-    #[test]
-    fn queued_manual_checks_and_channel_changes_replace_a_held_prompt() {
-        assert!(!supersedes_held_prompt(&PendingUpdateRequests::default()));
-        assert!(supersedes_held_prompt(&PendingUpdateRequests {
-            manual: true,
-            ..PendingUpdateRequests::default()
-        }));
-        assert!(supersedes_held_prompt(&PendingUpdateRequests {
-            channel: Some(UpdateChannel::Nightly),
-            ..PendingUpdateRequests::default()
-        }));
     }
 
     #[test]
@@ -1059,17 +1019,28 @@ mod tests {
     }
 
     #[test]
-    fn channel_switch_drops_a_download_or_staged_package_and_keeps_an_install() {
+    fn channel_switch_drops_what_the_other_channel_offered_and_keeps_an_install() {
         let nightly = version("0.6.1-nightly.4");
-        assert!(channel_switch_drops_pending_package(
-            &UpdateStatus::Downloading {
-                version: nightly.clone(),
+        for dropped in [
+            UpdateStatus::Checking,
+            UpdateStatus::UpToDate,
+            UpdateStatus::Available {
+                release: release("0.6.1-nightly.4"),
+            },
+            UpdateStatus::Downloading {
+                release: release("0.6.1-nightly.4"),
                 fraction: Some(0.4),
-            }
-        ));
-        assert!(channel_switch_drops_pending_package(&UpdateStatus::Ready {
-            version: nightly.clone(),
-        }));
+            },
+            UpdateStatus::Ready {
+                release: release("0.6.1-nightly.4"),
+            },
+            UpdateStatus::Failed(UpdateFailure::Check("offline".into())),
+        ] {
+            assert!(
+                channel_switch_drops_pending_package(&dropped),
+                "{dropped:?}"
+            );
+        }
         assert!(!channel_switch_drops_pending_package(
             &UpdateStatus::Installing { version: nightly }
         ));
@@ -1080,6 +1051,25 @@ mod tests {
             }
         ));
         assert!(!channel_switch_drops_pending_package(&UpdateStatus::Idle));
+    }
+
+    #[test]
+    fn a_scheduled_check_keeps_an_offer_on_screen_while_it_runs() {
+        assert!(shows_checking(true, &UpdateStatus::Idle));
+        assert!(shows_checking(
+            true,
+            &UpdateStatus::Available {
+                release: release("1.2.0")
+            }
+        ));
+        assert!(shows_checking(false, &UpdateStatus::Idle));
+        assert!(shows_checking(false, &UpdateStatus::UpToDate));
+        assert!(!shows_checking(
+            false,
+            &UpdateStatus::Available {
+                release: release("1.2.0")
+            }
+        ));
     }
 
     #[test]

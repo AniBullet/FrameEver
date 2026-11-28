@@ -270,7 +270,12 @@ pub(super) enum StateIcon {
     Recording,
     Paused,
     Export(u8),
+    Update,
 }
+
+const UPDATE_DOT_CENTER: (f32, f32) = (40., 8.);
+const UPDATE_DOT_RADIUS: f32 = 6.;
+const UPDATE_DOT_RIM: f32 = 9.;
 
 pub(super) fn icon_pixels(state: StateIcon, size: u32) -> Vec<u8> {
     let mut pixels = vec![0; (size * size * 4) as usize];
@@ -278,6 +283,17 @@ pub(super) fn icon_pixels(state: StateIcon, size: u32) -> Vec<u8> {
     for y in 0..size {
         for x in 0..size {
             let (xx, yy) = ((x as f32 + 0.5) / scale, (y as f32 + 0.5) / scale);
+            let offset = ((y * size + x) * 4) as usize;
+            if state == StateIcon::Update {
+                let dot = (xx - UPDATE_DOT_CENTER.0).hypot(yy - UPDATE_DOT_CENTER.1);
+                if dot <= UPDATE_DOT_RADIUS {
+                    pixels[offset..offset + 4].copy_from_slice(&[255, 255, 255, 255]);
+                    continue;
+                }
+                if dot <= UPDATE_DOT_RIM {
+                    continue;
+                }
+            }
             let corner_x = (xx - 24.).abs() - 13.2;
             let corner_y = (yy - 24.).abs() - 13.2;
             if corner_x.max(0.).hypot(corner_y.max(0.)) > 10.8 {
@@ -313,7 +329,6 @@ pub(super) fn icon_pixels(state: StateIcon, size: u32) -> Vec<u8> {
                 }
                 _ => {}
             }
-            let offset = ((y * size + x) * 4) as usize;
             pixels[offset..offset + 4].copy_from_slice(&color);
         }
     }
@@ -437,6 +452,25 @@ mod tests {
             submenu_frame([1600., 500., 280., 300.], 564., work),
             ([1316., 500., 564., 300.], true)
         );
+    }
+
+    #[test]
+    fn the_update_icon_puts_a_white_dot_with_a_clear_rim_on_the_top_right() {
+        for size in [16, 20, 24, 32] {
+            let pixels = icon_pixels(StateIcon::Update, size);
+            let at = |x: f32, y: f32| {
+                let scale = size as f32 / 48.;
+                let (px, py) = ((x * scale) as u32, (y * scale) as u32);
+                let offset = ((py * size + px) * 4) as usize;
+                pixels[offset..offset + 4].to_vec()
+            };
+            assert_eq!(at(40., 8.), vec![255, 255, 255, 255], "size {size}");
+            assert_eq!(at(24., 24.)[3], 255, "size {size}");
+            assert_ne!(pixels, icon_pixels(StateIcon::Recording, size));
+        }
+        let pixels = icon_pixels(StateIcon::Update, 48);
+        let rim = ((14 * 48 + 34) * 4) as usize;
+        assert_eq!(pixels[rim + 3], 0);
     }
 
     #[test]

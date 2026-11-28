@@ -132,6 +132,8 @@ pub enum TrayItem {
     ToggleControls,
     ShowExport,
     ShowCompressions,
+    OpenUpdate,
+    RestartToUpdate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -581,6 +583,41 @@ pub fn handle_item(item: TrayItem, cx: &mut App) {
             app_windows::show_library(cx);
             cx.activate(true);
         }
+        TrayItem::OpenUpdate => crate::updates::open_panel(cx),
+        TrayItem::RestartToUpdate => crate::updates::install_and_relaunch(cx),
+    }
+}
+
+pub fn update_entry(indicator: &crate::updates::Indicator) -> Entry {
+    use crate::updates::Indicator;
+    match indicator {
+        Indicator::Available(version) => Entry::item(
+            t!("Update to {version}…", version = version),
+            TrayItem::OpenUpdate,
+        ),
+        Indicator::Downloading {
+            version,
+            percent: Some(percent),
+        } => Entry::item(
+            t!(
+                "Downloading {version} · {percent}%",
+                version = version,
+                percent = percent
+            ),
+            TrayItem::OpenUpdate,
+        ),
+        Indicator::Downloading { version, .. } => Entry::item(
+            t!("Downloading {version}…", version = version),
+            TrayItem::OpenUpdate,
+        ),
+        Indicator::Ready(version) => Entry::item(
+            t!("Restart to update to {version}", version = version),
+            TrayItem::RestartToUpdate,
+        ),
+        Indicator::Installing(version) => {
+            Entry::disabled(t!("Installing {version}…", version = version))
+        }
+        Indicator::Failed => Entry::item(t!("Update failed · Try again"), TrayItem::OpenUpdate),
     }
 }
 
@@ -2110,6 +2147,33 @@ pub fn build_state_menu(
 #[cfg(all(test, target_os = "windows"))]
 mod surface_state_tests {
     use super::*;
+
+    #[test]
+    fn the_update_row_opens_the_panel_restarts_when_ready_and_only_reports_an_install() {
+        use crate::updates::Indicator;
+        let version = semver::Version::new(1, 2, 0);
+        let action = |indicator: Indicator| match update_entry(&indicator) {
+            Entry::Item { item, .. } => item,
+            _ => None,
+        };
+        assert_eq!(
+            action(Indicator::Available(version.clone())),
+            Some(TrayItem::OpenUpdate)
+        );
+        assert_eq!(
+            action(Indicator::Downloading {
+                version: version.clone(),
+                percent: Some(42)
+            }),
+            Some(TrayItem::OpenUpdate)
+        );
+        assert_eq!(
+            action(Indicator::Ready(version.clone())),
+            Some(TrayItem::RestartToUpdate)
+        );
+        assert_eq!(action(Indicator::Failed), Some(TrayItem::OpenUpdate));
+        assert_eq!(action(Indicator::Installing(version)), None);
+    }
 
     #[test]
     fn tray_recording_menu_exposes_only_live_recording_controls() {

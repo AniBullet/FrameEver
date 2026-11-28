@@ -260,7 +260,20 @@ fn live_entries(
     decorate_accelerators(&mut entries, &|action| {
         crate::hotkeys::accelerator(action, cx)
     });
+    if shows_update_row(state)
+        && let Some(indicator) = crate::updates::current_indicator(cx)
+    {
+        entries.insert(0, Entry::Separator);
+        entries.insert(0, crate::tray::update_entry(&indicator));
+    }
     entries
+}
+
+fn shows_update_row(state: &SurfaceState) -> bool {
+    matches!(
+        state,
+        SurfaceState::Idle | SurfaceState::Exporting { .. } | SurfaceState::Compressing { .. }
+    )
 }
 
 fn left_click_item(state: &SurfaceState) -> TrayItem {
@@ -531,7 +544,7 @@ pub fn menu_snapshot(cx: &App) -> Vec<Entry> {
     live_entries(cx, tray.mode, &tray.previous, &state_snapshot(cx))
 }
 
-fn icon_for_state(state: &SurfaceState) -> Option<StateIcon> {
+fn icon_for_state(state: &SurfaceState, update_dot: bool) -> Option<StateIcon> {
     match state {
         SurfaceState::Recording { paused: true, .. } => Some(StateIcon::Paused),
         SurfaceState::Recording { .. } => Some(StateIcon::Recording),
@@ -540,19 +553,25 @@ fn icon_for_state(state: &SurfaceState) -> Option<StateIcon> {
                 ((u16::from(*percent) * 8 / 101) as u8).min(7),
             ))
         }
-        _ => None,
+        _ => update_dot.then_some(StateIcon::Update),
     }
 }
+
+fn update_dot(cx: &App) -> bool {
+    crate::updates::current_indicator(cx).is_some_and(|indicator| indicator.wants_attention())
+}
+
 pub fn refresh_menu(cx: &mut App) {
     if !cx.has_global::<Tray>() {
         return;
     }
     let state = state_snapshot(cx);
+    let dot = update_dot(cx);
     let tray = cx.global::<Tray>();
     let entries = live_entries(cx, tray.mode, &tray.previous, &state);
     let changed = entries != tray.entries;
     let state_changed = state != tray.state;
-    if !changed && !state_changed && icon_for_state(&state) == tray.icon_state {
+    if !changed && !state_changed && icon_for_state(&state, dot) == tray.icon_state {
         return;
     }
     let native_menu = if changed {
@@ -573,7 +592,7 @@ pub fn refresh_menu(cx: &mut App) {
         }
         tray.native_menu = native_menu;
     }
-    let icon_state = icon_for_state(&state);
+    let icon_state = icon_for_state(&state, dot);
     let throttled = matches!(
         (tray.icon_state, icon_state),
         (Some(StateIcon::Export(_)), Some(StateIcon::Export(_)))

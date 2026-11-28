@@ -131,6 +131,7 @@ mod transcription;
 mod tray;
 mod ui;
 mod unused_media;
+mod update_panel;
 mod updates;
 mod window_arrange;
 

@@ -1103,11 +1103,8 @@ impl SettingsWindow {
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
         let searching = !self.search.trim().is_empty();
-        let update_ready = matches!(
-            crate::updates::status(cx),
-            crate::updates::UpdateStatus::Ready { .. }
-                | crate::updates::UpdateStatus::Installed { .. }
-        );
+        let update_ready = crate::updates::current_indicator(cx)
+            .is_some_and(|indicator| indicator.wants_attention());
 
         let nav = Page::ALL.into_iter().map(|page| {
             let selected = !searching && page == self.page;
@@ -1249,15 +1246,18 @@ impl SettingsWindow {
                                     .truncate()
                                     .child(concat!("FrameEver v", env!("CARGO_PKG_VERSION"))),
                             )
-                            .children(sidebar_update_label(&crate::updates::status(cx)).map(
-                                |label| {
+                            .children(
+                                sidebar_update_label(
+                                    crate::updates::current_indicator(cx).as_ref(),
+                                )
+                                .map(|label| {
                                     div()
                                         .text_size(px(11.))
                                         .truncate()
                                         .text_color(theme.link)
                                         .child(label)
-                                },
-                            )),
+                                }),
+                            ),
                     )
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.clear_search(cx);
@@ -1387,7 +1387,7 @@ impl SettingsWindow {
                                     .font_weight(FontWeight::MEDIUM)
                                     .child(tr(row.label())),
                             )
-                            .children(row.description().map(|description| {
+                            .children(self.shown_description(row).map(|description| {
                                 div()
                                     .text_size(px(12.))
                                     .text_color(theme.settings_muted())
@@ -1488,7 +1488,7 @@ impl SettingsWindow {
             ui::SettingRow::settings(
                 &theme,
                 tr(row.label()),
-                row.description().map(tr),
+                self.shown_description(row).map(tr),
                 self.render_row_control(row, window, cx),
             )
             .into_any_element()
@@ -1507,6 +1507,15 @@ impl SettingsWindow {
             .into_any_element()
     }
 
+    fn shown_description(&self, row: Row) -> Option<&'static str> {
+        match row {
+            Row::UpdateDownloads => Some(update_policy_description(
+                self.settings.update_download_policy,
+            )),
+            _ => row.description(),
+        }
+    }
+
     fn row_label(&self, row: Row) -> impl IntoElement {
         let theme = self.theme;
         div()
@@ -1514,7 +1523,7 @@ impl SettingsWindow {
             .flex_col()
             .gap(px(2.))
             .child(div().text_size(px(13.)).child(tr(row.label())))
-            .children(row.description().map(|description| {
+            .children(self.shown_description(row).map(|description| {
                 div()
                     .text_size(px(12.))
                     .line_height(px(16.))
@@ -2783,7 +2792,7 @@ impl SettingsWindow {
             _ if !configured => self
                 .hint(t!("Updates are not enabled in this build"))
                 .into_any_element(),
-            crate::updates::UpdateStatus::Idle => self
+            crate::updates::UpdateStatus::Idle | crate::updates::UpdateStatus::UpToDate => self
                 .button(
                     "check-updates",
                     (ui::ButtonVariant::Gray, None),
@@ -2803,14 +2812,24 @@ impl SettingsWindow {
                     |_, _, _| {},
                 )
                 .into_any_element(),
-            crate::updates::UpdateStatus::Downloading { version, fraction } => {
+            crate::updates::UpdateStatus::Available { release } => self
+                .button(
+                    "see-update",
+                    (ui::ButtonVariant::Gray, None),
+                    t!("See {version}", version = release.version),
+                    false,
+                    cx,
+                    |_, _, cx| crate::updates::open_panel(cx),
+                )
+                .into_any_element(),
+            crate::updates::UpdateStatus::Downloading { release, fraction } => {
                 let text = match fraction {
                     Some(fraction) => t!(
                         "Downloading {version}… {percent}%",
-                        version = version,
+                        version = release.version,
                         percent = (fraction * 100.).round() as u32
                     ),
-                    None => t!("Downloading {version}…", version = version),
+                    None => t!("Downloading {version}…", version = release.version),
                 };
                 self.hint(text).into_any_element()
             }
@@ -2826,6 +2845,16 @@ impl SettingsWindow {
                     false,
                     cx,
                     |_, _, cx| crate::updates::install_and_relaunch(cx),
+                )
+                .into_any_element(),
+            crate::updates::UpdateStatus::Failed(_) => self
+                .button(
+                    "retry-update",
+                    (ui::ButtonVariant::Gray, None),
+                    t!("Try again"),
+                    false,
+                    cx,
+                    |_, _, cx| crate::updates::retry(cx),
                 )
                 .into_any_element(),
         };
@@ -3300,32 +3329,37 @@ fn format_project_name(template: &str) -> String {
     .replace(HELD_RANDOM_TOKEN, RANDOM_TOKEN)
 }
 
-fn sidebar_update_label(status: &crate::updates::UpdateStatus) -> Option<String> {
-    use crate::updates::UpdateStatus;
-    match status {
-        UpdateStatus::Idle => None,
-        UpdateStatus::Checking => Some(t!("Checking…").to_string()),
-        UpdateStatus::Downloading {
-            version,
-            fraction: Some(fraction),
-        } => Some(
-            t!(
-                "Downloading {version}… {percent}%",
-                version = version,
-                percent = (fraction * 100.).round() as u32
-            )
-            .to_string(),
-        ),
-        UpdateStatus::Downloading { version, .. } => {
-            Some(t!("Downloading {version}…", version = version).to_string())
+fn update_policy_description(policy: UpdateDownloadPolicy) -> &'static str {
+    match policy {
+        UpdateDownloadPolicy::Auto => {
+            n!("Downloads new versions in the background, then shows Restart to update.")
         }
-        UpdateStatus::Installing { version } => {
-            Some(t!("Installing {version}…", version = version).to_string())
+        UpdateDownloadPolicy::Manual => {
+            n!("Shows when a new version is out. Nothing downloads until you choose to.")
         }
-        UpdateStatus::Ready { .. } | UpdateStatus::Installed { .. } => {
-            Some(t!("Restart to update").to_string())
-        }
+        UpdateDownloadPolicy::Never => n!("Doesn't check by itself. Use Check for updates."),
     }
+}
+
+fn sidebar_update_label(indicator: Option<&crate::updates::Indicator>) -> Option<String> {
+    use crate::updates::Indicator;
+    Some(match indicator? {
+        Indicator::Available(version) => t!("{version} available", version = version),
+        Indicator::Downloading {
+            version,
+            percent: Some(percent),
+        } => t!(
+            "Downloading {version}… {percent}%",
+            version = version,
+            percent = percent
+        ),
+        Indicator::Downloading { version, .. } => {
+            t!("Downloading {version}…", version = version)
+        }
+        Indicator::Installing(version) => t!("Installing {version}…", version = version),
+        Indicator::Ready(_) => t!("Restart to update").to_string(),
+        Indicator::Failed => t!("Update failed").to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -3333,18 +3367,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_sidebar_names_an_update_only_while_one_is_in_progress_or_ready() {
-        use crate::updates::UpdateStatus;
+    fn the_sidebar_names_an_update_only_while_one_is_offered_running_or_failed() {
+        use crate::updates::Indicator;
         let version = semver::Version::new(1, 2, 3);
-        assert_eq!(sidebar_update_label(&UpdateStatus::Idle), None);
-        assert!(sidebar_update_label(&UpdateStatus::Checking).is_some());
-        let downloading = sidebar_update_label(&UpdateStatus::Downloading {
+        assert_eq!(sidebar_update_label(None), None);
+        let downloading = sidebar_update_label(Some(&Indicator::Downloading {
             version: version.clone(),
-            fraction: Some(0.5),
-        })
+            percent: Some(50),
+        }))
         .unwrap();
         assert!(downloading.contains("1.2.3") && downloading.contains("50"));
-        assert!(sidebar_update_label(&UpdateStatus::Ready { version }).is_some());
+        assert!(
+            sidebar_update_label(Some(&Indicator::Available(version.clone())))
+                .unwrap()
+                .contains("1.2.3")
+        );
+        assert!(sidebar_update_label(Some(&Indicator::Ready(version))).is_some());
+        assert!(sidebar_update_label(Some(&Indicator::Failed)).is_some());
     }
 
     #[test]

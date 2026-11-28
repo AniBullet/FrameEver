@@ -18,6 +18,39 @@ pub fn show(title: &str, body: &str) -> Result<(), String> {
         .map_err(|error| format!("Failed to send notification: {error}"))
 }
 
+#[cfg(windows)]
+pub fn show_with_click(
+    title: &str,
+    body: &str,
+    on_click: impl Fn() + Send + 'static,
+) -> Result<(), String> {
+    use tauri_winrt_notification::Toast;
+
+    let app_id = if cfg!(debug_assertions) {
+        Toast::POWERSHELL_APP_ID
+    } else {
+        crate::brand::APP_ID
+    };
+    Toast::new(app_id)
+        .title(title)
+        .text1(body)
+        .on_activated(move |_| {
+            on_click();
+            Ok(())
+        })
+        .show()
+        .map_err(|error| format!("Failed to send notification: {error}"))
+}
+
+#[cfg(not(windows))]
+pub fn show_with_click(
+    _title: &str,
+    _body: &str,
+    _on_click: impl Fn() + Send + 'static,
+) -> Result<(), String> {
+    Err("Notifications are available on Windows only".to_string())
+}
+
 #[cfg(not(windows))]
 pub fn show(_title: &str, _body: &str) -> Result<(), String> {
     Err("Notifications are available on Windows only".to_string())

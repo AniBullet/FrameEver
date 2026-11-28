@@ -99,6 +99,8 @@ pub struct PersistedState {
     pub library_first_line_shown: bool,
     #[serde(default)]
     pub recent_commands: Vec<String>,
+    #[serde(default)]
+    pub updates: crate::updates::UpdateMemory,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
