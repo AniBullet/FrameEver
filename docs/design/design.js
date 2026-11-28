@@ -22,6 +22,7 @@ window.FE = (() => {
 		["input-display", "Input display", "操作显示", true],
 		["result-card", "Result card", "结果卡片", true],
 		["compression", "Compression", "压缩", true],
+		["updates", "Updates", "更新", true],
 	];
 	const state = { ...defaults, at: "" };
 
